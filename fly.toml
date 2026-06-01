@@ -1,15 +1,15 @@
-# fly.toml app configuration file generated for openfrontio on 2026-06-01T08:53:57Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
 app = 'openfrontio'
 primary_region = 'ams'
 
 [build]
 
+[env]
+  GAME_ENV = "prod"
+  DOMAIN = "openfrontio.fly.dev"
+  SUBDOMAIN = "main"
+
 [http_service]
-  internal_port = 8080
+  internal_port = 80
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
@@ -17,7 +17,6 @@ primary_region = 'ams'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
