@@ -7,6 +7,9 @@ primary_region = 'ams'
   GAME_ENV = "prod"
   DOMAIN = "openfrontio.fly.dev"
   SUBDOMAIN = "main"
+  NUM_WORKERS = "1"
+  TURNSTILE_SITE_KEY = "disabled"
+  CDN_BASE = ""
 
 [http_service]
   internal_port = 80
