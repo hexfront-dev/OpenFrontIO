@@ -1095,37 +1095,6 @@ async function getTurnstileToken(): Promise<{
   token: string;
   createdAt: number;
 }> {
-  // Wait for Turnstile script to load (handles slow connections)
-  let attempts = 0;
-  while (typeof window.turnstile === "undefined" && attempts < 100) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    attempts++;
-  }
-
-  if (typeof window.turnstile === "undefined") {
-    throw new Error("Failed to load Turnstile script");
-  }
-
-  const widgetId = window.turnstile.render("#turnstile-container", {
-    sitekey: ClientEnv.turnstileSiteKey(),
-    size: "normal",
-    appearance: "interaction-only",
-    theme: "light",
-  });
-
-  return new Promise((resolve, reject) => {
-    window.turnstile.execute(widgetId, {
-      callback: (token: string) => {
-        window.turnstile.remove(widgetId);
-        console.log(`Turnstile token received: ${token}`);
-        resolve({ token, createdAt: Date.now() });
-      },
-      "error-callback": (errorCode: string) => {
-        window.turnstile.remove(widgetId);
-        console.error(`Turnstile error: ${errorCode}`);
-        alert(`Turnstile error: ${errorCode}. Please refresh and try again.`);
-        reject(new Error(`Turnstile failed: ${errorCode}`));
-      },
-    });
-  });
+  // Disabled for self-hosted instance
+  return Promise.resolve({ token: "self-hosted", createdAt: Date.now() });
 }
