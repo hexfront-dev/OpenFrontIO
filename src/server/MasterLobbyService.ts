@@ -129,6 +129,8 @@ export class MasterLobbyService {
   }
 
   private async maybeScheduleLobby() {
+    // Disabled: no public games on self-hosted instance
+    return;
     const lobbiesByType = this.getAllLobbies();
 
     for (const type of Object.keys(lobbiesByType) as PublicGameType[]) {
