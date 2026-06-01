@@ -244,6 +244,8 @@ export class MasterLobbyService {
   }
 
   private async maybeScheduleLobby() {
+    // Disabled: no public games on self-hosted instance
+    return;
     const lobbiesByType = this.getAllLobbies().games;
 
     // Scheduled types only: hosted lobbies are started by their host, never
