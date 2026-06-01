@@ -4,7 +4,7 @@ primary_region = 'ams'
 [build]
 
 [env]
-  GAME_ENV = "prod"
+  GAME_ENV = "dev"
   DOMAIN = "openfrontio.fly.dev"
   SUBDOMAIN = "main"
   NUM_WORKERS = "1"
