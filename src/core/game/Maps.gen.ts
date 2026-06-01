@@ -94,6 +94,7 @@ export enum GameMapType {
   SanFrancisco = "San Francisco", // map-generator/assets/maps/sanfrancisco/info.json
   Scandinavia = "Scandinavia", // map-generator/assets/maps/scandinavia/info.json
   Sierpinski = "Sierpinski", // map-generator/assets/maps/sierpinski/info.json
+  SixIslands = "Six Islands", // map-generator/assets/maps/sixislands/info.json
   Sol = "Sol", // map-generator/assets/maps/sol/info.json
   SouthAmerica = "South America", // map-generator/assets/maps/southamerica/info.json
   SoutheastAsia = "SoutheastAsia", // map-generator/assets/maps/southeastasia/info.json
@@ -1871,6 +1872,16 @@ export const maps: readonly MapInfo[] = [
     teamFrequency: -1,
     specialFrequency: -1,
     themes: ["asia"],
+  },
+  {
+    id: "SixIslands",
+    type: GameMapType.SixIslands,
+    translationKey: "map.sixislands",
+    categories: ["fictional"],
+    multiplayerFrequency: 4,
+    ffaFrequency: -1,
+    teamFrequency: -1,
+    specialFrequency: -1,
   },
   {
     id: "StraitOfGibraltar",
