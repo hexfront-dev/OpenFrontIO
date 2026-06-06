@@ -423,7 +423,7 @@ export class Config {
         baseGold = 25_000;
         break;
       case "self":
-        baseGold = 10_000;
+        baseGold = 20_000;
         break;
     }
     const distPenalty = citiesVisited * 5_000;
