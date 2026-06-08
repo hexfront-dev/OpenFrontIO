@@ -21,6 +21,9 @@ import { UserSettings } from "../game/UserSettings";
 import { GameConfig, TeamCountConfig } from "../Schemas";
 import { NukeType } from "../StatsSchemas";
 import { assertNever, sigmoid, toInt, within } from "../Util";
+import { PastelTheme } from "./PastelTheme";
+import { PastelThemeDark } from "./PastelThemeDark";
+import { Theme } from "./Theme";
 
 declare global {
   interface Window {
@@ -81,6 +84,8 @@ export const JwksSchema = z.object({
 export const SAM_CONSTRUCTION_TICKS = 30 * 10;
 
 export class Config {
+  private pastelTheme: PastelTheme = new PastelTheme();
+  private pastelThemeDark: PastelThemeDark = new PastelThemeDark();
   private unitInfoCache = new Map<UnitType, UnitInfo>();
   constructor(
     private _gameConfig: GameConfig,
@@ -137,7 +142,7 @@ export class Config {
     return 100;
   }
   SAMCooldown(): number {
-    return 90;
+    return 110;
   }
   SiloCooldown(): number {
     return 90;
@@ -241,10 +246,10 @@ export class Config {
     return 15;
   }
   trainStationMaxRange(): number {
-    return 110;
+    return 100;
   }
   railroadMaxSize(): number {
-    return this.trainStationMaxRange();
+    return 120;
   }
 
   tradeShipGold(dist: number, player: Player | PlayerView): Gold {
@@ -556,6 +561,11 @@ export class Config {
   }
   numBots(): number {
     return this.bots();
+  }
+  theme(): Theme {
+    return this.userSettings()?.darkMode()
+      ? this.pastelThemeDark
+      : this.pastelTheme;
   }
 
   attackLogic(
