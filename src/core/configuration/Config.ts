@@ -137,7 +137,7 @@ export class Config {
     return 100;
   }
   SAMCooldown(): number {
-    return 110;
+    return 90;
   }
   SiloCooldown(): number {
     return 90;
