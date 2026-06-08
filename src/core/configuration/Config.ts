@@ -234,7 +234,7 @@ export class Config {
         baseGold = 25_000;
         break;
       case "self":
-        baseGold = 20_000;
+        baseGold = 250_000;
         break;
     }
     const distPenalty = citiesVisited * 5_000;
@@ -501,7 +501,7 @@ export class Config {
     return 10 * 10;
   }
   deletionMarkDuration(): Tick {
-    return 30 * 10;
+    return 15 * 10;
   }
 
   deleteUnitCooldown(): Tick {
