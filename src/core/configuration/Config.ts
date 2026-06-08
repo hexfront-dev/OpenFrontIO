@@ -1046,7 +1046,7 @@ export class Config {
   }
 
   defaultSamRange(): number {
-    return 70;
+    return 110;
   }
 
   samRange(level: number): number {
