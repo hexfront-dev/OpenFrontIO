@@ -304,6 +304,13 @@ export class NukeExecution implements Execution {
     const config = mg.config();
 
     const magnitude = config.nukeMagnitudes(this.nuke.type());
+    // If nuke lands in water, skip all land/troop damage
+    if (!mg.isLand(this.dst)) {
+      this.active = false;
+      this.nuke.setReachedTarget();
+      this.nuke.delete(false);
+      return;
+    }
     const toDestroy = this.tilesToDestroy();
 
     // Retrieve all impacted players and the number of tiles
