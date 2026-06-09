@@ -41,6 +41,7 @@ export enum GameMapType {
   DidierFrance = "Didier France", // map-generator/assets/maps/didierfrance/info.json
   Dyslexdria = "Dyslexdria", // map-generator/assets/maps/dyslexdria/info.json
   EastAsia = "East Asia", // map-generator/assets/maps/eastasia/info.json
+  EightIslands = "Eight Islands", // map-generator/assets/maps/eightislands/info.json
   Europe = "Europe", // map-generator/assets/maps/europe/info.json
   EuropeClassic = "Europe Classic", // map-generator/assets/maps/europeclassic/info.json
   FalklandIslands = "Falkland Islands", // map-generator/assets/maps/falklandislands/info.json
@@ -654,6 +655,16 @@ export const maps: readonly MapInfo[] = [
     teamFrequency: -1,
     specialFrequency: -1,
     themes: ["asia"],
+  },
+  {
+    id: "EightIslands",
+    type: GameMapType.EightIslands,
+    translationKey: "map.eightislands",
+    categories: ["fictional"],
+    multiplayerFrequency: 4,
+    ffaFrequency: -1,
+    teamFrequency: -1,
+    specialFrequency: -1,
   },
   {
     id: "Europe",
