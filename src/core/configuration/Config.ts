@@ -695,7 +695,7 @@ export class Config {
   }
 
   deleteUnitCooldown(): Tick {
-    return 30 * 10;
+    return 0;
   }
   emojiMessageDuration(): Tick {
     return 5 * 10;
