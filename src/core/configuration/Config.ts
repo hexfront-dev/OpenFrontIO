@@ -861,12 +861,12 @@ export class Config {
   }
 
   defaultSamRange(): number {
-    return 110;
+    return 85;
   }
 
   samRange(level: number): number {
     // rational growth function (level 1 = 70, level 5 just above hydro range, asymptotically approaches 150)
-    return this.maxSamRange() - 480 / (level + 5);
+    return this.maxSamRange() - 390 / (level + 5);
   }
 
   maxSamRange(): number {
