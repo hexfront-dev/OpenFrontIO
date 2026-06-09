@@ -1,18 +1,18 @@
 {
   "map": {
-    "height": 1700,
-    "num_land_tiles": 1027600,
-    "width": 1700
+    "height": 1752,
+    "num_land_tiles": 1035856,
+    "width": 3452
   },
   "map16x": {
-    "height": 425,
-    "num_land_tiles": 62880,
-    "width": 425
+    "height": 438,
+    "num_land_tiles": 63340,
+    "width": 863
   },
   "map4x": {
-    "height": 850,
-    "num_land_tiles": 255056,
-    "width": 850
+    "height": 876,
+    "num_land_tiles": 257080,
+    "width": 1726
   },
   "name": "EightIslands",
   "nations": []
