@@ -2,7 +2,7 @@
   "id": "SixIslands",
   "name": "Six Islands",
   "translation_key": "map.sixislands",
-  "categories": ["fictional"],
+  "categories": ["featured", "fictional"],
   "multiplayer_frequency": 4,
   "nations": []
 }

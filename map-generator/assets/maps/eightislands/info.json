@@ -2,7 +2,7 @@
   "id": "EightIslands",
   "name": "Eight Islands",
   "translation_key": "map.eightislands",
-  "categories": ["fictional"],
+  "categories": ["featured", "fictional"],
   "multiplayer_frequency": 4,
   "nations": []
 }
