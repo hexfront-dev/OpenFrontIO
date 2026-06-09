@@ -5,9 +5,24 @@
 - **Hosting:** Fly.io, 1 machine, `shared-cpu-1x`, 512MB RAM, region `ams`
 - **App URL:** https://openfrontio.fly.dev
 - **Repo:** https://github.com/hexfront-dev/OpenFrontIO
-- **Auto-deploy:** Fly.io GitHub integration — pushes to `main` trigger a rebuild
+- **Auto-deploy:** Fly.io native GitHub integration — pushes to `main` trigger a build+deploy automatically
 
 The app runs in a Docker container (nginx + Node.js + supervisord). Nginx listens on port 80 and proxies to the Node.js game server on port 3000 (master) and 3001 (worker 0).
+
+## Auto-Deploy
+
+Auto-deploy is handled by **Fly.io's native GitHub integration** (not a GitHub Action).
+
+- Configured in: https://fly.io/apps/openfrontio/settings → "Auto-Deploy on push" checkbox
+- Deploy branch: `main`
+- Pushes appear as "Webhook Deployment" in the Fly.io Activity tab
+- Builds take ~3 minutes, then a new Release is created
+
+If auto-deploy stops working, check:
+1. The "Auto-Deploy on push" checkbox is still enabled in Fly.io Settings
+2. The GitHub repo is still connected (same Settings page)
+
+There is NO GitHub Actions workflow for deployment. It was removed because it required a Fly.io API token that kept expiring.
 
 ## Critical Configuration
 
@@ -72,18 +87,19 @@ These files were modified for self-hosting:
 ### 502 Bad Gateway
 
 **Cause 1: Wrong `internal_port`**
-Fly.io expects traffic on port 8080 but nginx listens on 80.
+Fly.io expects traffic on port 8080 but nginx listens on 80. This happens when someone runs `fly launch`.
 
-Fix:
+Fix — check and correct:
 ```bash
-# Check current config
 fly machines list -a openfrontio --json | python3 -c "
 import sys, json
 for m in json.load(sys.stdin):
     for s in m.get('config',{}).get('services',[]):
         print(f'internal_port={s.get(\"internal_port\")}')"
-
-# If it shows 8080, the fly.toml wasn't applied. Redeploy:
+```
+If it shows 8080, destroy the machine and redeploy:
+```bash
+fly machines destroy <ID> -a openfrontio --force
 fly deploy --remote-only -a openfrontio
 ```
 
@@ -122,18 +138,32 @@ If it happens:
 1. Destroy the bad machine: `fly machines destroy <ID> -a openfrontio --force`
 2. Deploy fresh: `fly deploy --remote-only -a openfrontio`
 
-Or: accept Fly.io's PR, then immediately overwrite `fly.toml` with the correct version above and push.
+Or: let Fly.io's auto-deploy rebuild from the correct `fly.toml` in the repo.
+
+### Two machines running (doubles cost)
+
+Fly.io defaults to creating 2 machines. We only need 1. Check and remove extras:
+```bash
+fly machines list -a openfrontio
+fly machines destroy <ID_of_extra> -a openfrontio --force
+```
 
 ## Tokens & Access
 
-- **Fly.io token:** stored in `/home/emicjac/.flytoken` (personal access token)
-- **GitHub token:** stored in `/home/emicjac/.ghtoken` (fine-grained, expires periodically)
+- **Fly.io CLI token:** stored in `/home/emicjac/.flytoken` (personal access token for CLI use)
+- **GitHub token:** stored in `/home/emicjac/.ghtoken` (fine-grained, expires periodically — regenerate when needed)
 - **Fly.io account:** linked to `mmrsjacobsson@gmail.com`
 - **GitHub account:** `hexfront-dev`
+
+No `FLY_API_TOKEN` GitHub Secret is needed — auto-deploy uses Fly.io's native integration, not a GitHub Action.
 
 ## Useful Commands
 
 ```bash
+# Set up flyctl path
+export PATH="/home/emicjac/.fly/bin:$PATH"
+export FLY_API_TOKEN="$(cat /home/emicjac/.flytoken | tr -d '\n')"
+
 # Check app status
 fly status -a openfrontio
 
@@ -154,11 +184,14 @@ fly secrets set KEY=value -a openfrontio
 # Scale memory
 fly scale memory 512 -a openfrontio
 
-# Deploy (builds remotely on Fly.io)
+# Deploy manually (if auto-deploy is broken)
 fly deploy --remote-only -a openfrontio
 
 # Destroy a broken machine
 fly machines destroy <ID> -a openfrontio --force
+
+# List machines
+fly machines list -a openfrontio
 ```
 
 ## Adding Custom Maps
@@ -174,10 +207,18 @@ fly machines destroy <ID> -a openfrontio --force
 
 **Important:** The folder name must be the enum key lowercased (e.g., `SixIslands` → `sixislands`).
 
+## Adding Custom Flags
+
+1. Add SVG to `resources/flags/<Name>.svg`
+2. Add entry to `resources/countries.json`: `{"code": "<Name>", "continent": "<Continent>", "name": "<Display Name>"}`
+   - The `code` must exactly match the SVG filename (without `.svg`)
+3. Push to main → auto-deploys
+
 ## DO NOT
 
-- **Do NOT run `fly launch`** — it overwrites the machine config
+- **Do NOT run `fly launch`** — it overwrites the machine config with wrong defaults
 - **Do NOT set `GAME_ENV=prod`** — requires closed-source Cloudflare API
 - **Do NOT set `CDN_BASE=""`** — breaks Web Worker map loading
 - **Do NOT set `internal_port=8080`** — nginx is on port 80
 - **Do NOT merge upstream without checking** — upstream has Turnstile, ads, and auth code that will break self-hosting
+- **Do NOT add a GitHub Actions deploy workflow** — use Fly.io's native auto-deploy instead (Settings → Auto-Deploy on push)
