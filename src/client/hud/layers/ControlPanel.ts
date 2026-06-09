@@ -97,6 +97,7 @@ export class ControlPanel extends LitElement implements Controller {
     this.updateTroopIncrease();
 
     this._maxTroops = this.game.config().maxTroops(player);
+    const prevGold = this._gold ?? player.gold();
     this._gold = player.gold();
     this._troops = player.troops();
     this._attackingTroops = player
@@ -106,9 +107,7 @@ export class ControlPanel extends LitElement implements Controller {
     this.troopRate = this.game.config().troopIncreaseRate(player) * 10;
     this._currentTick++;
     // Track all gold income this tick
-    const prevGold = this._gold ?? player.gold();
-    const newGold = player.gold();
-    const tickIncome = Number(newGold - prevGold);
+    const tickIncome = Number(this._gold - prevGold);
     if (tickIncome > 0) {
       this._goldHistory.push({ tick: this._currentTick, amount: tickIncome });
     }
