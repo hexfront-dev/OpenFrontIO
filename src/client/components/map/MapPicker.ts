@@ -18,6 +18,9 @@ const featuredMaps: GameMapType[] = [
   GameMapType.Asia,
   GameMapType.Africa,
   GameMapType.Japan,
+  GameMapType.FourIslands,
+  GameMapType.SixIslands,
+  GameMapType.EightIslands,
 ];
 
 @customElement("map-picker")
