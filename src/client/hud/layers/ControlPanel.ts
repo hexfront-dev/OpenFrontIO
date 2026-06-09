@@ -45,7 +45,9 @@ export class ControlPanel extends LitElement implements Controller {
   private _attackingTroops: number = 0;
 
   @state()
-  private _goldPerMin: number = 0;
+  private _goldPerSec: number = 0;
+  private _goldHistory: { tick: number; amount: number }[] = [];
+  private _currentTick: number = 0;
 
   @state()
   private _goldGain: bigint | null = null;
@@ -102,7 +104,20 @@ export class ControlPanel extends LitElement implements Controller {
       .map((a) => a.troops)
       .reduce((a, b) => a + b, 0);
     this.troopRate = this.game.config().troopIncreaseRate(player) * 10;
-    this._goldPerMin = Number(this.game.config().goldAdditionRate(player)) * 600;
+    this._currentTick++;
+    // Track all gold income this tick
+    const prevGold = this._gold ?? player.gold();
+    const newGold = player.gold();
+    const tickIncome = Number(newGold - prevGold);
+    if (tickIncome > 0) {
+      this._goldHistory.push({ tick: this._currentTick, amount: tickIncome });
+    }
+    // Keep only last 100 ticks (10 seconds)
+    const cutoff = this._currentTick - 100;
+    this._goldHistory = this._goldHistory.filter(h => h.tick > cutoff);
+    // Sum over last 100 ticks, divide by 10 to get per second
+    const total = this._goldHistory.reduce((s, h) => s + h.amount, 0);
+    this._goldPerSec = total / 10;
 
     const updates = this.game.updatesSinceLastTick();
     if (updates) {
@@ -366,7 +381,7 @@ export class ControlPanel extends LitElement implements Controller {
         </div>
         <!-- Gold/min -->
         <div class="flex items-center gap-1 shrink-0 font-bold text-yellow-300 text-xs py-0.5 px-1" translate="no">
-          <span>+${renderNumber(BigInt(Math.round(this._goldPerMin)))}/min</span>
+          <span>+${renderNumber(BigInt(Math.round(this._goldPerSec)))}/s</span>
         </div>
       </div>
       <!-- Row 2: attack ratio | slider -->
