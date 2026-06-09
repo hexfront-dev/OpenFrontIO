@@ -64,6 +64,7 @@ const FREQUENCY: Partial<Record<GameMapName, number>> = {
   FaroeIslands: 4,
   FourIslands: 4,
   SixIslands: 4,
+  EightIslands: 4,
   GatewayToTheAtlantic: 5,
   GreatLakes: 6,
   GulfOfStLawrence: 4,
