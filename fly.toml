@@ -1,18 +1,23 @@
+# fly.toml app configuration file generated for openfrontio on 2026-06-09T07:04:24Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'openfrontio'
-primary_region = 'ams'
+primary_region = 'arn'
 
 [build]
 
 [env]
-  GAME_ENV = "staging"
-  DOMAIN = "openfrontio.fly.dev"
-  SUBDOMAIN = "main"
-  NUM_WORKERS = "1"
-  TURNSTILE_SITE_KEY = "disabled"
-  CDN_BASE = ""
+  CDN_BASE = ''
+  DOMAIN = 'openfrontio.fly.dev'
+  GAME_ENV = 'staging'
+  NUM_WORKERS = '1'
+  SUBDOMAIN = 'main'
+  TURNSTILE_SITE_KEY = 'disabled'
 
 [http_service]
-  internal_port = 80
+  internal_port = 8080
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
@@ -23,4 +28,3 @@ primary_region = 'ams'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 512
-# deploy trigger
