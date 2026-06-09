@@ -853,7 +853,7 @@ export class Config {
   }
 
   defaultNukeSpeed(): number {
-    return 8;
+    return 10;
   }
 
   defaultNukeTargetableRange(): number {
