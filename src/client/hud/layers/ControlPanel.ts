@@ -120,6 +120,7 @@ export class ControlPanel extends LitElement implements Controller {
       .map((a) => a.troops)
       .reduce((a, b) => a + b, 0);
     this.troopRate = config.troopIncreaseRate(player) * 10;
+    this._goldPerMin = Number(this.game.config().goldAdditionRate(player)) * 600;
 
     const helpEnabled = new UserSettings().helpMessages();
 
@@ -134,7 +135,6 @@ export class ControlPanel extends LitElement implements Controller {
       // Compute notification
       this._notification = this.computeNotification(player, config);
     }
-
     const updates = this.game.updatesSinceLastTick();
     if (updates) {
       const myID = player.id();
