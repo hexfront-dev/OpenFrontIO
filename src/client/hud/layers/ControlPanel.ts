@@ -56,6 +56,9 @@ export class ControlPanel extends LitElement implements Controller {
   private _attackingTroops: number = 0;
 
   @state()
+  private _goldPerMin: number = 0;
+
+  @state()
   private _goldGain: bigint | null = null;
   @state()
   private _goldGainPulseId: number = 0;
@@ -507,6 +510,10 @@ export class ControlPanel extends LitElement implements Controller {
             : ""}
           <img src=${goldCoinIcon} width="13" height="13" class="shrink-0" />
           <span class="tabular-nums">${renderNumber(this._gold)}</span>
+        </div>
+        <!-- Gold/min -->
+        <div class="flex items-center gap-1 shrink-0 font-bold text-yellow-300 text-xs py-0.5 px-1" translate="no">
+          <span>+${renderNumber(BigInt(Math.round(this._goldPerMin)))}/min</span>
         </div>
       </div>
       <!-- Row 2: attack ratio | slider -->
