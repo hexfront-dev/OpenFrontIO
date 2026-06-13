@@ -10,6 +10,7 @@ export class PortExecution implements Execution {
   private random: PseudoRandom;
   private checkOffset: number;
   private tradeShipSpawnRejections = 0;
+  private stationCreated = false;
 
   constructor(port: Unit) {
     this.port = port;
@@ -35,8 +36,9 @@ export class PortExecution implements Execution {
       return;
     }
 
-    if (!this.port.hasTrainStation()) {
+    if (!this.stationCreated && !this.port.hasTrainStation()) {
       this.createStation();
+      this.stationCreated = true;
     }
 
     // Only check every 10 ticks for performance.
