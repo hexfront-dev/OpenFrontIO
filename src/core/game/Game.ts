@@ -493,6 +493,8 @@ export interface Unit {
   setTrainStation(trainStation: boolean): void;
   fleetId(): number | undefined;
   setFleetId(id: number | undefined): void;
+  escortTargetId(): number | undefined;
+  setEscortTargetId(id: number | undefined): void;
   wasDestroyedByEnemy(): boolean;
   destroyer(): Player | undefined;
 

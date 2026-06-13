@@ -70,6 +70,7 @@ function unitStateFromUpdate(u: UnitUpdate): UnitState {
     veterancy: u.warshipState?.veterancy ?? 0,
     hasTrainStation: u.hasTrainStation,
     fleetId: u.fleetId,
+    escortTargetId: u.escortTargetId,
     trainType: trainTypeToNum(u.trainType),
     loaded: u.loaded ?? null,
     constructionStartTick: null, // GameView fills in createdAt when underConstruction
@@ -105,6 +106,7 @@ function applyUpdateInPlace(target: UnitState, u: UnitUpdate): void {
   target.veterancy = u.warshipState?.veterancy ?? 0;
   target.hasTrainStation = u.hasTrainStation;
   if (u.fleetId !== undefined) target.fleetId = u.fleetId;
+  if (u.escortTargetId !== undefined) target.escortTargetId = u.escortTargetId;
   target.trainType = trainTypeToNum(u.trainType);
   target.loaded = u.loaded ?? null;
   target.samUpgradeStartTick = u.samUpgrade?.upgradeStartTick ?? null;
@@ -320,6 +322,9 @@ export class UnitView {
   }
   fleetId(): number | undefined {
     return this.state.fleetId;
+  }
+  escortTargetId(): number | undefined {
+    return this.state.escortTargetId;
   }
   trainType(): TrainType | undefined {
     return numToTrainType(this.state.trainType);
