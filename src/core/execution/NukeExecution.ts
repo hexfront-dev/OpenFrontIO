@@ -376,14 +376,9 @@ export class NukeExecution implements Execution {
     const config = mg.config();
 
     const magnitude = config.nukeMagnitudes(this.nuke.type());
-    // If nuke lands in water, skip all land/troop damage
-    if (!mg.isLand(this.dst)) {
-      this.active = false;
-      this.nuke.setReachedTarget();
-      this.nuke.delete(false);
-      return;
-    }
-    const toDestroy = this.tilesToDestroy();
+    const nukeLandedOnLand = mg.isLand(this.dst);
+    const toDestroy = [...this.tilesToDestroy()]
+      .filter((tile) => mg.isLand(tile) === nukeLandedOnLand);
 
     // Retrieve all impacted players and the number of tiles
     const tilesPerPlayers = new Map<Player, number>();
@@ -404,7 +399,9 @@ export class NukeExecution implements Execution {
     }
 
     // Then compute the explosion effect on each player
-    for (const [player, numImpactedTiles] of tilesPerPlayers) {
+    // Troop loss only applies when nuke lands on land.
+    if (nukeLandedOnLand) {
+      for (const [player, numImpactedTiles] of tilesPerPlayers) {
       const tilesBeforeNuke = player.numTilesOwned() + numImpactedTiles;
       const transportShips = player.units(UnitType.TransportShip);
       const transportShipTroops = new Map<Unit, number>();
@@ -450,6 +447,7 @@ export class NukeExecution implements Execution {
         unit.setTroops(troops);
       }
     }
+  }
 
     const outer2 = magnitude.outer * magnitude.outer;
     const dst = this.dst;
@@ -465,6 +463,8 @@ export class NukeExecution implements Execution {
       ) {
         continue;
       }
+      // Only destroy units on the same surface type as the nuke landing.
+      if (mg.isLand(unit.tile()) !== nukeLandedOnLand) continue;
       if (mg.euclideanDistSquared(dst, unit.tile()) < outer2) {
         unit.delete(true, destroyer);
       }
