@@ -1,4 +1,4 @@
-import { Execution, Game, MessageType, Unit, UnitType } from "../game/Game";
+import { Execution, Game, MessageType, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "../game/Game";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
@@ -12,15 +12,35 @@ export class MissileDefenseShipExecution implements Execution {
   private random: PseudoRandom;
   private readonly MIRV_SEARCH_RADIUS = 400;
   private readonly MIRV_PROTECTION_RADIUS = 50;
-  private lastInterceptTick = 0;
 
-  constructor(warship: Unit) {
-    this.warship = warship;
-  }
+  constructor(
+    private input: (UnitParams<UnitType.MissileDefenseShip> & OwnerComp) | Unit,
+  ) {}
 
   init(mg: Game): void {
     this.mg = mg;
     this.pathfinder = new WaterPathFinder(mg);
+
+    if (isUnit(this.input)) {
+      this.warship = this.input;
+    } else {
+      const spawn = this.input.owner.canBuild(
+        UnitType.MissileDefenseShip,
+        this.input.patrolTile,
+      );
+      if (spawn === false) {
+        console.warn(
+          `Failed to spawn MissileDefenseShip for ${this.input.owner.name()} at ${this.input.patrolTile}`,
+        );
+        this.active = false;
+        return;
+      }
+      this.warship = this.input.owner.buildUnit(
+        UnitType.MissileDefenseShip,
+        spawn,
+        this.input,
+      );
+    }
     this.random = new PseudoRandom(mg.ticks());
   }
 
@@ -65,7 +85,7 @@ export class MissileDefenseShipExecution implements Execution {
       unit.delete();
     }
 
-    // Launch SAM missiles at incoming nukes (up to level per tick, at most 1)
+    // Launch SAM missiles at incoming nukes
     const range = config.samRange(level);
     const nukes = this.mg.nearbyUnits(
       this.warship.tile(),

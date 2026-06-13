@@ -1,4 +1,4 @@
-import { Execution, Game, Unit, UnitType } from "../game/Game";
+import { Execution, Game, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "../game/Game";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
@@ -10,13 +10,34 @@ export class MissileShipExecution implements Execution {
   private pathfinder: WaterPathFinder;
   private random: PseudoRandom;
 
-  constructor(warship: Unit) {
-    this.warship = warship;
-  }
+  constructor(
+    private input: (UnitParams<UnitType.MissileShip> & OwnerComp) | Unit,
+  ) {}
 
   init(mg: Game): void {
     this.mg = mg;
     this.pathfinder = new WaterPathFinder(mg);
+
+    if (isUnit(this.input)) {
+      this.warship = this.input;
+    } else {
+      const spawn = this.input.owner.canBuild(
+        UnitType.MissileShip,
+        this.input.patrolTile,
+      );
+      if (spawn === false) {
+        console.warn(
+          `Failed to spawn MissileShip for ${this.input.owner.name()} at ${this.input.patrolTile}`,
+        );
+        this.active = false;
+        return;
+      }
+      this.warship = this.input.owner.buildUnit(
+        UnitType.MissileShip,
+        spawn,
+        this.input,
+      );
+    }
     this.random = new PseudoRandom(mg.ticks());
   }
 
