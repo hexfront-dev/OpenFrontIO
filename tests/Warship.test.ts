@@ -326,7 +326,7 @@ describe("Warship", () => {
     expect(tradeShip.owner().id()).toBe(player2.id());
   });
 
-  test("Warship prioritizes transport ships over warships", async () => {
+  test("Warship prioritizes enemy warships over transports", async () => {
     game.config().warshipShellAttackRate = () => Number.MAX_SAFE_INTEGER;
 
     const warship = player1.buildUnit(
@@ -354,7 +354,7 @@ describe("Warship", () => {
       }
     }
 
-    expect(selectedType).toBe(UnitType.TransportShip);
+    expect(selectedType).toBe(UnitType.Warship);
   });
 
   test("Warship does not target trade ships in different water components", async () => {
