@@ -602,6 +602,8 @@ export class InputHandler {
   }
 
   private onPointerDown(event: PointerEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("fleet-display")) return;
     if (event.button === 1) {
       event.preventDefault();
       this.eventBus.emit(new AutoUpgradeEvent(event.clientX, event.clientY));
@@ -659,6 +661,9 @@ export class InputHandler {
   }
 
   onPointerUp(event: PointerEvent) {
+    // Don't process clicks on HUD overlays.
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("fleet-display")) return;
     if (event.button === 1) {
       event.preventDefault();
       return;

@@ -56,10 +56,7 @@ export class FleetDisplay extends LitElement implements Controller {
     }
   `;
 
-  init() {
-    this.addEventListener("pointerdown", (e) => e.stopPropagation());
-    this.addEventListener("pointerup", (e) => e.stopPropagation());
-  }
+  init() {}
 
   tick() {
     this.refreshFleets();
