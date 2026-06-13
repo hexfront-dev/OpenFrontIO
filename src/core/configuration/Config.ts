@@ -411,6 +411,31 @@ export class Config {
           cost: () => 0n,
         };
         break;
+      case UnitType.MissileShip:
+        info = {
+          cost: this.costWrapper(
+            (numUnits: number) =>
+              Math.min(1_000_000, (numUnits + 1) * 250_000) + 1_000_000,
+            UnitType.MissileShip,
+          ),
+          maxHealth: 1000,
+          constructionDuration: this.instantBuild() ? 0 : 10 * 10,
+          upgradable: true,
+        };
+        break;
+      case UnitType.MissileDefenseShip:
+        info = {
+          cost: this.costWrapper(
+            (numUnits: number) =>
+              Math.min(1_000_000, (numUnits + 1) * 250_000) +
+              Math.min(3_000_000, (numUnits + 1) * 1_500_000),
+            UnitType.MissileDefenseShip,
+          ),
+          maxHealth: 1000,
+          constructionDuration: this.instantBuild() ? 0 : 10 * 10,
+          upgradable: true,
+        };
+        break;
       default:
         assertNever(type);
     }

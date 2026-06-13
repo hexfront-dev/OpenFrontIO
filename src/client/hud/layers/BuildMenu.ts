@@ -77,6 +77,20 @@ export const buildTable: BuildItemDisplay[][] = [
       countable: true,
     },
     {
+      unitType: UnitType.MissileShip,
+      icon: warshipIcon,
+      description: "Missile Ship — launches nukes",
+      key: "unit_type.missile_ship",
+      countable: true,
+    },
+    {
+      unitType: UnitType.MissileDefenseShip,
+      icon: warshipIcon,
+      description: "Missile Defense Ship — intercepts nukes",
+      key: "unit_type.missile_defense_ship",
+      countable: true,
+    },
+    {
       unitType: UnitType.Port,
       icon: portIcon,
       description: "build_menu.desc.port",

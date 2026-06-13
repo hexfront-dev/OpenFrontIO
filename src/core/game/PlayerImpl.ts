@@ -1240,6 +1240,8 @@ export class PlayerImpl implements Player {
       case UnitType.Port:
         return this.portSpawn(targetTile, validTiles);
       case UnitType.Warship:
+      case UnitType.MissileShip:
+      case UnitType.MissileDefenseShip:
         return this.warshipSpawn(targetTile);
       case UnitType.Shell:
       case UnitType.SAMMissile:
@@ -1295,9 +1297,9 @@ export class PlayerImpl implements Player {
       }
     }
 
-    // only get missilesilos that are not on cooldown and not under construction
+    // only get missilesilos and missile ships that are not on cooldown and not under construction
     const bestSilo = findClosestBy(
-      this.units(UnitType.MissileSilo),
+      [...this.units(UnitType.MissileSilo), ...this.units(UnitType.MissileShip)],
       (silo) => mg.manhattanDist(silo.tile(), tile),
       (silo) =>
         silo.isActive() && !silo.isInCooldown() && !silo.isUnderConstruction(),

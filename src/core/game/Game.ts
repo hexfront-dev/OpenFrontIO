@@ -363,6 +363,8 @@ export enum UnitType {
   MIRVWarhead = "MIRV Warhead",
   Train = "Train",
   Factory = "Factory",
+  MissileShip = "Missile Ship",
+  MissileDefenseShip = "Missile Defense Ship",
 }
 
 export enum TrainType {
@@ -383,6 +385,8 @@ export const BuildableAttacks = unitTypeGroup([
   UnitType.HydrogenBomb,
   UnitType.MIRV,
   UnitType.Warship,
+  UnitType.MissileShip,
+  UnitType.MissileDefenseShip,
 ] as const);
 
 export const Structures = unitTypeGroup([
@@ -467,6 +471,14 @@ export interface UnitParamsMap {
 
   [UnitType.MIRVWarhead]: {
     targetTile?: number;
+  };
+
+  [UnitType.MissileShip]: {
+    patrolTile: TileRef;
+  };
+
+  [UnitType.MissileDefenseShip]: {
+    patrolTile: TileRef;
   };
 }
 
