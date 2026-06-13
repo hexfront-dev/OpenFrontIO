@@ -15,7 +15,6 @@ import { targetTransportTile } from "../game/TransportShipUtils";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { AttackExecution } from "./AttackExecution";
-import { ShellExecution } from "./ShellExecution";
 
 const malusForRetreat = 25;
 
@@ -38,8 +37,6 @@ export class TransportShipExecution implements Execution {
   private boat: Unit;
   private motionPlanId = 1;
   private motionPlanDst: TileRef | null = null;
-  private lastShellAttack = 0;
-  private alreadySentShell = new Set<Unit>();
 
   private originalOwner: Player;
 
@@ -71,6 +68,7 @@ export class TransportShipExecution implements Execution {
     this.pathFinder = new WaterPathFinder(mg, stagger);
 
     if (
+      !this.escort &&
       this.attacker.unitCount(UnitType.TransportShip) >=
       mg.config().boatMaxNumber()
     ) {
@@ -120,7 +118,9 @@ export class TransportShipExecution implements Execution {
       return;
     }
 
-    const src = this.attacker.canBuild(UnitType.TransportShip, this.dst);
+    const src = this.escort
+      ? this.attacker.canBuild(UnitType.TransportShip, this.dst)
+      : this.attacker.canBuild(UnitType.TransportShip, this.dst);
 
     if (src === false) {
       console.warn(
@@ -132,16 +132,23 @@ export class TransportShipExecution implements Execution {
 
     this.src = src;
 
-    this.boat = this.attacker.buildUnit(UnitType.TransportShip, this.src, {
-      troops: this.troops,
-      targetTile: this.dst,
-    });
-
     if (this.escort) {
+      // Create a warship that carries troops — no combat, just transports.
       const escortCost = this.mg.unitInfo(UnitType.Warship).cost(this.mg, this.attacker);
-      if (this.attacker.gold() >= escortCost) {
-        this.attacker.removeGold(escortCost);
+      if (this.attacker.gold() < escortCost) {
+        this.active = false;
+        return;
       }
+      this.attacker.removeGold(escortCost);
+      this.boat = this.attacker.buildUnit(UnitType.Warship, this.src, {
+        patrolTile: this.src,
+      });
+      this.boat.setFleetId(this.boat.id()); // block auto-behavior
+    } else {
+      this.boat = this.attacker.buildUnit(UnitType.TransportShip, this.src, {
+        troops: this.troops,
+        targetTile: this.dst,
+      });
     }
 
     const fullPath = this.pathFinder.findPath(this.src, this.dst) ?? [this.src];
@@ -194,11 +201,6 @@ export class TransportShipExecution implements Execution {
     }
     this.lastMove = ticks;
 
-    // Escort combat: find and shoot nearby enemies while traveling.
-    if (this.escort) {
-      this.escortShoot();
-    }
-
     // Team mate can conquer disconnected player and get their ships
     // captureUnit has changed the owner of the unit, now update attacker
     const boatOwner = this.boat.owner();
@@ -216,9 +218,8 @@ export class TransportShipExecution implements Execution {
     }
 
     // Auto-retreat if destination was destroyed by nuke (turned to water)
-    // Checked every tick (not just on graph rebuild) because graph rebuilds
-    // are throttled and the tile may already be water before the version bumps.
-    if (this.dst !== null && this.mg.isWater(this.dst)) {
+    // Escort warships don't retreat.
+    if (!this.escort && this.dst !== null && this.mg.isWater(this.dst)) {
       if (!this.boat.transportShipState().isRetreating) {
         this.boat.updateTransportShipState({ isRetreating: true });
       }
@@ -226,7 +227,7 @@ export class TransportShipExecution implements Execution {
       this.retreatDst = null;
     }
 
-    if (this.boat.transportShipState().isRetreating) {
+    if (!this.escort && this.boat.transportShipState().isRetreating) {
       // Resolve retreat destination once, based on current boat location when retreat begins.
       this.retreatDst ??= this.attacker.bestTransportShipSpawn(
         this.boat.tile(),
@@ -253,13 +254,13 @@ export class TransportShipExecution implements Execution {
     switch (result.status) {
       case PathStatus.COMPLETE:
         if (this.mg.owner(this.dst) === this.attacker) {
-          const deaths = this.boat.troops() * (malusForRetreat / 100);
-          const survivors = this.boat.troops() - deaths;
+          const boatTroops = this.escort ? this.troops : this.boat.troops();
+          const deaths = this.escort ? 0 : boatTroops * (malusForRetreat / 100);
+          const survivors = boatTroops - deaths;
           this.attacker.addTroops(survivors);
           this.boat.delete(false);
           this.active = false;
 
-          // Record stats
           this.mg
             .stats()
             .boatArriveTroops(this.attacker, this.target, survivors);
@@ -275,12 +276,13 @@ export class TransportShipExecution implements Execution {
           return;
         }
         this.attacker.conquer(this.dst);
+        const landingTroops = this.escort ? this.troops : this.boat.troops();
         if (this.target.isPlayer() && this.attacker.isFriendly(this.target)) {
-          this.attacker.addTroops(this.boat.troops());
+          this.attacker.addTroops(landingTroops);
         } else {
           this.mg.addExecution(
             new AttackExecution(
-              this.boat.troops(),
+              landingTroops,
               this.attacker,
               this.target.id(),
               this.dst,
@@ -291,22 +293,21 @@ export class TransportShipExecution implements Execution {
         this.boat.delete(false);
         this.active = false;
 
-        // Record stats
         this.mg
           .stats()
-          .boatArriveTroops(this.attacker, this.target, this.boat.troops());
+          .boatArriveTroops(this.attacker, this.target, landingTroops);
         return;
       case PathStatus.NEXT:
         this.boat.move(result.node);
         break;
       case PathStatus.NOT_FOUND: {
-        // TODO: add to poisoned port list
         const map = this.mg.map();
         const boatTile = this.boat.tile();
         console.warn(
           `TransportShip path not found: boat@(${map.x(boatTile)},${map.y(boatTile)}) -> dst@(${map.x(this.dst)},${map.y(this.dst)}), attacker=${this.attacker.id()}, target=${this.target.id()}`,
         );
-        this.attacker.addTroops(this.boat.troops());
+        const refundTroops = this.escort ? this.troops : this.boat.troops();
+        this.attacker.addTroops(refundTroops);
         this.boat.delete(false);
         this.active = false;
         return;
@@ -348,56 +349,6 @@ export class TransportShipExecution implements Execution {
       .find((ar) => ar.requestor() === target);
     if (request !== undefined) {
       request.reject();
-    }
-  }
-
-  private escortShoot() {
-    const owner = this.boat.owner();
-    const config = this.mg.config();
-    const targets = this.mg.nearbyUnits(
-      this.boat.tile(),
-      config.warshipTargettingRange(),
-      [UnitType.Warship, UnitType.TransportShip],
-    );
-
-    let bestTarget: Unit | undefined;
-    let bestDist = Infinity;
-    for (const { unit, distSquared } of targets) {
-      if (
-        unit === this.boat ||
-        unit.owner() === owner ||
-        !owner.canAttackPlayer(unit.owner(), true) ||
-        this.alreadySentShell.has(unit) ||
-        (unit.type() === UnitType.Warship && unit.warshipState().state === "docked")
-      ) {
-        continue;
-      }
-      const priority = unit.type() === UnitType.Warship ? 0 : 1;
-      if (
-        !bestTarget ||
-        priority < bestDist ||
-        (priority === bestDist && distSquared < bestDist)
-      ) {
-        bestTarget = unit;
-      }
-    }
-
-    if (!bestTarget) return;
-
-    const shellAttackRate = config.warshipShellAttackRate();
-    if (this.mg.ticks() - this.lastShellAttack > shellAttackRate) {
-      this.lastShellAttack = this.mg.ticks();
-      this.mg.addExecution(
-        new ShellExecution(
-          this.boat.tile(),
-          owner,
-          this.boat,
-          bestTarget,
-        ),
-      );
-      if (!bestTarget.hasHealth()) {
-        this.alreadySentShell.add(bestTarget);
-      }
     }
   }
 }
