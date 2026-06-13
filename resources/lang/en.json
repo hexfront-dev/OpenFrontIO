@@ -1084,6 +1084,7 @@
     "betrayal_description": "You broke your alliance with {name}, making you a TRAITOR ({malusPercent}% defense debuff for {durationText})",
     "duration_seconds_plural": "{seconds} seconds",
     "betrayed_you": "{name} broke their alliance with you",
+    "trade_broken": "{name} has stopped trading with you",
     "about_to_expire": "Your alliance with {name} is about to expire!",
     "alliance_expired": "Your alliance with {name} expired",
     "atom_bomb_detonated": "{name} - atom bomb detonated",
