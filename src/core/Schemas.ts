@@ -50,6 +50,7 @@ export type Intent =
   | MarkDisconnectedIntent
   | EmbargoAllIntent
   | UpgradeStructureIntent
+  | BatchUpgradeStructureIntent
   | DeleteUnitIntent
   | KickPlayerIntent
   | TogglePauseIntent
@@ -73,6 +74,9 @@ export type EmbargoIntent = z.infer<typeof EmbargoIntentSchema>;
 export type BuildUnitIntent = z.infer<typeof BuildUnitIntentSchema>;
 export type UpgradeStructureIntent = z.infer<
   typeof UpgradeStructureIntentSchema
+>;
+export type BatchUpgradeStructureIntent = z.infer<
+  typeof BatchUpgradeStructureIntentSchema
 >;
 export type MoveWarshipIntent = z.infer<typeof MoveWarshipIntentSchema>;
 export type QuickChatIntent = z.infer<typeof QuickChatIntentSchema>;
@@ -675,6 +679,13 @@ export const UpgradeStructureIntentSchema = z.object({
   amount: zb.uint({ min: 1, max: MAX_UPGRADE_AMOUNT }).optional(),
 });
 
+export const BatchUpgradeStructureIntentSchema = z.object({
+  type: z.literal("upgrade_structure_batch"),
+  unit: z.enum(UnitType),
+  unitId: z.number(),
+  count: z.number(),
+});
+
 export const CancelAttackIntentSchema = z.object({
   type: z.literal("cancel_attack"),
   attackID: z.string(),
@@ -753,6 +764,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   DonateTroopIntentSchema,
   BuildUnitIntentSchema,
   UpgradeStructureIntentSchema,
+  BatchUpgradeStructureIntentSchema,
   EmbargoIntentSchema,
   EmbargoAllIntentSchema,
   MoveWarshipIntentSchema,
