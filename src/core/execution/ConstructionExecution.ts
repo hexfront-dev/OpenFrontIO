@@ -3,6 +3,8 @@ import { TileRef } from "../game/GameMap";
 import { CityExecution } from "./CityExecution";
 import { DefensePostExecution } from "./DefensePostExecution";
 import { FactoryExecution } from "./FactoryExecution";
+import { MissileDefenseShipExecution } from "./MissileDefenseShipExecution";
+import { MissileShipExecution } from "./MissileShipExecution";
 import { MirvExecution } from "./MIRVExecution";
 import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NukeExecution } from "./NukeExecution";
@@ -129,6 +131,12 @@ export class ConstructionExecution implements Execution {
         this.mg.addExecution(
           new WarshipExecution({ owner: player, patrolTile: this.tile }),
         );
+        break;
+      case UnitType.MissileShip:
+        this.mg.addExecution(new MissileShipExecution(this.structure!));
+        break;
+      case UnitType.MissileDefenseShip:
+        this.mg.addExecution(new MissileDefenseShipExecution(this.structure!));
         break;
       case UnitType.Port:
         this.mg.addExecution(new PortExecution(this.structure!));
