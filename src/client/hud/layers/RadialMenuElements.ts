@@ -720,7 +720,7 @@ export const disableStationElement: MenuElement = {
       .filter(
         (unit) =>
           unit.hasTrainStation() &&
-          (unit.type() === UnitType.Factory || unit.type() === UnitType.Port) &&
+          (unit.type() === UnitType.Factory || unit.type() === UnitType.Port || unit.type() === UnitType.City) &&
           params.game.manhattanDist(unit.tile(), params.tile) <=
             DISABLE_SELECTION_RADIUS,
       );
@@ -736,7 +736,7 @@ export const disableStationElement: MenuElement = {
       .filter(
         (unit) =>
           unit.hasTrainStation() &&
-          (unit.type() === UnitType.Factory || unit.type() === UnitType.Port) &&
+          (unit.type() === UnitType.Factory || unit.type() === UnitType.Port || unit.type() === UnitType.City) &&
           params.game.manhattanDist(unit.tile(), params.tile) <=
             DISABLE_SELECTION_RADIUS,
       );
