@@ -25,6 +25,7 @@ export class WarshipExecution implements Execution {
   private lastObservedPatrolTile: TileRef | undefined;
   private activeHealingRemainder = 0;
   private lastEmittedCombat = false;
+  private patrolMoveNext = true;
 
   constructor(
     private input: (UnitParams<UnitType.Warship> & OwnerComp) | Unit,
@@ -685,6 +686,9 @@ export class WarshipExecution implements Execution {
   }
 
   private patrol() {
+    this.patrolMoveNext = !this.patrolMoveNext;
+    if (!this.patrolMoveNext) return;
+
     if (this.warship.targetTile() === undefined) {
       this.warship.setTargetTile(this.randomTile());
       if (this.warship.targetTile() === undefined) {
