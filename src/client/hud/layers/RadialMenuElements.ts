@@ -129,6 +129,7 @@ export enum Slot {
   Ally = "ally",
   Back = "back",
   Delete = "delete",
+  DisableStation = "disableStation",
 }
 
 function isFriendlyTarget(params: MenuElementParams): boolean {
@@ -694,6 +695,63 @@ export const deleteUnitElement: MenuElement = {
   },
 };
 
+export const disableStationElement: MenuElement = {
+  id: Slot.DisableStation,
+  name: "disable station",
+  disabled: (params: MenuElementParams) => {
+    const tileOwner = params.game.owner(params.tile);
+    const isLand = params.game.isLand(params.tile);
+
+    if (!tileOwner.isPlayer() || tileOwner.id() !== params.myPlayer.id()) {
+      return true;
+    }
+
+    if (!isLand) {
+      return true;
+    }
+
+    if (params.game.inSpawnPhase()) {
+      return true;
+    }
+
+    const DISABLE_SELECTION_RADIUS = 5;
+    const stationUnits = params.myPlayer
+      .units()
+      .filter(
+        (unit) =>
+          unit.hasTrainStation() &&
+          (unit.type() === UnitType.Factory || unit.type() === UnitType.Port) &&
+          params.game.manhattanDist(unit.tile(), params.tile) <=
+            DISABLE_SELECTION_RADIUS,
+      );
+
+    return stationUnits.length === 0;
+  },
+  icon: xIcon,
+  color: COLORS.delete,
+  action: (params: MenuElementParams) => {
+    const DISABLE_SELECTION_RADIUS = 5;
+    const stationUnits = params.myPlayer
+      .units()
+      .filter(
+        (unit) =>
+          unit.hasTrainStation() &&
+          (unit.type() === UnitType.Factory || unit.type() === UnitType.Port) &&
+          params.game.manhattanDist(unit.tile(), params.tile) <=
+            DISABLE_SELECTION_RADIUS,
+      );
+
+    const closestUnit = findClosestBy(stationUnits, (unit) =>
+      params.game.manhattanDist(unit.tile(), params.tile),
+    );
+    if (closestUnit) {
+      params.playerActionHandler.handleDisableTrainStation(closestUnit.id());
+    }
+
+    params.closeMenu();
+  },
+};
+
 export const buildMenuElement: MenuElement = {
   id: Slot.Build,
   name: "build",
@@ -803,7 +861,7 @@ export const rootMenuElement: MenuElement = {
     const menuItems: (MenuElement | null)[] = [
       infoMenuElement,
       ...(isOwnTerritory
-        ? [deleteUnitElement, allyRequestElement, buildMenuElement]
+        ? [deleteUnitElement, disableStationElement, allyRequestElement, buildMenuElement]
         : [
             isAllied && !isDisconnected ? allyBreakElement : boatMenuElement,
             inExtensionWindow ? allyExtendElement : allyRequestElement,

@@ -51,6 +51,7 @@ export type Intent =
   | EmbargoAllIntent
   | UpgradeStructureIntent
   | DeleteUnitIntent
+  | DisableTrainStationIntent
   | KickPlayerIntent
   | TogglePauseIntent
   | UpdateGameConfigIntent
@@ -83,6 +84,7 @@ export type AllianceExtensionIntent = z.infer<
   typeof AllianceExtensionIntentSchema
 >;
 export type DeleteUnitIntent = z.infer<typeof DeleteUnitIntentSchema>;
+export type DisableTrainStationIntent = z.infer<typeof DisableTrainStationIntentSchema>;
 export type KickPlayerIntent = z.infer<typeof KickPlayerIntentSchema>;
 export type TogglePauseIntent = z.infer<typeof TogglePauseIntentSchema>;
 export type UpdateGameConfigIntent = z.infer<
@@ -696,6 +698,11 @@ export const DeleteUnitIntentSchema = z.object({
   unitId: zb.uint(),
 });
 
+export const DisableTrainStationIntentSchema = z.object({
+  type: z.literal("disable_train_station"),
+  unitId: z.number(),
+});
+
 export const QuickChatIntentSchema = z.object({
   type: z.literal("quick_chat"),
   recipient: MappedID,
@@ -759,6 +766,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   QuickChatIntentSchema,
   AllianceExtensionIntentSchema,
   DeleteUnitIntentSchema,
+  DisableTrainStationIntentSchema,
   KickPlayerIntentSchema,
   TogglePauseIntentSchema,
   UpdateGameConfigIntentSchema,

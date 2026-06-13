@@ -7,6 +7,7 @@ import {
   SendBoatAttackIntentEvent,
   SendBreakAllianceIntentEvent,
   SendDeleteUnitIntentEvent,
+  SendDisableTrainStationIntentEvent,
   SendDonateGoldIntentEvent,
   SendDonateTroopsIntentEvent,
   SendEmbargoIntentEvent,
@@ -92,5 +93,9 @@ export class PlayerActionHandler {
 
   handleDeleteUnit(unitId: number) {
     this.eventBus.emit(new SendDeleteUnitIntentEvent(unitId));
+  }
+
+  handleDisableTrainStation(unitId: number) {
+    this.eventBus.emit(new SendDisableTrainStationIntentEvent(unitId));
   }
 }
