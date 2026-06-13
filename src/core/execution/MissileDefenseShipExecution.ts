@@ -2,6 +2,7 @@ import { Execution, Game, MessageType, Unit, UnitType } from "../game/Game";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
+import { SAMMissileExecution } from "./SAMMissileExecution";
 
 export class MissileDefenseShipExecution implements Execution {
   private active = true;
@@ -11,6 +12,7 @@ export class MissileDefenseShipExecution implements Execution {
   private random: PseudoRandom;
   private readonly MIRV_SEARCH_RADIUS = 400;
   private readonly MIRV_PROTECTION_RADIUS = 50;
+  private lastInterceptTick = 0;
 
   constructor(warship: Unit) {
     this.warship = warship;
@@ -38,14 +40,18 @@ export class MissileDefenseShipExecution implements Execution {
       }
     }
 
-    // Intercept nearby MIRV warheads
-    this.interceptMIRV();
+    // Intercept threats
+    this.interceptThreats();
 
     this.patrol();
   }
 
-  private interceptMIRV(): void {
+  private interceptThreats(): void {
     const owner = this.warship.owner();
+    const level = this.warship.level();
+    const config = this.mg.config();
+
+    // Destroy nearby MIRV warheads instantly (within protection radius)
     const warheads = this.mg.nearbyUnits(
       this.warship.tile(),
       this.MIRV_SEARCH_RADIUS,
@@ -57,6 +63,37 @@ export class MissileDefenseShipExecution implements Execution {
       const dist = this.mg.manhattanDist(this.warship.tile(), unit.tile());
       if (dist > this.MIRV_PROTECTION_RADIUS) continue;
       unit.delete();
+    }
+
+    // Launch SAM missiles at incoming nukes (up to level per tick, at most 1)
+    const range = config.samRange(level);
+    const nukes = this.mg.nearbyUnits(
+      this.warship.tile(),
+      range * 2,
+      [UnitType.AtomBomb, UnitType.HydrogenBomb],
+    );
+    let fired = 0;
+    for (const { unit } of nukes) {
+      if (fired >= 1) break;
+      if (unit.owner() === owner) continue;
+      if (!owner.canAttackPlayer(unit.owner(), true)) continue;
+      if (unit.targetedBySAM()) continue;
+
+      const traj = unit.trajectory();
+      const idx = unit.trajectoryIndex();
+      if (idx >= traj.length) continue;
+      const targetTile = traj[Math.min(idx + 5, traj.length - 1)].tile;
+
+      this.mg.addExecution(
+        new SAMMissileExecution(
+          this.warship.tile(),
+          owner,
+          this.warship,
+          unit,
+          targetTile,
+        ),
+      );
+      fired++;
     }
   }
 
