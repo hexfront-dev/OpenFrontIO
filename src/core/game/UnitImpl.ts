@@ -311,7 +311,7 @@ export class UnitImpl implements Unit {
       return;
     }
     this._deletionAt =
-      this.mg.ticks() + this.mg.config().deletionMarkDuration();
+      this.mg.ticks() + this.mg.config().deletionMarkDuration() + this._level * 5;
     this.mg.addUpdate(this.toUpdate());
   }
 
