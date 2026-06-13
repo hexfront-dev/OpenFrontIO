@@ -15,6 +15,7 @@ import { targetTransportTile } from "../game/TransportShipUtils";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { AttackExecution } from "./AttackExecution";
+import { ShellExecution } from "./ShellExecution";
 
 const malusForRetreat = 25;
 
@@ -37,6 +38,8 @@ export class TransportShipExecution implements Execution {
   private boat: Unit;
   private motionPlanId = 1;
   private motionPlanDst: TileRef | null = null;
+  private lastShellAttack = 0;
+  private alreadySentShell = new Set<Unit>();
 
   private originalOwner: Player;
 
@@ -44,6 +47,7 @@ export class TransportShipExecution implements Execution {
     private attacker: Player,
     private ref: TileRef,
     private troops: number,
+    private escort: boolean = false,
   ) {
     this.originalOwner = this.attacker;
   }
@@ -133,6 +137,13 @@ export class TransportShipExecution implements Execution {
       targetTile: this.dst,
     });
 
+    if (this.escort) {
+      const escortCost = this.mg.unitInfo(UnitType.Warship).cost(this.mg, this.attacker);
+      if (this.attacker.gold() >= escortCost) {
+        this.attacker.removeGold(escortCost);
+      }
+    }
+
     const fullPath = this.pathFinder.findPath(this.src, this.dst) ?? [this.src];
     if (fullPath.length === 0 || fullPath[0] !== this.src) {
       fullPath.unshift(this.src);
@@ -182,6 +193,11 @@ export class TransportShipExecution implements Execution {
       return;
     }
     this.lastMove = ticks;
+
+    // Escort combat: find and shoot nearby enemies while traveling.
+    if (this.escort) {
+      this.escortShoot();
+    }
 
     // Team mate can conquer disconnected player and get their ships
     // captureUnit has changed the owner of the unit, now update attacker
@@ -332,6 +348,56 @@ export class TransportShipExecution implements Execution {
       .find((ar) => ar.requestor() === target);
     if (request !== undefined) {
       request.reject();
+    }
+  }
+
+  private escortShoot() {
+    const owner = this.boat.owner();
+    const config = this.mg.config();
+    const targets = this.mg.nearbyUnits(
+      this.boat.tile(),
+      config.warshipTargettingRange(),
+      [UnitType.Warship, UnitType.TransportShip],
+    );
+
+    let bestTarget: Unit | undefined;
+    let bestDist = Infinity;
+    for (const { unit, distSquared } of targets) {
+      if (
+        unit === this.boat ||
+        unit.owner() === owner ||
+        !owner.canAttackPlayer(unit.owner(), true) ||
+        this.alreadySentShell.has(unit) ||
+        (unit.type() === UnitType.Warship && unit.warshipState().state === "docked")
+      ) {
+        continue;
+      }
+      const priority = unit.type() === UnitType.Warship ? 0 : 1;
+      if (
+        !bestTarget ||
+        priority < bestDist ||
+        (priority === bestDist && distSquared < bestDist)
+      ) {
+        bestTarget = unit;
+      }
+    }
+
+    if (!bestTarget) return;
+
+    const shellAttackRate = config.warshipShellAttackRate();
+    if (this.mg.ticks() - this.lastShellAttack > shellAttackRate) {
+      this.lastShellAttack = this.mg.ticks();
+      this.mg.addExecution(
+        new ShellExecution(
+          this.boat.tile(),
+          owner,
+          this.boat,
+          bestTarget,
+        ),
+      );
+      if (!bestTarget.hasHealth()) {
+        this.alreadySentShell.add(bestTarget);
+      }
     }
   }
 }
