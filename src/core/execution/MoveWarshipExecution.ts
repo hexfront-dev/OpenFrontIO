@@ -28,6 +28,9 @@ export class MoveWarshipExecution implements Execution {
         console.warn(`MoveWarshipExecution: warship ${unitId} is not active`);
         continue;
       }
+      if (warship.fleetId() !== undefined && mg.isWater(this.position)) {
+        warship.move(this.position);
+      }
       warship.updateWarshipState({
         patrolTile: this.position,
       });
