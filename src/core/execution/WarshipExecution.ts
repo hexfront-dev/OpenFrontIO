@@ -66,6 +66,19 @@ export class WarshipExecution implements Execution {
     const healthBeforeHealing = this.warship.health();
     this.healWarship();
 
+    // Escort warships: follow the transport, no shooting/hunting/retreating.
+    const escortId = this.warship.escortTargetId();
+    if (escortId !== undefined) {
+      const target = this.mg.unit(escortId);
+      if (target && target.isActive()) {
+        this.followUnit(target);
+      } else {
+        // Escort target gone — return to normal behavior.
+        this.warship.setEscortTargetId(undefined);
+      }
+      return;
+    }
+
     // Fleeted warships: heal, shoot nearby enemies, patrol in formation.
     // No retreat, docking, or chasing targets (won't break formation).
     if (this.warship.fleetId() !== undefined) {
@@ -682,6 +695,23 @@ export class WarshipExecution implements Execution {
         case PathStatus.NOT_FOUND:
           console.log(`path not found to target`);
           break;
+      }
+    }
+  }
+
+  private followUnit(target: Unit): void {
+    const tile = target.tile();
+    const dist = this.mg.manhattanDist(this.warship.tile(), tile);
+    if (dist <= 2) return; // stay close, don't crowd
+    if (dist <= 10) {
+      const next = this.bestNeighborToward(tile);
+      if (next !== undefined) {
+        this.warship.move(next);
+      }
+    } else {
+      const result = this.pathfinder.next(this.warship.tile(), tile, 5);
+      if (result.status === PathStatus.NEXT) {
+        this.warship.move(result.node);
       }
     }
   }

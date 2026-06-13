@@ -75,7 +75,7 @@ export class Executor {
       case "spawn":
         return new SpawnExecution(this.gameID, player.info(), intent.tile);
       case "boat":
-        return new TransportShipExecution(player, intent.dst, intent.troops);
+        return new TransportShipExecution(player, intent.dst, intent.troops, intent.escort);
       case "allianceRequest":
         return new AllianceRequestExecution(player, intent.recipient);
       case "allianceReject":
