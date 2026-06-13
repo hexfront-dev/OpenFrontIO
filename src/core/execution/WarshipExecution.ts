@@ -97,15 +97,15 @@ export class WarshipExecution implements Execution {
 
     this.warship.setTargetUnit(this.findTargetUnit());
 
-    // Priority 1: Shoot transport ship if in range
-    if (this.warship.targetUnit()?.type() === UnitType.TransportShip) {
+    // Priority 1: Fight enemy warship if in range
+    if (this.warship.targetUnit()?.type() === UnitType.Warship) {
       this.shootTarget();
       this.patrol();
       return;
     }
 
-    // Priority 2: Fight enemy warship if in range
-    if (this.warship.targetUnit()?.type() === UnitType.Warship) {
+    // Priority 2: Shoot transport ship if in range
+    if (this.warship.targetUnit()?.type() === UnitType.TransportShip) {
       this.shootTarget();
       this.patrol();
       return;
@@ -295,7 +295,7 @@ export class WarshipExecution implements Execution {
       }
 
       const typePriority =
-        type === UnitType.TransportShip ? 0 : type === UnitType.Warship ? 1 : 2;
+        type === UnitType.Warship ? 0 : type === UnitType.TransportShip ? 1 : 2;
 
       if (
         bestUnit === undefined ||
@@ -610,10 +610,7 @@ export class WarshipExecution implements Execution {
     this.warship.updateWarshipState({ isInCombat: true });
     const shellAttackRate = this.mg.config().warshipShellAttackRate();
     if (this.mg.ticks() - this.lastShellAttack > shellAttackRate) {
-      if (this.warship.targetUnit()?.type() !== UnitType.TransportShip) {
-        // Warships don't need to reload when attacking transport ships.
-        this.lastShellAttack = this.mg.ticks();
-      }
+      this.lastShellAttack = this.mg.ticks();
       this.mg.addExecution(
         new ShellExecution(
           this.warship.tile(),
