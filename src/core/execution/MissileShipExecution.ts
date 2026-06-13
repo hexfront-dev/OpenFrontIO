@@ -21,7 +21,7 @@ export class MissileShipExecution implements Execution {
   }
 
   tick(): void {
-    if (!this.warship.isActive()) {
+    if (!this.warship || !this.warship.isActive()) {
       this.active = false;
       return;
     }
