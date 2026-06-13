@@ -352,7 +352,6 @@ export const BoatAttackIntentSchema = z.object({
   type: z.literal("boat"),
   troops: z.number().nonnegative(),
   dst: z.number(),
-  escort: z.boolean().optional(),
 });
 
 export const AllianceRequestIntentSchema = z.object({

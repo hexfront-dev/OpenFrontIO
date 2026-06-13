@@ -163,7 +163,6 @@ export interface UnitUpdate {
   level: number;
   hasTrainStation: boolean;
   fleetId?: number;
-  escortTargetId?: number;
   trainType?: TrainType; // Only for trains
   loaded?: boolean; // Only for trains
 }

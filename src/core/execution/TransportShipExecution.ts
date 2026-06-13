@@ -44,7 +44,6 @@ export class TransportShipExecution implements Execution {
     private attacker: Player,
     private ref: TileRef,
     private troops: number,
-    private escort: boolean = false,
   ) {
     this.originalOwner = this.attacker;
   }
@@ -133,17 +132,6 @@ export class TransportShipExecution implements Execution {
       troops: this.troops,
       targetTile: this.dst,
     });
-
-    if (this.escort) {
-      const cost = this.mg.unitInfo(UnitType.Warship).cost(this.mg, this.attacker);
-      if (this.attacker.gold() >= cost) {
-        const escortShip = this.attacker.buildUnit(UnitType.Warship, this.src, {
-          patrolTile: this.src,
-        });
-        escortShip.setEscortTargetId(this.boat.id());
-        escortShip.setFleetId(this.boat.id()); // tie to transport for movement
-      }
-    }
 
     const fullPath = this.pathFinder.findPath(this.src, this.dst) ?? [this.src];
     if (fullPath.length === 0 || fullPath[0] !== this.src) {

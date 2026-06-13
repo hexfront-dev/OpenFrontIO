@@ -37,7 +37,6 @@ export class UnitImpl implements Unit {
   private _missileTimerQueue: number[] = [];
   private _hasTrainStation: boolean = false;
   private _fleetId: number | undefined = undefined;
-  private _escortTargetId: number | undefined = undefined;
   private _level: number = 1;
   private _targetable: boolean = true;
   private _loaded: boolean | undefined;
@@ -152,7 +151,6 @@ export class UnitImpl implements Unit {
       level: this.level(),
       hasTrainStation: this._hasTrainStation,
       fleetId: this._fleetId,
-      escortTargetId: this._escortTargetId,
       trainType: this._trainType,
       loaded: this._loaded,
     };
@@ -550,15 +548,6 @@ export class UnitImpl implements Unit {
 
   fleetId(): number | undefined {
     return this._fleetId;
-  }
-
-  setEscortTargetId(id: number | undefined): void {
-    this._escortTargetId = id;
-    this.mg.addUpdate(this.toUpdate());
-  }
-
-  escortTargetId(): number | undefined {
-    return this._escortTargetId;
   }
 
   increaseLevel(): void {
