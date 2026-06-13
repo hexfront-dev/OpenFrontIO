@@ -127,10 +127,14 @@ export class ConstructionExecution implements Execution {
         );
         break;
       case UnitType.MissileShip:
-        this.mg.addExecution(new MissileShipExecution(this.structure!));
+        this.mg.addExecution(
+          new MissileShipExecution({ owner: player, patrolTile: this.tile }),
+        );
         break;
       case UnitType.MissileDefenseShip:
-        this.mg.addExecution(new MissileDefenseShipExecution(this.structure!));
+        this.mg.addExecution(
+          new MissileDefenseShipExecution({ owner: player, patrolTile: this.tile }),
+        );
         break;
       case UnitType.Port:
         this.mg.addExecution(new PortExecution(this.structure!));
