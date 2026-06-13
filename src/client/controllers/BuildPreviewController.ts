@@ -533,13 +533,16 @@ export class BuildPreviewController implements Controller {
     }
     const tile = this.transformHandler.screenToWorldCoordinates(e.x, e.y);
     if (this.ghostUnit.buildableUnit.canUpgrade !== false) {
-      this.eventBus.emit(
-        new SendUpgradeStructureIntentEvent(
-          this.ghostUnit.buildableUnit.canUpgrade,
-          this.ghostUnit.buildableUnit.type,
-          this.uiState.upgradeMultiplier || 1,
-        ),
-      );
+      const count = e.shiftKey ? 5 : 1;
+      for (let i = 0; i < count; i++) {
+        this.eventBus.emit(
+          new SendUpgradeStructureIntentEvent(
+            this.ghostUnit.buildableUnit.canUpgrade,
+            this.ghostUnit.buildableUnit.type,
+            this.uiState.upgradeMultiplier || 1,
+          ),
+        );
+      }
       this.removeGhostStructure();
     } else if (this.ghostUnit.buildableUnit.canBuild) {
       const unitType = this.ghostUnit.buildableUnit.type;
