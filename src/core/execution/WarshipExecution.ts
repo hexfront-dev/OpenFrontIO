@@ -66,8 +66,9 @@ export class WarshipExecution implements Execution {
     const healthBeforeHealing = this.warship.health();
     this.healWarship();
 
-    // Fleeted warships only move via manual player commands.
+    // Fleeted warships: heal + patrol only, no auto-targeting/retreat/docking.
     if (this.warship.fleetId() !== undefined) {
+      this.patrol();
       return;
     }
 
