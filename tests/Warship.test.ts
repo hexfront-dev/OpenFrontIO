@@ -634,12 +634,14 @@ describe("Warship", () => {
 
     vi.spyOn(executionInternals, "findTargetUnit")
       .mockReturnValueOnce(transport)
-      .mockReturnValueOnce(undefined);
+      .mockReturnValueOnce(undefined)
+      .mockReturnValue(undefined);
     vi.spyOn(executionInternals.pathfinder, "next").mockReturnValue({
       status: PathStatus.NEXT,
       node: movedTile!,
     });
 
+    execution.tick(game.ticks());
     execution.tick(game.ticks());
     expect(warship.tile()).toBe(movedTile);
 
