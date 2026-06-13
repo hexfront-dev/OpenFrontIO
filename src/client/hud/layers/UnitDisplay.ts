@@ -42,6 +42,8 @@ export class UnitDisplay extends LitElement implements Controller {
   private _port = 0;
   private _defensePost = 0;
   private _samLauncher = 0;
+  private _missileShips = 0;
+  private _missileDefenseShips = 0;
   private allDisabled = false;
   private _hoveredUnit: PlayerBuildableUnitType | null = null;
 
@@ -80,6 +82,8 @@ export class UnitDisplay extends LitElement implements Controller {
           (player?.units(UnitType.MissileSilo).length ?? 0) > 0
         );
       case UnitType.Warship:
+      case UnitType.MissileShip:
+      case UnitType.MissileDefenseShip:
         return (
           this.cost(item) <= (player?.gold() ?? 0n) &&
           (player?.units(UnitType.Port).length ?? 0) > 0
@@ -102,6 +106,8 @@ export class UnitDisplay extends LitElement implements Controller {
     this._samLauncher = player.totalUnitLevels(UnitType.SAMLauncher);
     this._factories = player.totalUnitLevels(UnitType.Factory);
     this._warships = player.totalUnitLevels(UnitType.Warship);
+    this._missileShips = player.totalUnitLevels(UnitType.MissileShip);
+    this._missileDefenseShips = player.totalUnitLevels(UnitType.MissileDefenseShip);
     this.requestUpdate();
   }
 
@@ -170,6 +176,20 @@ export class UnitDisplay extends LitElement implements Controller {
             UnitType.Warship,
             "warship",
             this.keybinds["buildWarship"]?.key ?? "7",
+          )}
+          ${this.renderUnitItem(
+            warshipIcon,
+            this._missileShips,
+            UnitType.MissileShip,
+            "missile_ship",
+            "",
+          )}
+          ${this.renderUnitItem(
+            warshipIcon,
+            this._missileDefenseShips,
+            UnitType.MissileDefenseShip,
+            "missile_defense_ship",
+            "",
           )}
           ${this.renderUnitItem(
             atomBombIcon,
