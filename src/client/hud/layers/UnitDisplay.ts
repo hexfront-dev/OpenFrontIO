@@ -178,14 +178,14 @@ export class UnitDisplay extends LitElement implements Controller {
             this.keybinds["buildWarship"]?.key ?? "7",
           )}
           ${this.renderUnitItem(
-            warshipIcon,
+            missileSiloIcon,
             this._missileShips,
             UnitType.MissileShip,
             "missile_ship",
             "",
           )}
           ${this.renderUnitItem(
-            warshipIcon,
+            samLauncherIcon,
             this._missileDefenseShips,
             UnitType.MissileDefenseShip,
             "missile_defense_ship",
