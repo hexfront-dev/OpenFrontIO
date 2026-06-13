@@ -11,6 +11,7 @@ import {
   DisplayChatMessageUpdate,
   DisplayMessageUpdate,
   DonateEventUpdate,
+  EmbargoUpdate,
   EmojiUpdate,
   GameUpdateType,
   TargetPlayerUpdate,
@@ -139,6 +140,7 @@ export class EventsDisplay extends LitElement implements Controller {
     [GameUpdateType.UnitIncoming, this.onUnitIncomingEvent.bind(this)],
     [GameUpdateType.AllianceExpired, this.onAllianceExpiredEvent.bind(this)],
     [GameUpdateType.DonateEvent, this.onDonateEvent.bind(this)],
+    [GameUpdateType.EmbargoEvent, this.onEmbargoEvent.bind(this)],
   ] as const;
 
   constructor() {
@@ -448,6 +450,28 @@ export class EventsDisplay extends LitElement implements Controller {
       highlight: true,
       createdAt: this.game.ticks(),
       focusID: otherID,
+    });
+  }
+
+  onEmbargoEvent(update: EmbargoUpdate) {
+    const myPlayer = this.game.myPlayer();
+    if (!myPlayer) return;
+
+    if (update.event !== "stop") return;
+
+    const embargoed = this.game.playerBySmallID(update.embargoedID) as PlayerView;
+    if (embargoed !== myPlayer) return;
+
+    const player = this.game.playerBySmallID(update.playerID) as PlayerView;
+
+    this.addEvent({
+      description: translateText("events_display.trade_broken", {
+        name: player.displayName(),
+      }),
+      type: MessageType.ALLIANCE_BROKEN,
+      highlight: true,
+      createdAt: this.game.ticks(),
+      focusID: update.playerID,
     });
   }
 
