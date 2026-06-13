@@ -143,7 +143,6 @@ export class TransportShipExecution implements Execution {
       this.boat = this.attacker.buildUnit(UnitType.Warship, this.src, {
         patrolTile: this.src,
       });
-      this.boat.setFleetId(this.boat.id()); // block auto-behavior
     } else {
       this.boat = this.attacker.buildUnit(UnitType.TransportShip, this.src, {
         troops: this.troops,
