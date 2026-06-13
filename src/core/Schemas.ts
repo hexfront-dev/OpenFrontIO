@@ -52,6 +52,7 @@ export type Intent =
   | UpgradeStructureIntent
   | DeleteUnitIntent
   | DisableTrainStationIntent
+  | CreateFleetIntent
   | KickPlayerIntent
   | TogglePauseIntent
   | UpdateGameConfigIntent
@@ -85,6 +86,7 @@ export type AllianceExtensionIntent = z.infer<
 >;
 export type DeleteUnitIntent = z.infer<typeof DeleteUnitIntentSchema>;
 export type DisableTrainStationIntent = z.infer<typeof DisableTrainStationIntentSchema>;
+export type CreateFleetIntent = z.infer<typeof CreateFleetIntentSchema>;
 export type KickPlayerIntent = z.infer<typeof KickPlayerIntentSchema>;
 export type TogglePauseIntent = z.infer<typeof TogglePauseIntentSchema>;
 export type UpdateGameConfigIntent = z.infer<
@@ -703,6 +705,11 @@ export const DisableTrainStationIntentSchema = z.object({
   unitId: z.number(),
 });
 
+export const CreateFleetIntentSchema = z.object({
+  type: z.literal("create_fleet"),
+  unitIds: z.array(z.number()),
+});
+
 export const QuickChatIntentSchema = z.object({
   type: z.literal("quick_chat"),
   recipient: MappedID,
@@ -767,6 +774,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   AllianceExtensionIntentSchema,
   DeleteUnitIntentSchema,
   DisableTrainStationIntentSchema,
+  CreateFleetIntentSchema,
   KickPlayerIntentSchema,
   TogglePauseIntentSchema,
   UpdateGameConfigIntentSchema,

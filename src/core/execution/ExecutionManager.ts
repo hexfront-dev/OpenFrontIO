@@ -9,6 +9,7 @@ import { BreakAllianceExecution } from "./alliance/BreakAllianceExecution";
 import { AttackExecution } from "./AttackExecution";
 import { BoatRetreatExecution } from "./BoatRetreatExecution";
 import { ConstructionExecution } from "./ConstructionExecution";
+import { CreateFleetExecution } from "./CreateFleetExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
 import { DisableTrainStationExecution } from "./DisableTrainStationExecution";
 import { DonateGoldExecution } from "./DonateGoldExecution";
@@ -127,6 +128,8 @@ export class Executor {
         return new DeleteUnitExecution(player, intent.unitId);
       case "disable_train_station":
         return new DisableTrainStationExecution(player, intent.unitId);
+      case "create_fleet":
+        return new CreateFleetExecution(player, intent.unitIds);
       case "quick_chat":
         return new QuickChatExecution(
           player,

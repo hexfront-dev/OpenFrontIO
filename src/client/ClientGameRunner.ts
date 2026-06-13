@@ -48,6 +48,7 @@ import {
   MouseUpEvent,
   TickMetricsEvent,
   ToggleRenderDebugGuiEvent,
+  CreateFleetEvent,
 } from "./InputHandler";
 import { endGame, startGame, startTime } from "./LocalPersistantStats";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
@@ -63,6 +64,7 @@ import {
   SendHashEvent,
   SendSpawnIntentEvent,
   SendUpgradeStructureIntentEvent,
+  SendCreateFleetIntentEvent,
   Transport,
 } from "./Transport";
 import { createCanvas } from "./Utils";
@@ -940,6 +942,10 @@ export class ClientGameRunner {
       DoBreakAllianceEvent,
       this.doBreakAllianceUnderCursor.bind(this),
     );
+    this.eventBus.on(
+      CreateFleetEvent,
+      this.onCreateFleet.bind(this),
+    );
 
     this.renderer.initialize();
     this.input.initialize();
@@ -1421,6 +1427,10 @@ export class ClientGameRunner {
         );
       }
     });
+  }
+
+  private onCreateFleet(event: CreateFleetEvent): void {
+    this.eventBus.emit(new SendCreateFleetIntentEvent(event.unitIds));
   }
 
   private getTileUnderCursor(): TileRef | null {

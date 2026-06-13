@@ -25,6 +25,7 @@ import { ChatModal } from "./layers/ChatModal";
 import { ControlPanel } from "./layers/ControlPanel";
 import { EmojiTable } from "./layers/EmojiTable";
 import { EventsDisplay } from "./layers/EventsDisplay";
+import { FleetDisplay } from "./layers/FleetDisplay";
 import { GameLeftSidebar } from "./layers/GameLeftSidebar";
 import { GameRightSidebar } from "./layers/GameRightSidebar";
 import { GraphicsSettingsModal } from "./layers/GraphicsSettingsModal";
@@ -182,6 +183,12 @@ export function createRenderer(
   gameRightSidebar.game = game;
   gameRightSidebar.eventBus = eventBus;
 
+  const fleetDisplay = document.querySelector("fleet-display") as FleetDisplay;
+  if (fleetDisplay instanceof FleetDisplay) {
+    fleetDisplay.game = game;
+    fleetDisplay.eventBus = eventBus;
+  }
+
   const settingsModal = document.querySelector(
     "settings-modal",
   ) as SettingsModal;
@@ -336,6 +343,7 @@ export function createRenderer(
     inGamePromo,
     alertFrame,
     performanceOverlay,
+    fleetDisplay,
   ];
 
   return new GameRenderer(

@@ -190,6 +190,10 @@ export class ToggleCoordinateGridEvent implements GameEvent {
   constructor(public readonly enabled: boolean) {}
 }
 
+export class CreateFleetEvent implements GameEvent {
+  constructor(public readonly unitIds: number[]) {}
+}
+
 export class TickMetricsEvent implements GameEvent {
   constructor(
     public readonly tickExecutionDuration?: number,
@@ -241,6 +245,8 @@ export class InputHandler {
   // True while any warship/boat is selected (single or multi) — right-click
   // cancels the selection instead of opening the context menu (#4692).
   private unitSelectionActive: boolean = false;
+  // Currently selected warship IDs (for fleet creation via Enter)
+  private selectedWarshipIds: number[] = [];
 
   // Touch long-press state
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -435,14 +441,17 @@ export class InputHandler {
       if (e.isSelected && (e.units ?? []).length > 0) {
         // Multi-selection active
         this.multiSelectionActive = true;
+        this.selectedWarshipIds = e.units.map((u) => u.id());
         this.canvas.style.cursor = "crosshair";
       } else if (e.isSelected) {
         // Single warship selected — cursor crosshair, but not multi
         this.multiSelectionActive = false;
+        this.selectedWarshipIds = e.unit ? [e.unit.id()] : [];
         this.canvas.style.cursor = "crosshair";
       } else {
         // Deselected
         this.multiSelectionActive = false;
+        this.selectedWarshipIds = [];
         if (!this.selectionBoxActive) {
           this.canvas.style.cursor = "";
         }
@@ -630,6 +639,17 @@ export class InputHandler {
       ) {
         e.preventDefault();
         this.eventBus.emit(new ConfirmGhostStructureEvent());
+      }
+
+      if (
+        (e.code === "Enter" || e.code === "NumpadEnter") &&
+        this.selectedWarshipIds.length > 0
+      ) {
+        e.preventDefault();
+        this.eventBus.emit(new CreateFleetEvent([...this.selectedWarshipIds]));
+        this.selectedWarshipIds = [];
+        this.multiSelectionActive = false;
+        this.canvas.style.cursor = "";
       }
 
       // Don't track zoom keys when a meta/ctrl modifier is held — that means
