@@ -65,6 +65,7 @@ import {
   SendSpawnIntentEvent,
   SendUpgradeStructureIntentEvent,
   SendCreateFleetIntentEvent,
+  SendLeaveFleetIntentEvent,
   Transport,
 } from "./Transport";
 import { createCanvas } from "./Utils";
@@ -1430,7 +1431,33 @@ export class ClientGameRunner {
   }
 
   private onCreateFleet(event: CreateFleetEvent): void {
-    this.eventBus.emit(new SendCreateFleetIntentEvent(event.unitIds));
+    // If all selected warships are in the same fleet, leave the fleet instead.
+    const myPlayer = this.gameView.myPlayer();
+    let allInSameFleet = event.unitIds.length > 0;
+    let commonFleetId: number | undefined;
+    if (myPlayer) {
+      for (const id of event.unitIds) {
+        const u = myPlayer.units().find((unit) => unit.id() === id);
+        if (!u || u.fleetId() === undefined) {
+          allInSameFleet = false;
+          break;
+        }
+        if (commonFleetId === undefined) {
+          commonFleetId = u.fleetId();
+        } else if (u.fleetId() !== commonFleetId) {
+          allInSameFleet = false;
+          break;
+        }
+      }
+    } else {
+      allInSameFleet = false;
+    }
+
+    if (allInSameFleet) {
+      this.eventBus.emit(new SendLeaveFleetIntentEvent(event.unitIds));
+    } else {
+      this.eventBus.emit(new SendCreateFleetIntentEvent(event.unitIds));
+    }
   }
 
   private getTileUnderCursor(): TileRef | null {
