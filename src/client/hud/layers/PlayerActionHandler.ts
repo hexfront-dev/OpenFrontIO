@@ -33,11 +33,12 @@ export class PlayerActionHandler {
     );
   }
 
-  handleBoatAttack(player: PlayerView, targetTile: TileRef) {
+  handleBoatAttack(player: PlayerView, targetTile: TileRef, escort: boolean = false) {
     this.eventBus.emit(
       new SendBoatAttackIntentEvent(
         targetTile,
         this.uiState.attackRatio * player.troops(),
+        escort,
       ),
     );
   }
