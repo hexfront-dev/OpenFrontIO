@@ -716,6 +716,10 @@ export class Config {
     return 20; // in ticks (one tick is 100ms)
   }
 
+  warshipShellSpeed(): number {
+    return 2; // tiles per tick
+  }
+
   radiusPortSpawn() {
     return 20;
   }

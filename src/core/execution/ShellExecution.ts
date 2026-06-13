@@ -45,7 +45,8 @@ export class ShellExecution implements Execution {
       this.destroyAtTick = this.mg.ticks() + this.mg.config().shellLifetime();
     }
 
-    for (let i = 0; i < 3; i++) {
+    const speed = this.mg.config().warshipShellSpeed();
+    for (let i = 0; i < speed; i++) {
       const result = this.pathFinder.next(
         this.shell.tile(),
         this.target.tile(),
