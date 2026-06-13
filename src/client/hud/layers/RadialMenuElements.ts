@@ -774,30 +774,12 @@ export const boatMenuElement: MenuElement = {
     ),
   icon: boatIcon,
   color: COLORS.boat,
-  subMenu: () => [
-    {
-      id: "boat_transport",
-      name: "transport",
-      disabled: () => false,
-      icon: boatIcon,
-      color: COLORS.boat,
-      action: async (params: MenuElementParams) => {
-        params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile, false);
-        params.closeMenu();
-      },
-    },
-    {
-      id: "boat_escort",
-      name: "with escort",
-      disabled: () => false,
-      icon: boatIcon,
-      color: COLORS.boat,
-      action: async (params: MenuElementParams) => {
-        params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile, true);
-        params.closeMenu();
-      },
-    },
-  ],
+
+  action: async (params: MenuElementParams) => {
+    params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile);
+
+    params.closeMenu();
+  },
 };
 
 export const centerButtonElement: CenterButtonElement = {

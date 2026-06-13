@@ -91,7 +91,6 @@ export class SendBoatAttackIntentEvent implements GameEvent {
   constructor(
     public readonly dst: TileRef,
     public readonly troops: number,
-    public readonly escort: boolean = false,
   ) {}
 }
 
@@ -582,7 +581,6 @@ export class Transport {
       type: "boat",
       troops: event.troops,
       dst: event.dst,
-      escort: event.escort ? true : undefined,
     });
   }
 

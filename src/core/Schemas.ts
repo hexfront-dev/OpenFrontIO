@@ -613,7 +613,6 @@ export const BoatAttackIntentSchema = z.object({
   // troops(), combat attrition), and the client sends the raw float.
   troops: zb.float({ min: 0 }),
   dst: zb.uint(),
-  escort: z.boolean().optional(),
 });
 
 export const AllianceRequestIntentSchema = z.object({
