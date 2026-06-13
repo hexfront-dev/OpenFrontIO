@@ -18,7 +18,11 @@ export class MoveWarshipExecution implements Execution {
       this.owner.units(UnitType.Warship).map((u) => [u.id(), u]),
     );
     // Deduplicate ids so each warship is only moved once
-    for (const unitId of new Set(this.unitIds)) {
+    const dedupedIds = [...new Set(this.unitIds)];
+    const fleetFormation = this.computeFormation(dedupedIds.length);
+
+    let idx = 0;
+    for (const unitId of dedupedIds) {
       const warship = warshipMap.get(unitId);
       if (!warship) {
         console.warn(`MoveWarshipExecution: warship ${unitId} not found`);
@@ -28,15 +32,38 @@ export class MoveWarshipExecution implements Execution {
         console.warn(`MoveWarshipExecution: warship ${unitId} is not active`);
         continue;
       }
-      if (warship.fleetId() !== undefined && mg.isWater(this.position)) {
-        warship.move(this.position);
-      }
+
+      const offset = fleetFormation[idx++] ?? { dx: 0, dy: 0 };
+      const x = mg.x(this.position) + offset.dx;
+      const y = mg.y(this.position) + offset.dy;
+      const formationTile = mg.isValidCoord(x, y) && mg.isWater(mg.ref(x, y))
+        ? mg.ref(x, y)
+        : this.position;
+
       warship.updateWarshipState({
-        patrolTile: this.position,
+        patrolTile: formationTile,
       });
       warship.setTargetTile(undefined);
     }
   }
+
+  /**
+   * Spread warships in a grid around the target point.
+   * For 1 ship: center. For 2: side by side. For 3+: grid layout.
+   */
+  private computeFormation(count: number): { dx: number; dy: number }[] {
+    if (count <= 1) return [{ dx: 0, dy: 0 }];
+    const offsets: { dx: number; dy: number }[] = [];
+    const gridSize = Math.ceil(Math.sqrt(count));
+    const half = Math.floor(gridSize / 2);
+    for (let i = 0; i < count; i++) {
+      const row = Math.floor(i / gridSize) - half;
+      const col = (i % gridSize) - half;
+      offsets.push({ dx: col, dy: row });
+    }
+    return offsets;
+}
+
 
   tick(_ticks: number): void {}
 
