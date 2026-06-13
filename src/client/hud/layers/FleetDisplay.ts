@@ -6,6 +6,7 @@ import { UnitType } from "../../../core/game/Game";
 import { Controller } from "../../Controller";
 import { GameView, UnitView } from "../../../core/game/GameView";
 import { UnitSelectionEvent } from "../../InputHandler";
+import { SendLeaveFleetIntentEvent } from "../../Transport";
 
 @customElement("fleet-display")
 export class FleetDisplay extends LitElement implements Controller {
@@ -54,6 +55,16 @@ export class FleetDisplay extends LitElement implements Controller {
       color: #aaa;
       font-size: 10px;
     }
+    .fleet-dismiss {
+      color: #f44;
+      cursor: pointer;
+      font-weight: bold;
+      margin-left: 4px;
+      font-size: 11px;
+    }
+    .fleet-dismiss:hover {
+      color: #f88;
+    }
   `;
 
   init() {}
@@ -87,9 +98,10 @@ export class FleetDisplay extends LitElement implements Controller {
     return html`
       ${[...this.fleets.entries()].map(
         ([fleetId, units]) => html`
-          <div class="fleet-entry" @click=${() => this.selectFleet(units)}>
-            <span class="fleet-name">Fleet ${fleetId}</span>
-            <span class="fleet-count">${units.length} ship${units.length !== 1 ? "s" : ""}</span>
+          <div class="fleet-entry">
+            <span class="fleet-name" @click=${() => this.selectFleet(units)}>Fleet ${fleetId}</span>
+            <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length} ship${units.length !== 1 ? "s" : ""}</span>
+            <span class="fleet-dismiss" @click=${(e: Event) => { e.stopPropagation(); this.dismissFleet(units); }}>x</span>
           </div>
         `,
       )}
@@ -98,5 +110,9 @@ export class FleetDisplay extends LitElement implements Controller {
 
   private selectFleet(units: UnitView[]) {
     this.eventBus.emit(new UnitSelectionEvent(null, true, units));
+  }
+
+  private dismissFleet(units: UnitView[]) {
+    this.eventBus.emit(new SendLeaveFleetIntentEvent(units.map((u) => u.id())));
   }
 }
