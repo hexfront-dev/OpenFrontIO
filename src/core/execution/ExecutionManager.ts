@@ -27,7 +27,6 @@ import { TargetPlayerExecution } from "./TargetPlayerExecution";
 import { TransportShipExecution } from "./TransportShipExecution";
 import { TribeSpawner } from "./TribeSpawner";
 import { UpgradeStructureExecution } from "./UpgradeStructureExecution";
-import { BatchUpgradeStructureExecution } from "./BatchUpgradeStructureExecution";
 import { PlayerSpawner } from "./utils/PlayerSpawner";
 
 export class Executor {
@@ -122,12 +121,6 @@ export class Executor {
           player,
           intent.unitId,
           intent.amount,
-        );
-      case "upgrade_structure_batch":
-        return new BatchUpgradeStructureExecution(
-          player,
-          intent.unitId,
-          intent.count,
         );
       case "delete_unit":
         return new DeleteUnitExecution(player, intent.unitId);

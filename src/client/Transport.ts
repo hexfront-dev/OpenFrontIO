@@ -68,14 +68,6 @@ export class SendUpgradeStructureIntentEvent implements GameEvent {
   ) {}
 }
 
-export class SendBatchUpgradeStructureIntentEvent implements GameEvent {
-  constructor(
-    public readonly unitId: number,
-    public readonly unitType: UnitType,
-    public readonly count: number,
-  ) {}
-}
-
 export class SendAllianceRejectIntentEvent implements GameEvent {
   constructor(public readonly requestor: PlayerView) {}
 }
@@ -270,9 +262,6 @@ export class Transport {
     this.eventBus.on(SendAttackIntentEvent, (e) => this.onSendAttackIntent(e));
     this.eventBus.on(SendUpgradeStructureIntentEvent, (e) =>
       this.onSendUpgradeStructureIntent(e),
-    );
-    this.eventBus.on(SendBatchUpgradeStructureIntentEvent, (e) =>
-      this.onSendBatchUpgradeStructureIntent(e),
     );
     this.eventBus.on(SendBoatAttackIntentEvent, (e) =>
       this.onSendBoatAttackIntent(e),
@@ -577,15 +566,6 @@ export class Transport {
       unit: event.unitType,
       unitId: event.unitId,
       amount: event.amount,
-    });
-  }
-
-  private onSendBatchUpgradeStructureIntent(event: SendBatchUpgradeStructureIntentEvent) {
-    this.sendIntent({
-      type: "upgrade_structure_batch",
-      unit: event.unitType,
-      unitId: event.unitId,
-      count: event.count,
     });
   }
 
