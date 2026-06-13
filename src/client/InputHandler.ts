@@ -443,11 +443,9 @@ export class InputHandler {
       }
 
       // Shift = warship box selection mode.
-      // If a ghost structure is active, discard it first.
+      // Don't clear ghost structure on keydown — shift+click may be used to
+      // upgrade buildings (handled in BuildPreviewController).
       if (e.code === this.keybinds.shiftKey) {
-        if (this.uiState.ghostStructure !== null) {
-          this.setGhostStructure(null);
-        }
         this.canvas.style.cursor = "crosshair";
       }
     });
