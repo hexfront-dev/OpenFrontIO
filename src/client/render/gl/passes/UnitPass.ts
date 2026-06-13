@@ -46,6 +46,8 @@ import {
   UT_TRAIN,
   UT_TRANSPORT,
   UT_WARSHIP,
+  UT_MISSILE_SHIP,
+  UT_MISSILE_DEFENSE_SHIP,
 } from "../../types";
 import { DynamicInstanceBuffer } from "../DynamicBuffer";
 import type { RenderSettings } from "../RenderSettings";
@@ -224,6 +226,12 @@ export class UnitPass {
       if (col >= 0) {
         this.typeToAtlasCol.set(header.unitTypes[i], col);
       }
+    }
+    // New ship types share the warship atlas column
+    const warshipCol = this.typeToAtlasCol.get(UT_WARSHIP);
+    if (warshipCol !== undefined) {
+      this.typeToAtlasCol.set(UT_MISSILE_SHIP, warshipCol);
+      this.typeToAtlasCol.set(UT_MISSILE_DEFENSE_SHIP, warshipCol);
     }
 
     // Compile shaders
