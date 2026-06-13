@@ -635,14 +635,6 @@ export class InputHandler {
 
       if (
         (e.code === "Enter" || e.code === "NumpadEnter") &&
-        this.uiState.ghostStructure !== null
-      ) {
-        e.preventDefault();
-        this.eventBus.emit(new ConfirmGhostStructureEvent());
-      }
-
-      if (
-        (e.code === "Enter" || e.code === "NumpadEnter") &&
         this.selectedWarshipIds.length > 0
       ) {
         e.preventDefault();
@@ -650,6 +642,12 @@ export class InputHandler {
         this.selectedWarshipIds = [];
         this.multiSelectionActive = false;
         this.canvas.style.cursor = "";
+      } else if (
+        (e.code === "Enter" || e.code === "NumpadEnter") &&
+        this.uiState.ghostStructure !== null
+      ) {
+        e.preventDefault();
+        this.eventBus.emit(new ConfirmGhostStructureEvent());
       }
 
       // Don't track zoom keys when a meta/ctrl modifier is held — that means
