@@ -29,6 +29,7 @@ import type { GhostPreviewData } from "../render/types";
 import { TransformHandler } from "../TransformHandler";
 import {
   BuildUnitIntentEvent,
+  SendBatchUpgradeStructureIntentEvent,
   SendUpgradeStructureIntentEvent,
 } from "../Transport";
 import { UIState } from "../UIState";
@@ -381,8 +382,15 @@ export class BuildPreviewController implements Controller {
     }
     const tile = this.transformHandler.screenToWorldCoordinates(e.x, e.y);
     if (this.ghostUnit.buildableUnit.canUpgrade !== false) {
-      const count = e.shiftKey ? 5 : 1;
-      for (let i = 0; i < count; i++) {
+      if (e.shiftKey) {
+        this.eventBus.emit(
+          new SendBatchUpgradeStructureIntentEvent(
+            this.ghostUnit.buildableUnit.canUpgrade,
+            this.ghostUnit.buildableUnit.type,
+            5,
+          ),
+        );
+      } else {
         this.eventBus.emit(
           new SendUpgradeStructureIntentEvent(
             this.ghostUnit.buildableUnit.canUpgrade,
