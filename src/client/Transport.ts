@@ -146,6 +146,10 @@ export class SendCreateFleetIntentEvent implements GameEvent {
   constructor(public readonly unitIds: number[]) {}
 }
 
+export class SendLeaveFleetIntentEvent implements GameEvent {
+  constructor(public readonly unitIds: number[]) {}
+}
+
 export class CancelAttackIntentEvent implements GameEvent {
   constructor(public readonly attackID: string) {}
 }
@@ -272,6 +276,10 @@ export class Transport {
 
     this.eventBus.on(SendCreateFleetIntentEvent, (e) =>
       this.onSendCreateFleetIntent(e),
+    );
+
+    this.eventBus.on(SendLeaveFleetIntentEvent, (e) =>
+      this.onSendLeaveFleetIntent(e),
     );
 
     this.eventBus.on(SendKickPlayerIntentEvent, (e) =>
@@ -659,6 +667,13 @@ export class Transport {
   private onSendCreateFleetIntent(event: SendCreateFleetIntentEvent) {
     this.sendIntent({
       type: "create_fleet",
+      unitIds: event.unitIds,
+    });
+  }
+
+  private onSendLeaveFleetIntent(event: SendLeaveFleetIntentEvent) {
+    this.sendIntent({
+      type: "leave_fleet",
       unitIds: event.unitIds,
     });
   }
