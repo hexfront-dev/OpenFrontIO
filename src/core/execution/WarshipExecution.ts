@@ -62,14 +62,21 @@ export class WarshipExecution implements Execution {
       this.warship.delete();
       return;
     }
+
+    const healthBeforeHealing = this.warship.health();
+    this.healWarship();
+
+    // Fleeted warships only move via manual player commands.
+    if (this.warship.fleetId() !== undefined) {
+      return;
+    }
+
     const isInCombat = this.warship.warshipState().isInCombat ?? false;
     if (this.lastEmittedCombat && !isInCombat) {
       this.warship.touch();
     }
     this.lastEmittedCombat = isInCombat;
-    const healthBeforeHealing = this.warship.health();
 
-    this.healWarship();
     this.handleManualPatrolOverride();
 
     if (this.warship.warshipState().state === "docked") {

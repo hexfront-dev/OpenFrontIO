@@ -64,6 +64,7 @@ function unitStateFromUpdate(u: UnitUpdate): UnitState {
     missileTimerQueue: u.missileTimerQueue,
     level: u.level,
     hasTrainStation: u.hasTrainStation,
+    fleetId: u.fleetId,
     trainType: trainTypeToNum(u.trainType),
     loaded: u.loaded ?? null,
     constructionStartTick: null, // GameView fills in createdAt when underConstruction
@@ -90,6 +91,7 @@ function applyUpdateInPlace(target: UnitState, u: UnitUpdate): void {
   target.missileTimerQueue = u.missileTimerQueue;
   target.level = u.level;
   target.hasTrainStation = u.hasTrainStation;
+  if (u.fleetId !== undefined) target.fleetId = u.fleetId;
   target.trainType = trainTypeToNum(u.trainType);
   target.loaded = u.loaded ?? null;
 }
@@ -267,6 +269,9 @@ export class UnitView {
   }
   hasTrainStation(): boolean {
     return this.state.hasTrainStation;
+  }
+  fleetId(): number | undefined {
+    return this.state.fleetId;
   }
   trainType(): TrainType | undefined {
     return numToTrainType(this.state.trainType);

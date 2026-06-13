@@ -68,6 +68,7 @@ function unit(overrides: Partial<UnitState> = {}): UnitState {
     missileTimerQueue: [],
     level: 1,
     hasTrainStation: false,
+    fleetId: undefined,
     trainType: null,
     loaded: null,
     constructionStartTick: null,

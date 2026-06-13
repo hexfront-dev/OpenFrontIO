@@ -162,6 +162,7 @@ export interface UnitUpdate {
   missileTimerQueue: number[];
   level: number;
   hasTrainStation: boolean;
+  fleetId?: number;
   trainType?: TrainType; // Only for trains
   loaded?: boolean; // Only for trains
 }

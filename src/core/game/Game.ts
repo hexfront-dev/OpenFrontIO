@@ -634,6 +634,8 @@ export interface Unit {
   toUpdate(): UnitUpdate;
   hasTrainStation(): boolean;
   setTrainStation(trainStation: boolean): void;
+  fleetId(): number | undefined;
+  setFleetId(id: number | undefined): void;
   wasDestroyedByEnemy(): boolean;
   destroyer(): Player | undefined;
 
@@ -911,6 +913,7 @@ export interface Game extends GameMap {
   config(): Config;
   isPaused(): boolean;
   setPaused(paused: boolean): void;
+  nextFleetId(): number;
 
   // Units
   unit(id: number): Unit | undefined;

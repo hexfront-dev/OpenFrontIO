@@ -97,6 +97,7 @@ export interface UnitState {
   missileTimerQueue: number[];
   level: number;
   hasTrainStation: boolean;
+  fleetId: number | undefined;
   trainType: number | null; // 0=Engine, 1=TailEngine, 2=Carriage
   loaded: boolean | null;
   constructionStartTick: number | null;

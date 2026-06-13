@@ -93,6 +93,7 @@ export class GameImpl implements Game {
 
   private nextPlayerID = 1;
   private _nextUnitID = 1;
+  private _nextFleetId = 1;
 
   private updates: GameUpdates = createGameUpdatesMap();
   private tileUpdatePairs: number[] = [];
@@ -251,6 +252,12 @@ export class GameImpl implements Game {
   nextUnitID(): number {
     const old = this._nextUnitID;
     this._nextUnitID++;
+    return old;
+  }
+
+  nextFleetId(): number {
+    const old = this._nextFleetId;
+    this._nextFleetId++;
     return old;
   }
 
