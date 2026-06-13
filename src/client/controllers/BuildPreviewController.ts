@@ -554,24 +554,14 @@ export class BuildPreviewController implements Controller {
         unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb
           ? this.uiState.rocketDirectionUp
           : undefined;
-      const isBuilding =
-        unitType === UnitType.City ||
-        unitType === UnitType.Factory ||
-        unitType === UnitType.Port ||
-        unitType === UnitType.DefensePost ||
-        unitType === UnitType.MissileSilo ||
-        unitType === UnitType.SAMLauncher;
-      const count = e.shiftKey && isBuilding ? 5 : 1;
-      for (let i = 0; i < count; i++) {
-        this.eventBus.emit(
-          new BuildUnitIntentEvent(
-            unitType,
-            targetTile,
-            rocketDirectionUp,
-            isNuke ? this.uiState.upgradeMultiplier || 1 : undefined,
-          ),
-        );
-      }
+      this.eventBus.emit(
+        new BuildUnitIntentEvent(
+          unitType,
+          targetTile,
+          rocketDirectionUp,
+          isNuke ? this.uiState.upgradeMultiplier || 1 : undefined,
+        ),
+      );
       if (!shouldPreserveGhostAfterBuild(unitType)) {
         this.removeGhostStructure();
       }

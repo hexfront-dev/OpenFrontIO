@@ -10,7 +10,6 @@ export class MouseUpEvent implements GameEvent {
   constructor(
     public readonly x: number,
     public readonly y: number,
-    public readonly shiftKey: boolean = false,
   ) {}
 }
 
@@ -876,7 +875,7 @@ export class InputHandler {
         this.gameView.inSpawnPhase() || // No Radial Menu during spawn phase, only spawn point selection
         this.uiState.ghostStructure !== null // Block radial menu on left click if building
       ) {
-        this.eventBus.emit(new MouseUpEvent(event.x, event.y, event.shiftKey));
+        this.eventBus.emit(new MouseUpEvent(event.x, event.y));
       } else {
         this.eventBus.emit(new ContextMenuEvent(event.clientX, event.clientY));
       }
