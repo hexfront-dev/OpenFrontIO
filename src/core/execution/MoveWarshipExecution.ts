@@ -34,6 +34,9 @@ export class MoveWarshipExecution implements Execution {
       if (!mg.hasWaterComponent(warship.tile(), newPatrolTileWaterComponent!)) {
         continue;
       }
+      if (warship.fleetId() !== undefined && mg.isWater(this.position)) {
+        warship.move(this.position);
+      }
       warship.updateWarshipState({
         patrolTile: this.position,
       });

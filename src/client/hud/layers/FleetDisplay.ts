@@ -3,9 +3,9 @@ import { customElement, state } from "lit/decorators.js";
 import { css } from "lit";
 import { EventBus } from "../../../core/EventBus";
 import { UnitType } from "../../../core/game/Game";
-import { GameUpdateType } from "../../../core/game/GameUpdates";
 import { Controller } from "../../Controller";
 import { GameView, UnitView } from "../../../core/game/GameView";
+import { UnitSelectionEvent } from "../../InputHandler";
 
 @customElement("fleet-display")
 export class FleetDisplay extends LitElement implements Controller {
@@ -87,12 +87,16 @@ export class FleetDisplay extends LitElement implements Controller {
     return html`
       ${[...this.fleets.entries()].map(
         ([fleetId, units]) => html`
-          <div class="fleet-entry">
+          <div class="fleet-entry" @click=${() => this.selectFleet(units)}>
             <span class="fleet-name">Fleet ${fleetId}</span>
             <span class="fleet-count">${units.length} ship${units.length !== 1 ? "s" : ""}</span>
           </div>
         `,
       )}
     `;
+  }
+
+  private selectFleet(units: UnitView[]) {
+    this.eventBus.emit(new UnitSelectionEvent(null, true, units));
   }
 }
