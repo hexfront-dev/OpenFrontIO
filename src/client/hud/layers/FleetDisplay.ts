@@ -59,11 +59,15 @@ export class FleetDisplay extends LitElement implements Controller {
       color: #f44;
       cursor: pointer;
       font-weight: bold;
-      margin-left: 4px;
-      font-size: 11px;
+      font-size: 14px;
+      padding: 0 4px;
+      line-height: 1;
+      user-select: none;
     }
     .fleet-dismiss:hover {
       color: #f88;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
     }
   `;
 
@@ -101,7 +105,7 @@ export class FleetDisplay extends LitElement implements Controller {
           <div class="fleet-entry">
             <span class="fleet-name" @click=${() => this.selectFleet(units)}>Fleet ${fleetId}</span>
             <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length} ship${units.length !== 1 ? "s" : ""}</span>
-            <span class="fleet-dismiss" @click=${(e: Event) => { e.stopPropagation(); this.dismissFleet(units); }}>x</span>
+            <span class="fleet-dismiss" @pointerdown=${(e: Event) => e.stopPropagation()} @pointerup=${(e: Event) => { e.stopPropagation(); e.preventDefault(); this.dismissFleet(units); }}>x</span>
           </div>
         `,
       )}
@@ -109,10 +113,10 @@ export class FleetDisplay extends LitElement implements Controller {
   }
 
   private selectFleet(units: UnitView[]) {
-    this.eventBus.emit(new UnitSelectionEvent(null, true, units));
+    this.eventBus?.emit(new UnitSelectionEvent(null, true, units));
   }
 
   private dismissFleet(units: UnitView[]) {
-    this.eventBus.emit(new SendLeaveFleetIntentEvent(units.map((u) => u.id())));
+    this.eventBus?.emit(new SendLeaveFleetIntentEvent(units.map((u) => u.id())));
   }
 }
