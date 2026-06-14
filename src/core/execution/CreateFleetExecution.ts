@@ -9,24 +9,26 @@ export class CreateFleetExecution implements Execution {
   ) {}
 
   init(mg: Game): void {
-    const warships = this.unitIds
+    const fleetUnits = this.unitIds
       .map((id) => mg.unit(id))
       .filter(
         (u): u is NonNullable<typeof u> =>
           u !== undefined &&
-          u.type() === UnitType.Warship &&
+          (u.type() === UnitType.Warship ||
+            u.type() === UnitType.MissileShip ||
+            u.type() === UnitType.MissileDefenseShip) &&
           u.owner() === this.player &&
           u.isActive(),
       );
 
-    if (warships.length === 0) {
+    if (fleetUnits.length === 0) {
       this.active = false;
       return;
     }
 
     const fleetId = mg.nextFleetId();
-    for (const warship of warships) {
-      warship.setFleetId(fleetId);
+    for (const unit of fleetUnits) {
+      unit.setFleetId(fleetId);
     }
     this.active = false;
   }

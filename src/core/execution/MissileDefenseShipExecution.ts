@@ -50,6 +50,12 @@ export class MissileDefenseShipExecution implements Execution {
       return;
     }
 
+    // Fleeted ships: only patrol, no auto-behavior.
+    if (this.warship.fleetId() !== undefined) {
+      this.patrol();
+      return;
+    }
+
     // Reload missiles
     const timerQueue = this.warship.missileTimerQueue();
     if (timerQueue.length > 0) {

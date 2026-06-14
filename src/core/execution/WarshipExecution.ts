@@ -69,12 +69,11 @@ export class WarshipExecution implements Execution {
     // Fleeted warships: heal, shoot nearby enemies, patrol in formation.
     // No retreat, docking, or chasing targets (won't break formation).
     if (this.warship.fleetId() !== undefined) {
-      this.warship.setTargetUnit(
-        this.findBestTarget([UnitType.Warship, UnitType.TransportShip]),
-      );
+      const target = this.findBestTarget([UnitType.Warship, UnitType.TransportShip]);
+      this.warship.setTargetUnit(target);
       if (
-        this.warship.targetUnit()?.type() === UnitType.Warship ||
-        this.warship.targetUnit()?.type() === UnitType.TransportShip
+        target?.type() === UnitType.Warship ||
+        target?.type() === UnitType.TransportShip
       ) {
         this.shootTarget();
       }
