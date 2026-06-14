@@ -84,7 +84,11 @@ export class FleetDisplay extends LitElement implements Controller {
     }
 
     const fleetMap = new Map<number, UnitView[]>();
-    for (const unit of myPlayer.units(UnitType.Warship)) {
+    for (const unit of myPlayer.units(
+      UnitType.Warship,
+      UnitType.MissileShip,
+      UnitType.MissileDefenseShip,
+    )) {
       const fid = unit.fleetId();
       if (fid === undefined) continue;
       if (!fleetMap.has(fid)) {

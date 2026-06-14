@@ -13,7 +13,9 @@ export class LeaveFleetExecution implements Execution {
       const unit = mg.unit(id);
       if (
         unit &&
-        unit.type() === UnitType.Warship &&
+        (unit.type() === UnitType.Warship ||
+          unit.type() === UnitType.MissileShip ||
+          unit.type() === UnitType.MissileDefenseShip) &&
         unit.owner() === this.player &&
         unit.isActive() &&
         unit.fleetId() !== undefined

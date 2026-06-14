@@ -47,6 +47,12 @@ export class MissileShipExecution implements Execution {
       return;
     }
 
+    // Fleeted ships: only patrol, no auto-behavior.
+    if (this.warship.fleetId() !== undefined) {
+      this.patrol();
+      return;
+    }
+
     // Reload missiles
     const config = this.mg.config();
     const timerQueue = this.warship.missileTimerQueue();
