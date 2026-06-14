@@ -5,8 +5,7 @@ import { EventBus } from "../../../core/EventBus";
 import { UnitType } from "../../../core/game/Game";
 import { Controller } from "../../Controller";
 import { GameView, UnitView } from "../../../core/game/GameView";
-import { UnitSelectionEvent } from "../../InputHandler";
-import { SendLeaveFleetIntentEvent } from "../../Transport";
+import { UnitSelectionEvent, CreateFleetEvent } from "../../InputHandler";
 
 @customElement("fleet-display")
 export class FleetDisplay extends LitElement implements Controller {
@@ -117,6 +116,6 @@ export class FleetDisplay extends LitElement implements Controller {
   }
 
   private dismissFleet(units: UnitView[]) {
-    this.eventBus?.emit(new SendLeaveFleetIntentEvent(units.map((u) => u.id())));
+    this.eventBus?.emit(new CreateFleetEvent(units.map((u) => u.id())));
   }
 }
