@@ -1831,6 +1831,8 @@
     "factory": "Factory",
     "hydrogen_bomb": "Hydrogen Bomb",
     "mirv": "MIRV",
+    "missile_defense_ship": "Missile Defense Ship",
+    "missile_ship": "Missile Ship",
     "missile_silo": "Missile Silo",
     "port": "Port",
     "sam_launcher": "SAM Launcher",

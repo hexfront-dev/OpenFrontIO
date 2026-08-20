@@ -237,18 +237,18 @@ describe("Config.trainGold trade stop penalty", () => {
 
   it("returns full base gold within free window (stops 0-9)", () => {
     // first 10 stops (0-9) are free — no penalty
-    expect(config.trainGold("self", 0, mockPlayer)).toBe(10_000n);
-    expect(config.trainGold("self", 9, mockPlayer)).toBe(10_000n);
+    expect(config.trainGold("self", 0, mockPlayer)).toBe(25_000n);
+    expect(config.trainGold("self", 9, mockPlayer)).toBe(25_000n);
   });
 
   it("reduces gold by 5k per stop after the free window", () => {
-    // stop 10: effective = 10-9 = 1 -> 10k - 5k = 5k
-    expect(config.trainGold("self", 10, mockPlayer)).toBe(5_000n);
+    // stop 10: effective = 10-9 = 1 -> 25k - 5k = 20k
+    expect(config.trainGold("self", 10, mockPlayer)).toBe(20_000n);
   });
 
   it("floors at 5k when penalty exceeds base gold", () => {
-    // stop 12: effective = 3 -> 10k - 15k -> floor at 5k
-    expect(config.trainGold("self", 12, mockPlayer)).toBe(5_000n);
+    // stop 15: effective = 6 -> 25k - 30k -> floor at 5k
+    expect(config.trainGold("self", 15, mockPlayer)).toBe(5_000n);
   });
 
   it("floors at 5k for ally base even with heavy penalty", () => {
