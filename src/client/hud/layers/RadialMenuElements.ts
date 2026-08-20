@@ -570,7 +570,7 @@ export const deleteUnitElement: MenuElement = {
 
 export const disableStationElement: MenuElement = {
   id: Slot.DisableStation,
-  name: "disable station",
+  name: "Disconnect Grid",
   disabled: (params: MenuElementParams) => {
     const tileOwner = params.game.owner(params.tile);
     const isLand = params.game.isLand(params.tile);
@@ -592,7 +592,7 @@ export const disableStationElement: MenuElement = {
       .units()
       .filter(
         (unit) =>
-          unit.hasTrainStation() &&
+          !unit.isUnderConstruction() &&
           (unit.type() === UnitType.Factory || unit.type() === UnitType.Port || unit.type() === UnitType.City) &&
           params.game.manhattanDist(unit.tile(), params.tile) <=
             DISABLE_SELECTION_RADIUS,
@@ -602,13 +602,23 @@ export const disableStationElement: MenuElement = {
   },
   icon: xIcon,
   color: COLORS.delete,
+  tooltipKeys: [
+    {
+      key: "radial_menu.disconnect_grid_title",
+      className: "title",
+    },
+    {
+      key: "radial_menu.disconnect_grid_description",
+      className: "description",
+    },
+  ],
   action: (params: MenuElementParams) => {
     const DISABLE_SELECTION_RADIUS = 5;
     const stationUnits = params.myPlayer
       .units()
       .filter(
         (unit) =>
-          unit.hasTrainStation() &&
+          !unit.isUnderConstruction() &&
           (unit.type() === UnitType.Factory || unit.type() === UnitType.Port || unit.type() === UnitType.City) &&
           params.game.manhattanDist(unit.tile(), params.tile) <=
             DISABLE_SELECTION_RADIUS,

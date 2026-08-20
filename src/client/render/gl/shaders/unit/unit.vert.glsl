@@ -6,6 +6,7 @@ layout(location = 0) in vec2 aPos;
 // Per-instance attributes
 layout(location = 1) in vec3 aInstPos;   // x, y, ownerID
 layout(location = 2) in vec2 aInstFlags; // atlasIdx (uint8→float), flags (uint8→float)
+layout(location = 3) in float aInstScale; // 0=1x, 1=1.5x, 2=2x
 
 uniform mat3  uCamera;
 
@@ -30,7 +31,8 @@ void main() {
 
   // UNIT_SIZE is in world-space tiles — no zoom division needed.
   // Units scale with the map like territory tiles do.
-  float halfSize = uUnitSize * 0.5;
+  float scale = 1.0 + aInstScale * 0.5;
+  float halfSize = uUnitSize * 0.5 * scale;
 
   vec2 center = vec2(worldX + 0.5, worldY + 0.5);
   vec2 worldPos = center + (aPos - 0.5) * halfSize * 2.0;

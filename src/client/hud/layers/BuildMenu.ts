@@ -79,14 +79,14 @@ export const buildTable: BuildItemDisplay[][] = [
     {
       unitType: UnitType.MissileShip,
       icon: missileSiloIcon,
-      description: "Missile Ship — launches nukes",
+      description: "Missile Carrier — launches nukes",
       key: "unit_type.missile_ship",
       countable: true,
     },
     {
       unitType: UnitType.MissileDefenseShip,
       icon: samlauncherIcon,
-      description: "Missile Defense Ship — intercepts nukes",
+      description: "Anti Air Missile Carrier — intercepts nukes",
       key: "unit_type.missile_defense_ship",
       countable: true,
     },

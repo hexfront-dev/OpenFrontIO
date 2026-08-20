@@ -778,8 +778,8 @@
     "defense_post": "Defense Post",
     "port": "Port",
     "warship": "Warship",
-    "missile_ship": "Missile Ship",
-    "missile_defense_ship": "Missile Defense Ship",
+    "missile_ship": "Missile Carrier",
+    "missile_defense_ship": "Anti Air Missile Carrier",
     "missile_silo": "Missile Silo",
     "sam_launcher": "SAM Launcher",
     "atom_bomb": "Atom Bomb",
@@ -1279,7 +1279,9 @@
   },
   "radial_menu": {
     "delete_unit_title": "Delete Unit",
-    "delete_unit_description": "Click to delete the nearest unit"
+    "delete_unit_description": "Click to delete the nearest unit",
+    "disconnect_grid_title": "Disconnect Grid",
+    "disconnect_grid_description": "Click to disconnect or reconnect the nearest rail station"
   },
   "discord_user_header": {
     "avatar_alt": "Avatar"

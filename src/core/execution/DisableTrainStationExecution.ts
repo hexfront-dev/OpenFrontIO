@@ -1,4 +1,5 @@
-import { Execution, Game, Player, Unit } from "../game/Game";
+import { Execution, Game, Player, Unit, UnitType } from "../game/Game";
+import { TrainStationExecution } from "./TrainStationExecution";
 
 export class DisableTrainStationExecution implements Execution {
   private unit: Unit | undefined;
@@ -23,13 +24,23 @@ export class DisableTrainStationExecution implements Execution {
       return;
     }
 
-    if (!this.unit.hasTrainStation()) {
-      console.warn(`unit does not have a train station`);
+    if (
+      this.unit.type() !== UnitType.Factory &&
+      this.unit.type() !== UnitType.City &&
+      this.unit.type() !== UnitType.Port
+    ) {
+      console.warn(`unit cannot have a train station`);
       this.active = false;
       return;
     }
 
-    mg.railNetwork().removeStation(this.unit);
+    // Toggle: disconnect if connected, reconnect if disconnected.
+    if (this.unit.hasTrainStation()) {
+      mg.railNetwork().removeStation(this.unit);
+    } else {
+      const spawnTrains = this.unit.type() === UnitType.Factory;
+      mg.addExecution(new TrainStationExecution(this.unit, spawnTrains));
+    }
     this.active = false;
   }
 
