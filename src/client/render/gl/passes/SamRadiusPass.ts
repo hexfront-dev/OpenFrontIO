@@ -14,7 +14,7 @@
  */
 
 import type { UnitState } from "../../types";
-import { UT_SAM_LAUNCHER } from "../../types";
+import { UT_MISSILE_DEFENSE_SHIP, UT_SAM_LAUNCHER } from "../../types";
 import { DynamicInstanceBuffer } from "../DynamicBuffer";
 import type { RenderSettings } from "../RenderSettings";
 import { createProgram } from "../utils/GlUtils";
@@ -356,7 +356,13 @@ export class SAMRadiusPass {
     this.dirtyGroups.clear();
 
     for (const u of structures.values()) {
-      if (u.unitType !== UT_SAM_LAUNCHER || !u.isActive) continue;
+      if (
+        (u.unitType !== UT_SAM_LAUNCHER &&
+          u.unitType !== UT_MISSILE_DEFENSE_SHIP) ||
+        !u.isActive
+      ) {
+        continue;
+      }
       const isFriendly =
         u.ownerID === this.localPlayerID || this.allies.has(u.ownerID);
       const bg = this.getSAMBaseGroup(u, isFriendly);
@@ -373,7 +379,13 @@ export class SAMRadiusPass {
     this.hasUpgradingSAM = this.dirtyGroups.size > 0;
 
     for (const u of structures.values()) {
-      if (u.unitType !== UT_SAM_LAUNCHER || !u.isActive) continue;
+      if (
+        (u.unitType !== UT_SAM_LAUNCHER &&
+          u.unitType !== UT_MISSILE_DEFENSE_SHIP) ||
+        !u.isActive
+      ) {
+        continue;
+      }
       const isFriendly =
         u.ownerID === this.localPlayerID || this.allies.has(u.ownerID);
       const bg = this.getSAMBaseGroup(u, isFriendly);

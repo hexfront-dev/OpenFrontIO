@@ -339,23 +339,23 @@ export class BuildPreviewController implements Controller {
     }
 
     // Mirror PlayerImpl.nukeSpawn (the source NukeExecution actually fires
-    // from): only silos that are active, not reloading, and not under
-    // construction are eligible, and the nearest (Manhattan distance) is
-    // chosen. Keeping these in sync prevents the preview arc from
-    // originating from a silo the game wouldn't use.
-    const silos = myPlayer
-      .units(UnitType.MissileSilo)
+    // from): only launchers (silos or missile ships) that are active, not
+    // reloading, and not under construction are eligible, and the nearest
+    // (Manhattan distance) is chosen. Keeping these in sync prevents the
+    // preview arc from originating from a launcher the game wouldn't use.
+    const launchers = myPlayer
+      .units(UnitType.MissileSilo, UnitType.MissileShip)
       .filter(
         (u) => u.isActive() && !u.isInCooldown() && !u.isUnderConstruction(),
       );
-    if (silos.length === 0) {
+    if (launchers.length === 0) {
       this.clearNukeTrajectory();
       return;
     }
 
     const dstX = this.game.x(tileRef);
     const dstY = this.game.y(tileRef);
-    silos.sort(
+    launchers.sort(
       (a, b) =>
         Math.abs(this.game.x(a.tile()) - dstX) +
         Math.abs(this.game.y(a.tile()) - dstY) -
@@ -363,10 +363,10 @@ export class BuildPreviewController implements Controller {
           Math.abs(this.game.y(b.tile()) - dstY)),
     );
 
-    const bestSilo = silos[0];
+    const bestLauncher = launchers[0];
     const directionUp = this.uiState.rocketDirectionUp;
-    const srcX = this.game.x(bestSilo.tile());
-    const srcY = this.game.y(bestSilo.tile());
+    const srcX = this.game.x(bestLauncher.tile());
+    const srcY = this.game.y(bestLauncher.tile());
 
     // Non-friendly SAMs threaten the trajectory; own + teammate + allied SAMs
     // don't — except allies this strike would betray: the alliance breaks at
