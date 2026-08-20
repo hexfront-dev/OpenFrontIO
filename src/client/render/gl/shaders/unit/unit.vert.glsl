@@ -6,6 +6,7 @@ layout(location = 0) in vec2 aPos;
 // Per-instance attributes
 layout(location = 1) in vec3 aInstPos;   // x, y, ownerID
 layout(location = 2) in vec3 aInstFlags; // atlasIdx, flags, flickerHash (uint8→float)
+layout(location = 3) in float aInstScale; // 0=1x, 1=1.5x, 2=2x
 
 uniform mat3  uCamera;
 
@@ -39,7 +40,8 @@ void main() {
   // around the sprite. All other units keep scale 1 (no behavior change).
   float isHBomb = step(abs(atlasCol - float(HYDROGEN_BOMB_COL)), 0.5);
   vGlow = isHBomb;
-  float scale = mix(1.0, uHBombGlowScale, isHBomb);
+  float shipScale = 1.0 + aInstScale * 0.5;
+  float scale = mix(1.0, uHBombGlowScale, isHBomb) * shipScale;
 
   // UNIT_SIZE is in world-space tiles — no zoom division needed.
   // Units scale with the map like territory tiles do.

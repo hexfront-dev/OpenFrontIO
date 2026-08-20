@@ -193,6 +193,11 @@ function createUnitVao(
   gl.vertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, false, BYTES_PER_INSTANCE, 12);
   gl.vertexAttribDivisor(2, 1);
 
+  // Attribute 3: per-instance scale (uint8) at offset 15 — 0=1x, 1=1.5x, 2=2x
+  gl.enableVertexAttribArray(3);
+  gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, false, BYTES_PER_INSTANCE, 15);
+  gl.vertexAttribDivisor(3, 1);
+
   gl.bindVertexArray(null);
   return vao;
 }
@@ -417,6 +422,7 @@ export class UnitPass {
     ownerID: number,
     atlasIdx: number,
     flags: number,
+    scale: number,
   ): void {
     this.groundBuf.ensureCapacity(this.groundCount + 1);
     const off = this.groundCount * FLOATS_PER_INSTANCE;
@@ -427,6 +433,7 @@ export class UnitPass {
     this.groundBuf.uint8[byteOff + 12] = atlasIdx;
     this.groundBuf.uint8[byteOff + 13] = flags;
     this.groundBuf.uint8[byteOff + 14] = flickerHashByte(x, y);
+    this.groundBuf.uint8[byteOff + 15] = scale;
     this.groundCount++;
   }
 
@@ -436,6 +443,7 @@ export class UnitPass {
     ownerID: number,
     atlasIdx: number,
     flags: number,
+    scale: number,
   ): void {
     this.missileBuf.ensureCapacity(this.missileCount + 1);
     const off = this.missileCount * FLOATS_PER_INSTANCE;
@@ -446,6 +454,7 @@ export class UnitPass {
     this.missileBuf.uint8[byteOff + 12] = atlasIdx;
     this.missileBuf.uint8[byteOff + 13] = flags;
     this.missileBuf.uint8[byteOff + 14] = flickerHashByte(x, y);
+    this.missileBuf.uint8[byteOff + 15] = scale;
     this.missileCount++;
   }
 
@@ -528,6 +537,13 @@ export class UnitPass {
       }
       const isMissile = MISSILE_TYPES.has(unit.unitType);
 
+      const scale =
+        unit.unitType === UT_MISSILE_SHIP
+          ? 1
+          : unit.unitType === UT_MISSILE_DEFENSE_SHIP
+            ? 2
+            : 0;
+
       const x = unit.pos % this.mapW;
       const y = (unit.pos - x) / this.mapW;
 
@@ -540,16 +556,16 @@ export class UnitPass {
           const ly = (unit.lastPos - lx) / this.mapW;
           this.smoothSegs.push(this.missileCount, lx, ly, x, y);
         }
-        this.emitMissile(x, y, unit.ownerID, atlasIdx, flags);
+        this.emitMissile(x, y, unit.ownerID, atlasIdx, flags, scale);
 
         // Shells emit a second instance at lastPos (2-pixel trail effect)
         if (unit.unitType === UT_SHELL && unit.lastPos !== unit.pos) {
           const lx = unit.lastPos % this.mapW;
           const ly = (unit.lastPos - lx) / this.mapW;
-          this.emitMissile(lx, ly, unit.ownerID, atlasIdx, flags);
+          this.emitMissile(lx, ly, unit.ownerID, atlasIdx, flags, scale);
         }
       } else {
-        this.emitGround(x, y, unit.ownerID, atlasIdx, flags);
+        this.emitGround(x, y, unit.ownerID, atlasIdx, flags, scale);
       }
     }
 
