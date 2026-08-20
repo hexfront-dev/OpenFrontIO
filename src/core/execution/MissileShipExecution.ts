@@ -99,12 +99,13 @@ export class MissileShipExecution implements Execution {
   }
 
   private randomTile(): number | undefined {
-    const tile = this.warship.tile();
+    const patrolTile = this.warship.warshipState().patrolTile;
+    const center = patrolTile ?? this.warship.tile();
     for (let i = 0; i < 20; i++) {
       const rx = this.random.nextInt(-50, 50);
       const ry = this.random.nextInt(-50, 50);
-      const x = this.mg.x(tile) + rx;
-      const y = this.mg.y(tile) + ry;
+      const x = this.mg.x(center) + rx;
+      const y = this.mg.y(center) + ry;
       if (this.mg.isValidCoord(x, y) && this.mg.isWater(this.mg.ref(x, y))) {
         return this.mg.ref(x, y);
       }
