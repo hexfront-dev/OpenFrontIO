@@ -78,7 +78,8 @@ export class UnitDisplay extends LitElement implements Controller {
       case UnitType.MIRV:
         return (
           this.cost(item) <= (player?.gold() ?? 0n) &&
-          (player?.units(UnitType.MissileSilo).length ?? 0) > 0
+          ((player?.units(UnitType.MissileSilo).length ?? 0) > 0 ||
+            (player?.units(UnitType.MissileShip).length ?? 0) > 0)
         );
       case UnitType.Warship:
       case UnitType.MissileShip:

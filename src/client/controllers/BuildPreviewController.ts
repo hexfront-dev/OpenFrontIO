@@ -242,19 +242,19 @@ export class BuildPreviewController implements Controller {
       return;
     }
 
-    const silos = myPlayer
-      .units(UnitType.MissileSilo)
+    const launchers = myPlayer
+      .units(UnitType.MissileSilo, UnitType.MissileShip)
       .filter((u) => u.isActive());
-    if (silos.length === 0) {
+    if (launchers.length === 0) {
       this.view.updateNukeTrajectory(null);
       return;
     }
 
     const dstX = this.game.x(tileRef);
     const dstY = this.game.y(tileRef);
-    let bestSilo = silos[0];
+    let bestLauncher = launchers[0];
     let bestDistSq = Infinity;
-    for (const s of silos) {
+    for (const s of launchers) {
       const sx = this.game.x(s.tile());
       const sy = this.game.y(s.tile());
       const dx = sx - dstX;
@@ -262,11 +262,11 @@ export class BuildPreviewController implements Controller {
       const d = dx * dx + dy * dy;
       if (d < bestDistSq) {
         bestDistSq = d;
-        bestSilo = s;
+        bestLauncher = s;
       }
     }
-    const srcX = this.game.x(bestSilo.tile());
-    const srcY = this.game.y(bestSilo.tile());
+    const srcX = this.game.x(bestLauncher.tile());
+    const srcY = this.game.y(bestLauncher.tile());
 
     // Non-allied SAMs threaten the trajectory; own + allied SAMs don't.
     const allyIds = new Set<number>();
