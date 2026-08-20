@@ -1,4 +1,4 @@
-import { Execution, Game, MessageType, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "../game/Game";
+import { Execution, Game, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "../game/Game";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
@@ -50,9 +50,9 @@ export class MissileDefenseShipExecution implements Execution {
       return;
     }
 
-    // Fleeted ships: only patrol, no auto-behavior.
+    // Fleeted ships: only hold formation, no auto-behavior.
     if (this.warship.fleetId() !== undefined) {
-      this.patrol();
+      this.moveToPatrolTile();
       return;
     }
 
@@ -139,6 +139,17 @@ export class MissileDefenseShipExecution implements Execution {
     }
     if (result.status === PathStatus.COMPLETE) {
       this.warship.setTargetTile(undefined);
+    }
+  }
+
+  private moveToPatrolTile(): void {
+    const patrolTile = this.warship.warshipState().patrolTile;
+    if (patrolTile === undefined) return;
+    if (this.warship.tile() === patrolTile) return;
+
+    const result = this.pathfinder.next(this.warship.tile(), patrolTile);
+    if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
+      this.warship.move(result.node);
     }
   }
 

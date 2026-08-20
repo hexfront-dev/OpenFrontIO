@@ -1,4 +1,4 @@
-import { Execution, Game, Player, UnitType } from "../game/Game";
+import { Execution, Game, Player, WarShips } from "../game/Game";
 
 export class CreateFleetExecution implements Execution {
   private active = true;
@@ -14,9 +14,7 @@ export class CreateFleetExecution implements Execution {
       .filter(
         (u): u is NonNullable<typeof u> =>
           u !== undefined &&
-          (u.type() === UnitType.Warship ||
-            u.type() === UnitType.MissileShip ||
-            u.type() === UnitType.MissileDefenseShip) &&
+          WarShips.has(u.type()) &&
           u.owner() === this.player &&
           u.isActive(),
       );

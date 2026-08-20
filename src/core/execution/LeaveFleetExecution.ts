@@ -1,4 +1,4 @@
-import { Execution, Game, Player, UnitType } from "../game/Game";
+import { Execution, Game, Player, WarShips } from "../game/Game";
 
 export class LeaveFleetExecution implements Execution {
   private active = true;
@@ -13,9 +13,7 @@ export class LeaveFleetExecution implements Execution {
       const unit = mg.unit(id);
       if (
         unit &&
-        (unit.type() === UnitType.Warship ||
-          unit.type() === UnitType.MissileShip ||
-          unit.type() === UnitType.MissileDefenseShip) &&
+        WarShips.has(unit.type()) &&
         unit.owner() === this.player &&
         unit.isActive() &&
         unit.fleetId() !== undefined

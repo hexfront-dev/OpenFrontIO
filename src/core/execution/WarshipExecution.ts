@@ -66,8 +66,8 @@ export class WarshipExecution implements Execution {
     const healthBeforeHealing = this.warship.health();
     this.healWarship();
 
-    // Fleeted warships: heal, shoot nearby enemies, patrol in formation.
-    // No retreat, docking, or chasing targets (won't break formation).
+    // Fleeted warships: heal, shoot nearby enemies, hold formation.
+    // No retreat, docking, random patrol, or chasing targets.
     if (this.warship.fleetId() !== undefined) {
       const target = this.findBestTarget([UnitType.Warship, UnitType.TransportShip]);
       this.warship.setTargetUnit(target);
@@ -77,7 +77,7 @@ export class WarshipExecution implements Execution {
       ) {
         this.shootTarget();
       }
-      this.patrol();
+      this.moveToPatrolTile();
       return;
     }
 
@@ -759,6 +759,26 @@ export class WarshipExecution implements Execution {
         this.warship.setTargetTile(undefined);
         break;
       }
+    }
+  }
+
+  private moveToPatrolTile() {
+    const patrolTile = this.warship.warshipState().patrolTile;
+    if (patrolTile === undefined) {
+      return;
+    }
+    if (this.warship.tile() === patrolTile) {
+      return;
+    }
+
+    const result = this.pathfinder.next(this.warship.tile(), patrolTile);
+    switch (result.status) {
+      case PathStatus.COMPLETE:
+      case PathStatus.NEXT:
+        this.warship.move(result.node);
+        break;
+      case PathStatus.NOT_FOUND:
+        break;
     }
   }
 

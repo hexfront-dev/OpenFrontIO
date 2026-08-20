@@ -2,7 +2,7 @@ import { html, LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { css } from "lit";
 import { EventBus } from "../../../core/EventBus";
-import { UnitType } from "../../../core/game/Game";
+import { WarShips } from "../../../core/game/Game";
 import { Controller } from "../../Controller";
 import { GameView, UnitView } from "../../../core/game/GameView";
 import { UnitSelectionEvent, CreateFleetEvent } from "../../InputHandler";
@@ -84,11 +84,7 @@ export class FleetDisplay extends LitElement implements Controller {
     }
 
     const fleetMap = new Map<number, UnitView[]>();
-    for (const unit of myPlayer.units(
-      UnitType.Warship,
-      UnitType.MissileShip,
-      UnitType.MissileDefenseShip,
-    )) {
+    for (const unit of myPlayer.units(...WarShips.types)) {
       const fid = unit.fleetId();
       if (fid === undefined) continue;
       if (!fleetMap.has(fid)) {
