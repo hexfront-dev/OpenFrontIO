@@ -56,9 +56,12 @@ describe("Warship multi-selection (MoveWarshipExecution)", () => {
 
     executeTicks(game, 5);
 
-    expect(w1.warshipState().patrolTile).toBe(sharedTarget);
-    expect(w2.warshipState().patrolTile).toBe(sharedTarget);
-    expect(w3.warshipState().patrolTile).toBe(sharedTarget);
+    // Formation spreads each ship to a distinct grid offset around the target.
+    for (const w of [w1, w2, w3]) {
+      expect(
+        game.manhattanDist(w.warshipState().patrolTile, sharedTarget),
+      ).toBeLessThanOrEqual(2);
+    }
   });
 
   test("moving multiple warships to different targets works independently", () => {
@@ -137,7 +140,10 @@ describe("Warship multi-selection (MoveWarshipExecution)", () => {
 
     executeTicks(game, 5);
 
-    expect(w1.warshipState().patrolTile).toBe(target);
+    // w1 moves to a formation position near the target; w2 (wrong owner) is unchanged.
+    expect(
+      game.manhattanDist(w1.warshipState().patrolTile, target),
+    ).toBeLessThanOrEqual(2);
     expect(w2.warshipState().patrolTile).toBe(p2tile); // unchanged — wrong owner
   });
 });
