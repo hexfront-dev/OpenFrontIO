@@ -24,7 +24,7 @@ type CachedInterception = {
 /**
  * Smart SAM targeting system preshoting nukes so its range is strictly enforced
  */
-class SAMTargetingSystem {
+export class SAMTargetingSystem {
   // Cached interception states indexed by nuke ID to avoid per-tick recomputation.
   private readonly precomputedNukes: Map<number, CachedInterception> =
     new Map();
