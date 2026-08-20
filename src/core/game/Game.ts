@@ -389,6 +389,12 @@ export const BuildableAttacks = unitTypeGroup([
   UnitType.MissileDefenseShip,
 ] as const);
 
+export const WarShips = unitTypeGroup([
+  UnitType.Warship,
+  UnitType.MissileShip,
+  UnitType.MissileDefenseShip,
+] as const);
+
 export const Structures = unitTypeGroup([
   UnitType.City,
   UnitType.DefensePost,

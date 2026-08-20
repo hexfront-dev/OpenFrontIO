@@ -47,9 +47,9 @@ export class MissileShipExecution implements Execution {
       return;
     }
 
-    // Fleeted ships: only patrol, no auto-behavior.
+    // Fleeted ships: only hold formation, no auto-behavior.
     if (this.warship.fleetId() !== undefined) {
-      this.patrol();
+      this.moveToPatrolTile();
       return;
     }
 
@@ -84,6 +84,17 @@ export class MissileShipExecution implements Execution {
     }
     if (result.status === PathStatus.COMPLETE) {
       this.warship.setTargetTile(undefined);
+    }
+  }
+
+  private moveToPatrolTile(): void {
+    const patrolTile = this.warship.warshipState().patrolTile;
+    if (patrolTile === undefined) return;
+    if (this.warship.tile() === patrolTile) return;
+
+    const result = this.pathfinder.next(this.warship.tile(), patrolTile);
+    if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
+      this.warship.move(result.node);
     }
   }
 

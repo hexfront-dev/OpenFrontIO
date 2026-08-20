@@ -917,4 +917,52 @@ describe("Warship", () => {
     }
     expect(tradeShip.owner()).toBe(player1);
   });
+
+  test("Fleeted warship does not capture trade ships", async () => {
+    player1.buildUnit(UnitType.Port, game.ref(coastX, 10), {});
+
+    const warship = player1.buildUnit(
+      UnitType.Warship,
+      game.ref(coastX + 1, 10),
+      {
+        patrolTile: game.ref(coastX + 1, 10),
+      },
+    );
+    warship.setFleetId(1);
+    game.addExecution(new WarshipExecution(warship));
+
+    const tradeShip = player2.buildUnit(
+      UnitType.TradeShip,
+      game.ref(coastX + 1, 13),
+      {
+        targetUnit: player2.buildUnit(UnitType.Port, game.ref(coastX, 13), {}),
+      },
+    );
+
+    expect(tradeShip.owner().id()).toBe(player2.id());
+    executeTicks(game, 15);
+
+    expect(tradeShip.owner().id()).toBe(player2.id());
+    expect(warship.targetUnit()?.type()).not.toBe(UnitType.TradeShip);
+  });
+
+  test("Fleeted warship holds formation by moving toward its patrol tile", async () => {
+    game.config().warshipTargettingRange = () => 1;
+
+    const startTile = game.ref(coastX + 1, 10);
+    const formationTile = game.ref(coastX + 1, 15);
+    const warship = player1.buildUnit(UnitType.Warship, startTile, {
+      patrolTile: formationTile,
+    });
+    warship.setFleetId(1);
+    game.addExecution(new WarshipExecution(warship));
+
+    const distBefore = game.manhattanDist(warship.tile(), formationTile);
+    expect(distBefore).toBeGreaterThan(0);
+
+    executeTicks(game, 5);
+
+    const distAfter = game.manhattanDist(warship.tile(), formationTile);
+    expect(distAfter).toBeLessThan(distBefore);
+  });
 });
