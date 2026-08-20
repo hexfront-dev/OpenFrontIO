@@ -2,6 +2,7 @@ import { Execution, Game, Player, Unit, UnitType } from "../game/Game";
 import { TrainStationExecution } from "./TrainStationExecution";
 
 export class DisableTrainStationExecution implements Execution {
+  private mg: Game;
   private unit: Unit | undefined;
   private active = true;
 
@@ -11,6 +12,7 @@ export class DisableTrainStationExecution implements Execution {
   ) {}
 
   init(mg: Game): void {
+    this.mg = mg;
     this.unit = mg.unit(this.unitId);
     if (!this.unit) {
       console.warn(`unit not found`);
@@ -34,17 +36,22 @@ export class DisableTrainStationExecution implements Execution {
       return;
     }
 
-    // Toggle: disconnect if connected, reconnect if disconnected.
+    // Disconnect immediately when connected; otherwise reconnect on the next
+    // tick (addExecution is unreliable during init because the execution
+    // manager reassigns unInitExecs after the init loop).
     if (this.unit.hasTrainStation()) {
       mg.railNetwork().removeStation(this.unit);
-    } else {
+      this.active = false;
+    }
+  }
+
+  tick(_ticks: number): void {
+    if (this.unit && !this.unit.hasTrainStation()) {
       const spawnTrains = this.unit.type() === UnitType.Factory;
-      mg.addExecution(new TrainStationExecution(this.unit, spawnTrains));
+      this.mg.addExecution(new TrainStationExecution(this.unit, spawnTrains));
     }
     this.active = false;
   }
-
-  tick(_ticks: number): void {}
 
   isActive(): boolean {
     return this.active;

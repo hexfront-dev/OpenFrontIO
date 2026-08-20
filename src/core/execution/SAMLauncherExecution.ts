@@ -24,7 +24,7 @@ type InterceptionTile = {
 /**
  * Smart SAM targeting system preshoting nukes so its range is strictly enforced
  */
-class SAMTargetingSystem {
+export class SAMTargetingSystem {
   // Interception tiles are computed a single time, but it may not be reachable yet.
   // Store the result so it can be intercepted at the proper time, rather than recomputing each tick.
   // Null interception tile means there are no interception tiles in range. Store it to avoid recomputing.
