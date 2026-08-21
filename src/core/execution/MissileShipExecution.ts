@@ -9,6 +9,7 @@ export class MissileShipExecution implements Execution {
   private mg: Game;
   private pathfinder: WaterPathFinder;
   private random: PseudoRandom;
+  private patrolMoveNext = true;
 
   constructor(
     private input: (UnitParams<UnitType.MissileShip> & OwnerComp) | Unit,
@@ -69,6 +70,9 @@ export class MissileShipExecution implements Execution {
   }
 
   private patrol(): void {
+    this.patrolMoveNext = !this.patrolMoveNext;
+    if (!this.patrolMoveNext) return;
+
     if (this.warship.targetTile() === undefined) {
       const tile = this.randomTile();
       if (tile !== undefined) {

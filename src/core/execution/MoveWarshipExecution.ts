@@ -92,10 +92,10 @@ export class MoveWarshipExecution implements Execution {
     return result;
   }
 
-  /** Warships move every other tick; missile ships every tick. A fleet takes the slowest rate. */
+  /** Missile ships move every other tick; warships every tick. A fleet takes the slowest rate. */
   private computeFleetMoveRate(ships: Unit[]): number {
     return Math.max(
-      ...ships.map((s) => (s.type() === UnitType.Warship ? 2 : 1)),
+      ...ships.map((s) => (s.type() === UnitType.Warship ? 1 : 2)),
     );
   }
 
