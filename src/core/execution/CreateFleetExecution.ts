@@ -26,7 +26,7 @@ export class CreateFleetExecution implements Execution {
 
     const fleetId = mg.nextFleetId();
     const fleetMoveRate = Math.max(
-      ...fleetUnits.map((u) => (u.type() === UnitType.Warship ? 2 : 1)),
+      ...fleetUnits.map((u) => (u.type() === UnitType.Warship ? 1 : 2)),
     );
     for (const unit of fleetUnits) {
       unit.setFleetId(fleetId);
