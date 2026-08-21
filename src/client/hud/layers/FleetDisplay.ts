@@ -134,6 +134,8 @@ export class FleetDisplay extends LitElement implements Controller {
                   (e.target as HTMLInputElement).value,
                 )}
               @click=${(e: Event) => e.stopPropagation()}
+              @keydown=${(e: KeyboardEvent) => e.stopPropagation()}
+              @keyup=${(e: KeyboardEvent) => e.stopPropagation()}
             />
             <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length}/${MAX_FLEET_SIZE}</span>
             <span class="fleet-dismiss" @pointerdown=${(e: Event) => e.stopPropagation()} @pointerup=${(e: Event) => { e.stopPropagation(); e.preventDefault(); this.dismissFleet(units); }}>x</span>
