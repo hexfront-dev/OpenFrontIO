@@ -48,21 +48,20 @@ export class MissileShipExecution implements Execution {
       return;
     }
 
+    // Reload missiles (also while fleeted)
+    const frontTime = this.warship.missileTimerQueue()[0];
+    if (frontTime !== undefined) {
+      const cooldown =
+        this.mg.config().SiloCooldown() - (this.mg.ticks() - frontTime);
+      if (cooldown <= 0) {
+        this.warship.reloadMissile();
+      }
+    }
+
     // Fleeted ships: only hold formation, no auto-behavior.
     if (this.warship.fleetId() !== undefined) {
       this.moveToPatrolTile();
       return;
-    }
-
-    // Reload missiles
-    const config = this.mg.config();
-    const timerQueue = this.warship.missileTimerQueue();
-    if (timerQueue.length > 0) {
-      const frontTime = timerQueue[0];
-      const cooldown = config.SiloCooldown();
-      if (this.mg.ticks() - frontTime > cooldown) {
-        this.warship.reloadMissile();
-      }
     }
 
     // Patrol
