@@ -91,7 +91,7 @@ function applyUpdateInPlace(target: UnitState, u: UnitUpdate): void {
   target.missileTimerQueue = u.missileTimerQueue;
   target.level = u.level;
   target.hasTrainStation = u.hasTrainStation;
-  if (u.fleetId !== undefined) target.fleetId = u.fleetId;
+  target.fleetId = u.fleetId ?? undefined;
   target.trainType = trainTypeToNum(u.trainType);
   target.loaded = u.loaded ?? null;
 }
