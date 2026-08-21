@@ -104,7 +104,7 @@ function applyUpdateInPlace(target: UnitState, u: UnitUpdate): void {
   target.level = u.level;
   target.veterancy = u.warshipState?.veterancy ?? 0;
   target.hasTrainStation = u.hasTrainStation;
-  if (u.fleetId !== undefined) target.fleetId = u.fleetId;
+  target.fleetId = u.fleetId ?? undefined;
   target.trainType = trainTypeToNum(u.trainType);
   target.loaded = u.loaded ?? null;
   target.samUpgradeStartTick = u.samUpgrade?.upgradeStartTick ?? null;
