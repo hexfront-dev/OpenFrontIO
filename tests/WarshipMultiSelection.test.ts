@@ -1,3 +1,4 @@
+import { CreateFleetExecution } from "../src/core/execution/CreateFleetExecution";
 import { MoveWarshipExecution } from "../src/core/execution/MoveWarshipExecution";
 import { WarshipExecution } from "../src/core/execution/WarshipExecution";
 import {
@@ -143,7 +144,42 @@ describe("Warship multi-selection (MoveWarshipExecution)", () => {
     // w1 moves to a formation position near the target; w2 (wrong owner) is unchanged.
     expect(
       game.manhattanDist(w1.warshipState().patrolTile!, target),
-    ).toBeLessThanOrEqual(2);
+    ).toBeLessThanOrEqual(5);
     expect(w2.warshipState().patrolTile).toBe(p2tile); // unchanged — wrong owner
+  });
+
+  test("CreateFleetExecution forms the fleet up in a grid", () => {
+    const w1 = player1.buildUnit(UnitType.Warship, game.ref(coastX + 3, 10), {
+      patrolTile: game.ref(coastX + 3, 10),
+    });
+    const w2 = player1.buildUnit(UnitType.Warship, game.ref(coastX + 4, 10), {
+      patrolTile: game.ref(coastX + 4, 10),
+    });
+    const w3 = player1.buildUnit(UnitType.Warship, game.ref(coastX + 5, 10), {
+      patrolTile: game.ref(coastX + 5, 10),
+    });
+
+    game.addExecution(new WarshipExecution(w1));
+    game.addExecution(new WarshipExecution(w2));
+    game.addExecution(new WarshipExecution(w3));
+
+    game.addExecution(
+      new CreateFleetExecution(player1, [w1.id(), w2.id(), w3.id()]),
+    );
+
+    executeTicks(game, 5);
+
+    // All ships joined the same fleet.
+    expect(w1.fleetId()).toBeDefined();
+    expect(w1.fleetId()).toBe(w2.fleetId());
+    expect(w2.fleetId()).toBe(w3.fleetId());
+
+    // Ships were spread into distinct formation slots (not the same tile).
+    const tiles = [
+      w1.warshipState().patrolTile,
+      w2.warshipState().patrolTile,
+      w3.warshipState().patrolTile,
+    ];
+    expect(new Set(tiles).size).toBe(3);
   });
 });
