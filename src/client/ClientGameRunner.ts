@@ -14,6 +14,7 @@ import {
 import { createPartialGameRecord, findClosestBy, replacer } from "../core/Util";
 import {
   BuildableUnit,
+  MAX_FLEET_SIZE,
   PlayerType,
   Structures,
   UnitType,
@@ -1181,7 +1182,7 @@ export class ClientGameRunner {
 
     if (allInSameFleet) {
       this.eventBus.emit(new SendLeaveFleetIntentEvent(event.unitIds));
-    } else {
+    } else if (event.unitIds.length <= MAX_FLEET_SIZE) {
       this.eventBus.emit(new SendCreateFleetIntentEvent(event.unitIds));
     }
   }

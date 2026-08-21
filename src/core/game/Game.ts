@@ -396,6 +396,9 @@ export const WarShips = unitTypeGroup([
   UnitType.MissileDefenseShip,
 ] as const);
 
+/** Maximum number of ships allowed in a single fleet. */
+export const MAX_FLEET_SIZE = 25;
+
 export const Structures = unitTypeGroup([
   UnitType.City,
   UnitType.DefensePost,

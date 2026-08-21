@@ -2,7 +2,7 @@ import { html, LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { css } from "lit";
 import { EventBus } from "../../../core/EventBus";
-import { WarShips } from "../../../core/game/Game";
+import { MAX_FLEET_SIZE, WarShips } from "../../../core/game/Game";
 import { Controller } from "../../Controller";
 import { GameView, UnitView } from "../../../core/game/GameView";
 import { UnitSelectionEvent, CreateFleetEvent } from "../../InputHandler";
@@ -103,7 +103,7 @@ export class FleetDisplay extends LitElement implements Controller {
         ([fleetId, units]) => html`
           <div class="fleet-entry">
             <span class="fleet-name" @click=${() => this.selectFleet(units)}>Fleet ${fleetId}</span>
-            <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length} ship${units.length !== 1 ? "s" : ""}</span>
+            <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length}/${MAX_FLEET_SIZE}</span>
             <span class="fleet-dismiss" @pointerdown=${(e: Event) => e.stopPropagation()} @pointerup=${(e: Event) => { e.stopPropagation(); e.preventDefault(); this.dismissFleet(units); }}>x</span>
           </div>
         `,
