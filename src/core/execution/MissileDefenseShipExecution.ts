@@ -53,13 +53,7 @@ export class MissileDefenseShipExecution implements Execution {
       return;
     }
 
-    // Fleeted ships: only hold formation, no auto-behavior.
-    if (this.warship.fleetId() !== undefined) {
-      this.moveToPatrolTile();
-      return;
-    }
-
-    // Reload missiles
+    // Reload missiles (also while fleeted)
     const frontTime = this.warship.missileTimerQueue()[0];
     if (frontTime !== undefined) {
       const cooldown =
@@ -68,6 +62,13 @@ export class MissileDefenseShipExecution implements Execution {
         this.warship.reloadMissile();
       }
     }
+
+    // Fleeted ships: only hold formation, no auto-behavior.
+    if (this.warship.fleetId() !== undefined) {
+      this.moveToPatrolTile();
+      return;
+    }
+
     if (this.warship.isInCooldown()) {
       this.patrol();
       return;
