@@ -2,6 +2,7 @@ import { Execution, Game, MessageType, OwnerComp, Unit, UnitParams, UnitType, is
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
+import { shipMoveInterval } from "./FleetFormation";
 import { SAMTargetingSystem } from "./SAMLauncherExecution";
 import { SAMMissileExecution } from "./SAMMissileExecution";
 
@@ -11,7 +12,6 @@ export class MissileDefenseShipExecution implements Execution {
   private mg: Game;
   private pathfinder: WaterPathFinder;
   private random: PseudoRandom;
-  private patrolMoveNext = true;
   private targetingSystem: SAMTargetingSystem | undefined;
   private readonly MIRV_SEARCH_RADIUS = 400;
   private readonly MIRV_PROTECTION_RADIUS = 50;
@@ -152,8 +152,8 @@ export class MissileDefenseShipExecution implements Execution {
   }
 
   private patrol(): void {
-    this.patrolMoveNext = !this.patrolMoveNext;
-    if (!this.patrolMoveNext) return;
+    const interval = shipMoveInterval(this.warship.type(), this.warship.level());
+    if (this.mg.ticks() % interval !== 0) return;
 
     if (this.warship.targetTile() === undefined) {
       const tile = this.randomTile();

@@ -13,6 +13,8 @@ import {
   UT_CITY,
   UT_DEFENSE_POST,
   UT_FACTORY,
+  UT_MISSILE_DEFENSE_SHIP,
+  UT_MISSILE_SHIP,
   UT_MISSILE_SILO,
   UT_PORT,
   UT_SAM_LAUNCHER,
@@ -114,6 +116,9 @@ export class StructureLevelPass {
       );
       if (col >= 0) this.typeToAtlasCol.set(header.unitTypes[i], col);
     }
+    // Mobile ships also show level numbers; use columns past the structures.
+    this.typeToAtlasCol.set(UT_MISSILE_SHIP, 6);
+    this.typeToAtlasCol.set(UT_MISSILE_DEFENSE_SHIP, 7);
 
     // Parse atlas data (same source as NamePass)
     const atlas = parseAtlasData();
@@ -231,7 +236,10 @@ export class StructureLevelPass {
 
     for (const unit of units.values()) {
       if (!unit.isActive) continue;
-      if (!STRUCTURE_TYPES.has(unit.unitType)) continue;
+      const isShip =
+        unit.unitType === UT_MISSILE_SHIP ||
+        unit.unitType === UT_MISSILE_DEFENSE_SHIP;
+      if (!STRUCTURE_TYPES.has(unit.unitType) && !isShip) continue;
       if (unit.level <= 1) continue;
 
       const levelStr = unit.level.toString();

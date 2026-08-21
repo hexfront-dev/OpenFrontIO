@@ -1,15 +1,26 @@
 import { Game, Unit, UnitType } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 
-const FORMATION_SPACING = 3;
+const FORMATION_SPACING = 8;
 
 function isCoreShip(type: UnitType): boolean {
   return type === UnitType.MissileShip || type === UnitType.MissileDefenseShip;
 }
 
-/** Missile ships move every other tick; warships every tick. A fleet takes the slowest rate. */
+/**
+ * Ticks between movement steps for a ship. Warships move every tick; missile
+ * ships move every 2 ticks at level 1 and slow ~10% per extra level.
+ */
+export function shipMoveInterval(type: UnitType, level: number): number {
+  if (type === UnitType.Warship) return 1;
+  return Math.max(1, Math.round(2 * Math.pow(1.1, level - 1)));
+}
+
+/** A fleet takes the slowest member's rate. */
 export function computeFleetMoveRate(ships: Unit[]): number {
-  return Math.max(...ships.map((s) => (s.type() === UnitType.Warship ? 1 : 2)));
+  return Math.max(
+    ...ships.map((s) => shipMoveInterval(s.type(), s.level())),
+  );
 }
 
 /**
