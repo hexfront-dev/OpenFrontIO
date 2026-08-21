@@ -1,12 +1,6 @@
-import {
-  Execution,
-  Game,
-  Player,
-  Unit,
-  UnitType,
-  WarShips,
-} from "../game/Game";
+import { Execution, Game, Player, Unit, WarShips } from "../game/Game";
 import { TileRef } from "../game/GameMap";
+import { assignFleetFormation } from "./FleetFormation";
 
 export class MoveWarshipExecution implements Execution {
   constructor(
@@ -42,66 +36,7 @@ export class MoveWarshipExecution implements Execution {
 
     if (ships.length === 0) return;
 
-    const formation = this.computeFormation(ships);
-    const fleetMoveRate = this.computeFleetMoveRate(ships);
-
-    const usedTiles = new Set<TileRef>();
-    for (const warship of ships) {
-      const offset = formation.get(warship.id()) ?? { dx: 0, dy: 0 };
-      const x = mg.x(this.position) + offset.dx;
-      const y = mg.y(this.position) + offset.dy;
-      const formationTile = findWaterTile(mg, x, y, usedTiles) ?? this.position;
-
-      usedTiles.add(formationTile);
-      warship.updateWarshipState({
-        patrolTile: formationTile,
-        fleetMoveRate,
-      });
-      warship.setTargetTile(undefined);
-    }
-  }
-
-  /**
-   * Assign each ship a compact, evenly-spaced grid slot with missile ships
-   * (MissileShip + MissileDefenseShip) placed in the center.
-   */
-  private computeFormation(
-    ships: Unit[],
-  ): Map<number, { dx: number; dy: number }> {
-    const spacing = 3;
-
-    // Core ships (missile / missile-defense) take the innermost slots.
-    const ordered = [...ships].sort((a, b) => {
-      const aCore = isCoreShip(a.type());
-      const bCore = isCoreShip(b.type());
-      if (aCore === bCore) return 0;
-      return aCore ? -1 : 1;
-    });
-
-    // Generate a square grid and sort by distance from center so the
-    // innermost slots are assigned first.
-    const gridSize = Math.ceil(Math.sqrt(ships.length));
-    const half = Math.floor(gridSize / 2);
-    const offsets: { dx: number; dy: number }[] = [];
-    for (let i = 0; i < gridSize * gridSize; i++) {
-      const row = Math.floor(i / gridSize) - half;
-      const col = (i % gridSize) - half;
-      offsets.push({ dx: col * spacing, dy: row * spacing });
-    }
-    offsets.sort(
-      (a, b) => a.dx * a.dx + a.dy * a.dy - (b.dx * b.dx + b.dy * b.dy),
-    );
-
-    const result = new Map<number, { dx: number; dy: number }>();
-    ordered.forEach((ship, i) => result.set(ship.id(), offsets[i]));
-    return result;
-  }
-
-  /** Missile ships move every other tick; warships every tick. A fleet takes the slowest rate. */
-  private computeFleetMoveRate(ships: Unit[]): number {
-    return Math.max(
-      ...ships.map((s) => (s.type() === UnitType.Warship ? 1 : 2)),
-    );
+    assignFleetFormation(mg, ships, this.position);
   }
 
   tick(_ticks: number): void {}
@@ -113,36 +48,4 @@ export class MoveWarshipExecution implements Execution {
   activeDuringSpawnPhase(): boolean {
     return false;
   }
-}
-
-function isCoreShip(type: UnitType): boolean {
-  return type === UnitType.MissileShip || type === UnitType.MissileDefenseShip;
-}
-
-/**
- * Find the nearest unused water tile to (baseX, baseY) by searching
- * expanding Chebyshev rings. Avoids collapsing ships onto a single tile
- * when a formation slot lands on land near the shore.
- */
-function findWaterTile(
-  mg: Game,
-  baseX: number,
-  baseY: number,
-  usedTiles: Set<TileRef>,
-): TileRef | undefined {
-  for (let r = 0; r < 20; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        const x = baseX + dx;
-        const y = baseY + dy;
-        if (!mg.isValidCoord(x, y)) continue;
-        const tile = mg.ref(x, y);
-        if (mg.isWater(tile) && !usedTiles.has(tile)) {
-          return tile;
-        }
-      }
-    }
-  }
-  return undefined;
 }

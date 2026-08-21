@@ -1,4 +1,5 @@
-import { Execution, Game, Player, UnitType, WarShips } from "../game/Game";
+import { Execution, Game, Player, WarShips } from "../game/Game";
+import { assignFleetFormation, computeFleetCentroid } from "./FleetFormation";
 
 export class CreateFleetExecution implements Execution {
   private active = true;
@@ -25,13 +26,13 @@ export class CreateFleetExecution implements Execution {
     }
 
     const fleetId = mg.nextFleetId();
-    const fleetMoveRate = Math.max(
-      ...fleetUnits.map((u) => (u.type() === UnitType.Warship ? 1 : 2)),
-    );
     for (const unit of fleetUnits) {
       unit.setFleetId(fleetId);
-      unit.updateWarshipState({ fleetMoveRate });
     }
+
+    // Form the fleet up in a grid around its centroid.
+    assignFleetFormation(mg, fleetUnits, computeFleetCentroid(mg, fleetUnits));
+
     this.active = false;
   }
 
