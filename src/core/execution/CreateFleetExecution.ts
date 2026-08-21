@@ -1,4 +1,4 @@
-import { Execution, Game, Player, WarShips } from "../game/Game";
+import { Execution, Game, Player, UnitType, WarShips } from "../game/Game";
 
 export class CreateFleetExecution implements Execution {
   private active = true;
@@ -25,8 +25,12 @@ export class CreateFleetExecution implements Execution {
     }
 
     const fleetId = mg.nextFleetId();
+    const fleetMoveRate = Math.max(
+      ...fleetUnits.map((u) => (u.type() === UnitType.Warship ? 2 : 1)),
+    );
     for (const unit of fleetUnits) {
       unit.setFleetId(fleetId);
+      unit.updateWarshipState({ fleetMoveRate });
     }
     this.active = false;
   }
