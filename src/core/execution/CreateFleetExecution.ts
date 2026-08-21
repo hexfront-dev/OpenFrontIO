@@ -1,4 +1,4 @@
-import { Execution, Game, Player, WarShips } from "../game/Game";
+import { Execution, Game, MAX_FLEET_SIZE, Player, WarShips } from "../game/Game";
 import { assignFleetFormation, computeFleetCentroid } from "./FleetFormation";
 
 export class CreateFleetExecution implements Execution {
@@ -21,6 +21,11 @@ export class CreateFleetExecution implements Execution {
       );
 
     if (fleetUnits.length === 0) {
+      this.active = false;
+      return;
+    }
+
+    if (fleetUnits.length > MAX_FLEET_SIZE) {
       this.active = false;
       return;
     }

@@ -1,7 +1,7 @@
 import { Game, Unit, UnitType } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 
-const FORMATION_SPACING = 8;
+const FORMATION_SPACING = 15;
 
 function isCoreShip(type: UnitType): boolean {
   return type === UnitType.MissileShip || type === UnitType.MissileDefenseShip;
