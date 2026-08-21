@@ -2,6 +2,7 @@ import { Execution, Game, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
+import { shipMoveInterval } from "./FleetFormation";
 
 export class MissileShipExecution implements Execution {
   private active = true;
@@ -9,7 +10,6 @@ export class MissileShipExecution implements Execution {
   private mg: Game;
   private pathfinder: WaterPathFinder;
   private random: PseudoRandom;
-  private patrolMoveNext = true;
 
   constructor(
     private input: (UnitParams<UnitType.MissileShip> & OwnerComp) | Unit,
@@ -69,8 +69,8 @@ export class MissileShipExecution implements Execution {
   }
 
   private patrol(): void {
-    this.patrolMoveNext = !this.patrolMoveNext;
-    if (!this.patrolMoveNext) return;
+    const interval = shipMoveInterval(this.warship.type(), this.warship.level());
+    if (this.mg.ticks() % interval !== 0) return;
 
     if (this.warship.targetTile() === undefined) {
       const tile = this.randomTile();
