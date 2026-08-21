@@ -15,6 +15,8 @@ export class FleetDisplay extends LitElement implements Controller {
   @state()
   private fleets: Map<number, UnitView[]> = new Map();
 
+  private fleetNames = new Map<number, string>();
+
   static styles = css`
     :host {
       display: block;
@@ -46,9 +48,23 @@ export class FleetDisplay extends LitElement implements Controller {
     .fleet-entry:hover {
       background: rgba(255, 255, 255, 0.1);
     }
-    .fleet-name {
+    .fleet-name-input {
+      flex: 1;
+      min-width: 0;
       color: #fff;
       font-weight: bold;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      padding: 1px 3px;
+      font-family: inherit;
+      font-size: inherit;
+      outline: none;
+    }
+    .fleet-name-input:hover,
+    .fleet-name-input:focus {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.4);
     }
     .fleet-count {
       color: #aaa;
@@ -93,6 +109,13 @@ export class FleetDisplay extends LitElement implements Controller {
       fleetMap.get(fid)!.push(unit);
     }
     this.fleets = fleetMap;
+
+    // Drop names for disbanded fleets.
+    for (const fid of this.fleetNames.keys()) {
+      if (!fleetMap.has(fid)) {
+        this.fleetNames.delete(fid);
+      }
+    }
   }
 
   render() {
@@ -102,13 +125,30 @@ export class FleetDisplay extends LitElement implements Controller {
       ${[...this.fleets.entries()].map(
         ([fleetId, units]) => html`
           <div class="fleet-entry">
-            <span class="fleet-name" @click=${() => this.selectFleet(units)}>Fleet ${fleetId}</span>
+            <input
+              class="fleet-name-input"
+              value=${this.fleetName(fleetId)}
+              @input=${(e: InputEvent) =>
+                this.renameFleet(
+                  fleetId,
+                  (e.target as HTMLInputElement).value,
+                )}
+              @click=${(e: Event) => e.stopPropagation()}
+            />
             <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length}/${MAX_FLEET_SIZE}</span>
             <span class="fleet-dismiss" @pointerdown=${(e: Event) => e.stopPropagation()} @pointerup=${(e: Event) => { e.stopPropagation(); e.preventDefault(); this.dismissFleet(units); }}>x</span>
           </div>
         `,
       )}
     `;
+  }
+
+  private fleetName(fleetId: number): string {
+    return this.fleetNames.get(fleetId) ?? `fleet ${fleetId}`;
+  }
+
+  private renameFleet(fleetId: number, name: string): void {
+    this.fleetNames.set(fleetId, name);
   }
 
   private selectFleet(units: UnitView[]) {
