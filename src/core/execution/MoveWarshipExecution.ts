@@ -45,15 +45,14 @@ export class MoveWarshipExecution implements Execution {
     const formation = this.computeFormation(ships);
     const fleetMoveRate = this.computeFleetMoveRate(ships);
 
+    const usedTiles = new Set<TileRef>();
     for (const warship of ships) {
       const offset = formation.get(warship.id()) ?? { dx: 0, dy: 0 };
       const x = mg.x(this.position) + offset.dx;
       const y = mg.y(this.position) + offset.dy;
-      const formationTile =
-        mg.isValidCoord(x, y) && mg.isWater(mg.ref(x, y))
-          ? mg.ref(x, y)
-          : this.position;
+      const formationTile = findWaterTile(mg, x, y, usedTiles) ?? this.position;
 
+      usedTiles.add(formationTile);
       warship.updateWarshipState({
         patrolTile: formationTile,
         fleetMoveRate,
@@ -69,7 +68,7 @@ export class MoveWarshipExecution implements Execution {
   private computeFormation(
     ships: Unit[],
   ): Map<number, { dx: number; dy: number }> {
-    const spacing = 5;
+    const spacing = 3;
 
     // Core ships (missile / missile-defense) take the innermost slots.
     const ordered = [...ships].sort((a, b) => {
@@ -118,4 +117,32 @@ export class MoveWarshipExecution implements Execution {
 
 function isCoreShip(type: UnitType): boolean {
   return type === UnitType.MissileShip || type === UnitType.MissileDefenseShip;
+}
+
+/**
+ * Find the nearest unused water tile to (baseX, baseY) by searching
+ * expanding Chebyshev rings. Avoids collapsing ships onto a single tile
+ * when a formation slot lands on land near the shore.
+ */
+function findWaterTile(
+  mg: Game,
+  baseX: number,
+  baseY: number,
+  usedTiles: Set<TileRef>,
+): TileRef | undefined {
+  for (let r = 0; r < 20; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = baseX + dx;
+        const y = baseY + dy;
+        if (!mg.isValidCoord(x, y)) continue;
+        const tile = mg.ref(x, y);
+        if (mg.isWater(tile) && !usedTiles.has(tile)) {
+          return tile;
+        }
+      }
+    }
+  }
+  return undefined;
 }
