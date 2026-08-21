@@ -173,6 +173,9 @@ export class MissileDefenseShipExecution implements Execution {
     if (patrolTile === undefined) return;
     if (this.warship.tile() === patrolTile) return;
 
+    const moveRate = this.warship.warshipState().fleetMoveRate ?? 1;
+    if (moveRate > 1 && this.mg.ticks() % moveRate !== 0) return;
+
     const result = this.pathfinder.next(this.warship.tile(), patrolTile);
     if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
       this.warship.move(result.node);

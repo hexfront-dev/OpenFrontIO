@@ -69,10 +69,17 @@ export class WarshipExecution implements Execution {
     // Fleeted warships: heal, shoot nearby enemies, hold formation.
     // No retreat, docking, random patrol, or chasing targets.
     if (this.warship.fleetId() !== undefined) {
-      const target = this.findBestTarget([UnitType.Warship, UnitType.TransportShip]);
+      const target = this.findBestTarget([
+        UnitType.Warship,
+        UnitType.MissileShip,
+        UnitType.MissileDefenseShip,
+        UnitType.TransportShip,
+      ]);
       this.warship.setTargetUnit(target);
       if (
         target?.type() === UnitType.Warship ||
+        target?.type() === UnitType.MissileShip ||
+        target?.type() === UnitType.MissileDefenseShip ||
         target?.type() === UnitType.TransportShip
       ) {
         this.shootTarget();
@@ -125,8 +132,12 @@ export class WarshipExecution implements Execution {
 
     this.warship.setTargetUnit(this.findTargetUnit());
 
-    // Priority 1: Fight enemy warship if in range
-    if (this.warship.targetUnit()?.type() === UnitType.Warship) {
+    // Priority 1: Fight enemy warship/missile ship if in range
+    if (
+      this.warship.targetUnit()?.type() === UnitType.Warship ||
+      this.warship.targetUnit()?.type() === UnitType.MissileShip ||
+      this.warship.targetUnit()?.type() === UnitType.MissileDefenseShip
+    ) {
       this.shootTarget();
       this.patrol();
       return;
@@ -248,12 +259,23 @@ export class WarshipExecution implements Execution {
   }
 
   private findRetreatAggroTarget(): Unit | undefined {
-    return this.findBestTarget([UnitType.TransportShip, UnitType.Warship]);
+    return this.findBestTarget([
+      UnitType.TransportShip,
+      UnitType.Warship,
+      UnitType.MissileShip,
+      UnitType.MissileDefenseShip,
+    ]);
   }
 
   private findTargetUnit(): Unit | undefined {
     return this.findBestTarget(
-      [UnitType.TransportShip, UnitType.Warship, UnitType.TradeShip],
+      [
+        UnitType.TransportShip,
+        UnitType.Warship,
+        UnitType.MissileShip,
+        UnitType.MissileDefenseShip,
+        UnitType.TradeShip,
+      ],
       true,
     );
   }
@@ -338,7 +360,13 @@ export class WarshipExecution implements Execution {
       }
 
       const typePriority =
-        type === UnitType.Warship ? 0 : type === UnitType.TransportShip ? 1 : 2;
+        type === UnitType.Warship ||
+        type === UnitType.MissileShip ||
+        type === UnitType.MissileDefenseShip
+          ? 0
+          : type === UnitType.TransportShip
+            ? 1
+            : 2;
 
       if (
         bestUnit === undefined ||
@@ -768,6 +796,12 @@ export class WarshipExecution implements Execution {
       return;
     }
     if (this.warship.tile() === patrolTile) {
+      return;
+    }
+
+    // Fleets move at the slowest member's rate (2 = every other tick).
+    const moveRate = this.warship.warshipState().fleetMoveRate ?? 1;
+    if (moveRate > 1 && this.mg.ticks() % moveRate !== 0) {
       return;
     }
 

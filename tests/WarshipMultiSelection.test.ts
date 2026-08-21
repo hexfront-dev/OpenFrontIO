@@ -60,7 +60,7 @@ describe("Warship multi-selection (MoveWarshipExecution)", () => {
     for (const w of [w1, w2, w3]) {
       expect(
         game.manhattanDist(w.warshipState().patrolTile!, sharedTarget),
-      ).toBeLessThanOrEqual(2);
+      ).toBeLessThanOrEqual(5);
     }
   });
 

@@ -37,6 +37,7 @@ export type WarshipState = {
   // transport kills and trade captures (see UnitImpl.addVeterancyProgress).
   veterancy: number;
   veterancyProgress: number;
+  fleetMoveRate?: number;
 };
 
 export type TransportShipState = {

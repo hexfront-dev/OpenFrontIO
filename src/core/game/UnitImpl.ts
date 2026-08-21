@@ -420,13 +420,15 @@ export class UnitImpl implements Unit {
     if (
       merged.state === this._warshipState.state &&
       merged.patrolTile === this._warshipState.patrolTile &&
-      merged.retreatPort === this._warshipState.retreatPort
+      merged.retreatPort === this._warshipState.retreatPort &&
+      merged.fleetMoveRate === this._warshipState.fleetMoveRate
     )
       return;
     this._warshipState = {
       state: merged.state,
       patrolTile: merged.patrolTile,
       retreatPort: merged.retreatPort,
+      fleetMoveRate: merged.fleetMoveRate,
       lastCombatTick: this._warshipState.lastCombatTick,
       veterancy: this._warshipState.veterancy,
       veterancyProgress: this._warshipState.veterancyProgress,
