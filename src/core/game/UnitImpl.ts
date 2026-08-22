@@ -190,12 +190,6 @@ export class UnitImpl implements Unit {
   private effectiveMaxHealth(): number {
     const base = this.info().maxHealth;
     if (base === undefined) return 1;
-    if (
-      this._type === UnitType.MissileShip ||
-      this._type === UnitType.MissileDefenseShip
-    ) {
-      return Math.round(base * Math.pow(1.1, this._level - 1));
-    }
     return base;
   }
   tile(): TileRef {
@@ -577,12 +571,6 @@ export class UnitImpl implements Unit {
     ) {
       this._missileTimerQueue.push(this.mg.ticks());
     }
-    if (
-      this._type === UnitType.MissileShip ||
-      this._type === UnitType.MissileDefenseShip
-    ) {
-      this._health = toInt(this.effectiveMaxHealth());
-    }
     this.mg.addUpdate(this.toUpdate());
   }
 
@@ -601,12 +589,6 @@ export class UnitImpl implements Unit {
     if (this._level <= 0) {
       this.delete(true, destroyer);
       return;
-    }
-    if (
-      this._type === UnitType.MissileShip ||
-      this._type === UnitType.MissileDefenseShip
-    ) {
-      this._health = withinInt(this._health, 0n, toInt(this.effectiveMaxHealth()));
     }
     this.mg.addUpdate(this.toUpdate());
   }

@@ -69,7 +69,7 @@ export class MissileShipExecution implements Execution {
   }
 
   private patrol(): void {
-    const interval = shipMoveInterval(this.warship.type(), this.warship.level());
+    const interval = shipMoveInterval(this.warship.type());
     if (this.mg.ticks() % interval !== 0) return;
 
     if (this.warship.targetTile() === undefined) {
