@@ -784,30 +784,41 @@ export const boatMenuElement: MenuElement = {
     ),
   icon: boatIcon,
   color: COLORS.boat,
-  subMenu: () => [
-    {
-      id: "boat_transport",
-      name: "transport",
-      disabled: () => false,
-      icon: boatIcon,
-      color: COLORS.boat,
-      action: async (params: MenuElementParams) => {
-        params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile, false);
-        params.closeMenu();
+  subMenu: (params: MenuElementParams) => {
+    const warshipCount = params.myPlayer.units(UnitType.Warship).length;
+    const escortCost = Math.min(1_000_000, (warshipCount + 1) * 250_000);
+    return [
+      {
+        id: "boat_transport",
+        name: "transport",
+        disabled: () => false,
+        icon: boatIcon,
+        color: COLORS.boat,
+        action: async (params: MenuElementParams) => {
+          params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile, false);
+          params.closeMenu();
+        },
       },
-    },
-    {
-      id: "boat_escort",
-      name: "with escort",
-      disabled: () => false,
-      icon: boatIcon,
-      color: COLORS.boat,
-      action: async (params: MenuElementParams) => {
-        params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile, true);
-        params.closeMenu();
+      {
+        id: "boat_escort",
+        name: "with escort",
+        disabled: () => false,
+        icon: boatIcon,
+        color: COLORS.boat,
+        tooltipItems: [
+          { text: translateText("unit_type.warship"), className: "title" },
+          {
+            text: `${renderNumber(escortCost)} ${translateText("player_panel.gold")}`,
+            className: "cost",
+          },
+        ],
+        action: async (params: MenuElementParams) => {
+          params.playerActionHandler.handleBoatAttack(params.myPlayer, params.tile, true);
+          params.closeMenu();
+        },
       },
-    },
-  ],
+    ];
+  },
 };
 
 export const centerButtonElement: CenterButtonElement = {

@@ -13,9 +13,9 @@ const TARGETABLE_RANGE = 150;
 const TARGETABLE_RANGE_SQ = TARGETABLE_RANGE * TARGETABLE_RANGE;
 const THRESHOLD_SAMPLES = 32;
 
-// SAM range formula: 150 - 480 / (level + 5)
-const MAX_SAM_RANGE = 150;
-const SAM_RANGE_DIVISOR = 480;
+// SAM range formula matches Config.samRange: maxSamRange - 990 / (level + 5)
+const MAX_SAM_RANGE = 250;
+const SAM_RANGE_DIVISOR = 990;
 const SAM_RANGE_OFFSET = 5;
 const SAM_SAFETY_MARGIN = 0.75;
 

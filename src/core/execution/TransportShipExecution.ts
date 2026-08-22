@@ -140,6 +140,7 @@ export class TransportShipExecution implements Execution {
         return;
       }
       this.attacker.removeGold(escortCost);
+      this.attacker.removeTroops(this.troops);
       this.boat = this.attacker.buildUnit(UnitType.Warship, this.src, {
         patrolTile: this.src,
       });
