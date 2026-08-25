@@ -63,92 +63,90 @@ export class MissileDefenseShipExecution implements Execution {
       }
     }
 
-    // Fleeted ships: only hold formation, no auto-behavior.
-    if (this.warship.fleetId() !== undefined) {
-      this.moveToPatrolTile();
-      return;
-    }
+    // Intercept nukes/MIRVs regardless of fleet membership — being in a fleet
+    // only affects movement (hold formation), not air defense.
+    if (!this.warship.isInCooldown()) {
+      this.targetingSystem ??= new SAMTargetingSystem(this.mg, this.warship);
 
-    if (this.warship.isInCooldown()) {
-      this.patrol();
-      return;
-    }
+      const owner = this.warship.owner();
 
-    this.targetingSystem ??= new SAMTargetingSystem(this.mg, this.warship);
-
-    const owner = this.warship.owner();
-
-    const mirvWarheadTargets = this.mg.nearbyUnits(
-      this.warship.tile(),
-      this.MIRV_SEARCH_RADIUS,
-      UnitType.MIRVWarhead,
-      ({ unit }) => {
-        if (!isUnit(unit)) return false;
-        if (unit.owner() === owner) return false;
-        if (owner.isFriendly(unit.owner())) {
-          if (
-            this.mg.getWinner() === null ||
-            !owner.isOnSameTeam(unit.owner())
-          ) {
-            return false;
+      const mirvWarheadTargets = this.mg.nearbyUnits(
+        this.warship.tile(),
+        this.MIRV_SEARCH_RADIUS,
+        UnitType.MIRVWarhead,
+        ({ unit }) => {
+          if (!isUnit(unit)) return false;
+          if (unit.owner() === owner) return false;
+          if (owner.isFriendly(unit.owner())) {
+            if (
+              this.mg.getWinner() === null ||
+              !owner.isOnSameTeam(unit.owner())
+            ) {
+              return false;
+            }
           }
-        }
-        const dst = unit.targetTile();
-        return (
-          dst !== undefined &&
-          this.mg.manhattanDist(dst, this.warship.tile()) <
-            this.MIRV_PROTECTION_RADIUS
-        );
-      },
-    );
-
-    const target =
-      mirvWarheadTargets.length === 0
-        ? this.targetingSystem.getSingleTarget(ticks)
-        : null;
-
-    if (target || mirvWarheadTargets.length > 0) {
-      this.warship.launch();
-      const type =
-        mirvWarheadTargets.length > 0
-          ? UnitType.MIRVWarhead
-          : target?.unit.type();
-      if (type === undefined) throw new Error("Unknown unit type");
-      if (mirvWarheadTargets.length > 0) {
-        this.mg.displayMessage(
-          "events_display.mirv_warheads_intercepted",
-          MessageType.SAM_HIT,
-          owner.id(),
-          undefined,
-          { count: mirvWarheadTargets.length },
-        );
-        mirvWarheadTargets.forEach(({ unit: u }) => {
-          u.delete();
-        });
-        this.mg
-          .stats()
-          .bombIntercept(
-            owner,
-            UnitType.MIRVWarhead,
-            mirvWarheadTargets.length,
+          const dst = unit.targetTile();
+          return (
+            dst !== undefined &&
+            this.mg.manhattanDist(dst, this.warship.tile()) <
+              this.MIRV_PROTECTION_RADIUS
           );
-      } else if (target !== null) {
-        target.unit.setTargetedBySAM(true);
-        this.mg.addExecution(
-          new SAMMissileExecution(
-            this.warship.tile(),
-            owner,
-            this.warship,
-            target.unit,
-            target.tile,
-          ),
-        );
-      } else {
-        throw new Error("target is null");
+        },
+      );
+
+      const target =
+        mirvWarheadTargets.length === 0
+          ? this.targetingSystem.getSingleTarget(ticks)
+          : null;
+
+      if (target || mirvWarheadTargets.length > 0) {
+        this.warship.launch();
+        const type =
+          mirvWarheadTargets.length > 0
+            ? UnitType.MIRVWarhead
+            : target?.unit.type();
+        if (type === undefined) throw new Error("Unknown unit type");
+        if (mirvWarheadTargets.length > 0) {
+          this.mg.displayMessage(
+            "events_display.mirv_warheads_intercepted",
+            MessageType.SAM_HIT,
+            owner.id(),
+            undefined,
+            { count: mirvWarheadTargets.length },
+          );
+          mirvWarheadTargets.forEach(({ unit: u }) => {
+            u.delete();
+          });
+          this.mg
+            .stats()
+            .bombIntercept(
+              owner,
+              UnitType.MIRVWarhead,
+              mirvWarheadTargets.length,
+            );
+        } else if (target !== null) {
+          target.unit.setTargetedBySAM(true);
+          this.mg.addExecution(
+            new SAMMissileExecution(
+              this.warship.tile(),
+              owner,
+              this.warship,
+              target.unit,
+              target.tile,
+            ),
+          );
+        } else {
+          throw new Error("target is null");
+        }
       }
     }
 
-    this.patrol();
+    // Movement: fleeted ships hold formation, others patrol.
+    if (this.warship.fleetId() !== undefined) {
+      this.moveToPatrolTile();
+    } else {
+      this.patrol();
+    }
   }
 
   private patrol(): void {
