@@ -86,7 +86,9 @@ export type AllianceExtensionIntent = z.infer<
   typeof AllianceExtensionIntentSchema
 >;
 export type DeleteUnitIntent = z.infer<typeof DeleteUnitIntentSchema>;
-export type DisableTrainStationIntent = z.infer<typeof DisableTrainStationIntentSchema>;
+export type DisableTrainStationIntent = z.infer<
+  typeof DisableTrainStationIntentSchema
+>;
 export type CreateFleetIntent = z.infer<typeof CreateFleetIntentSchema>;
 export type LeaveFleetIntent = z.infer<typeof LeaveFleetIntentSchema>;
 export type KickPlayerIntent = z.infer<typeof KickPlayerIntentSchema>;
@@ -705,17 +707,17 @@ export const DeleteUnitIntentSchema = z.object({
 
 export const DisableTrainStationIntentSchema = z.object({
   type: z.literal("disable_train_station"),
-  unitId: z.number(),
+  unitId: zb.uint(),
 });
 
 export const CreateFleetIntentSchema = z.object({
   type: z.literal("create_fleet"),
-  unitIds: z.array(z.number()),
+  unitIds: z.array(zb.uint()),
 });
 
 export const LeaveFleetIntentSchema = z.object({
   type: z.literal("leave_fleet"),
-  unitIds: z.array(z.number()),
+  unitIds: z.array(zb.uint()),
 });
 
 export const QuickChatIntentSchema = z.object({
