@@ -23,9 +23,6 @@ import { UserSettings } from "../game/UserSettings";
 import { GameConfig, TeamCountConfig } from "../Schemas";
 import { NukeType } from "../StatsSchemas";
 import { assertNever, sigmoid, toInt, within } from "../Util";
-import { PastelTheme } from "./PastelTheme";
-import { PastelThemeDark } from "./PastelThemeDark";
-import { Theme } from "./Theme";
 
 declare global {
   interface Window {
@@ -231,8 +228,6 @@ const OVERTIME_DEFAULTS = {
 };
 
 export class Config {
-  private pastelTheme: PastelTheme = new PastelTheme();
-  private pastelThemeDark: PastelThemeDark = new PastelThemeDark();
   private unitInfoCache = new Map<UnitType, UnitInfo>();
   constructor(
     private _gameConfig: GameConfig,
@@ -797,11 +792,6 @@ export class Config {
   }
   numBots(): number {
     return this.bots();
-  }
-  theme(): Theme {
-    return this.userSettings()?.darkMode()
-      ? this.pastelThemeDark
-      : this.pastelTheme;
   }
 
   /**

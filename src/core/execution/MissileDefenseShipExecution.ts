@@ -1,4 +1,13 @@
-import { Execution, Game, MessageType, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "../game/Game";
+import {
+  Execution,
+  Game,
+  MessageType,
+  OwnerComp,
+  Unit,
+  UnitParams,
+  UnitType,
+  isUnit,
+} from "../game/Game";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
@@ -96,7 +105,7 @@ export class MissileDefenseShipExecution implements Execution {
 
       const target =
         mirvWarheadTargets.length === 0
-          ? this.targetingSystem.getSingleTarget(ticks)
+          ? this.targetingSystem.getValidTargets(ticks)[0]
           : null;
 
       if (target || mirvWarheadTargets.length > 0) {
@@ -163,7 +172,10 @@ export class MissileDefenseShipExecution implements Execution {
     if (target === undefined) return;
 
     const result = this.pathfinder.next(this.warship.tile(), target);
-    if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
+    if (
+      result.status === PathStatus.NEXT ||
+      result.status === PathStatus.COMPLETE
+    ) {
       this.warship.move(result.node);
     }
     if (result.status === PathStatus.COMPLETE) {
@@ -180,7 +192,10 @@ export class MissileDefenseShipExecution implements Execution {
     if (moveRate > 1 && this.mg.ticks() % moveRate !== 0) return;
 
     const result = this.pathfinder.next(this.warship.tile(), patrolTile);
-    if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
+    if (
+      result.status === PathStatus.NEXT ||
+      result.status === PathStatus.COMPLETE
+    ) {
       this.warship.move(result.node);
     }
   }

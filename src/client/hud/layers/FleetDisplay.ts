@@ -1,11 +1,10 @@
-import { html, LitElement } from "lit";
+import { css, html, LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { css } from "lit";
 import { EventBus } from "../../../core/EventBus";
 import { MAX_FLEET_SIZE, WarShips } from "../../../core/game/Game";
 import { Controller } from "../../Controller";
-import { GameView, UnitView } from "../../../core/game/GameView";
-import { UnitSelectionEvent, CreateFleetEvent } from "../../InputHandler";
+import { CreateFleetEvent, UnitSelectionEvent } from "../../InputHandler";
+import { GameView, UnitView } from "../../view";
 
 @customElement("fleet-display")
 export class FleetDisplay extends LitElement implements Controller {
@@ -129,16 +128,24 @@ export class FleetDisplay extends LitElement implements Controller {
               class="fleet-name-input"
               value=${this.fleetName(fleetId)}
               @input=${(e: InputEvent) =>
-                this.renameFleet(
-                  fleetId,
-                  (e.target as HTMLInputElement).value,
-                )}
+                this.renameFleet(fleetId, (e.target as HTMLInputElement).value)}
               @click=${(e: Event) => e.stopPropagation()}
               @keydown=${(e: KeyboardEvent) => e.stopPropagation()}
               @keyup=${(e: KeyboardEvent) => e.stopPropagation()}
             />
-            <span class="fleet-count" @click=${() => this.selectFleet(units)}>${units.length}/${MAX_FLEET_SIZE}</span>
-            <span class="fleet-dismiss" @pointerdown=${(e: Event) => e.stopPropagation()} @pointerup=${(e: Event) => { e.stopPropagation(); e.preventDefault(); this.dismissFleet(units); }}>x</span>
+            <span class="fleet-count" @click=${() => this.selectFleet(units)}
+              >${units.length}/${MAX_FLEET_SIZE}</span
+            >
+            <span
+              class="fleet-dismiss"
+              @pointerdown=${(e: Event) => e.stopPropagation()}
+              @pointerup=${(e: Event) => {
+                e.stopPropagation();
+                e.preventDefault();
+                this.dismissFleet(units);
+              }}
+              >x</span
+            >
           </div>
         `,
       )}

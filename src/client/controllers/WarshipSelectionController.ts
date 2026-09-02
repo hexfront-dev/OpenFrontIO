@@ -282,6 +282,7 @@ export class WarshipSelectionController implements Controller {
     const allWarships = this.game
       .units(...WarShips.types)
       .filter((u) => u.isActive() && u.owner() === myPlayer);
+    return allWarships;
   }
 
   public selectedAllWarships(): boolean {
