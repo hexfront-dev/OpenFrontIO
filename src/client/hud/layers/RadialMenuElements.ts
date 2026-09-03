@@ -786,7 +786,7 @@ export const boatMenuElement: MenuElement = {
   color: COLORS.boat,
   subMenu: (params: MenuElementParams) => {
     const warshipCount = params.myPlayer.units(UnitType.Warship).length;
-    const escortCost = Math.min(1_000_000, (warshipCount + 1) * 250_000);
+    const escortCost = Math.min(750_000, (warshipCount + 1) * 250_000);
     return [
       {
         id: "boat_transport",
