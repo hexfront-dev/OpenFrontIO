@@ -480,7 +480,7 @@ export class Config {
       case UnitType.Warship:
         info = {
           cost: this.costWrapper(
-            (numUnits: number) => Math.min(1_000_000, (numUnits + 1) * 250_000),
+            (numUnits: number) => Math.min(750_000, (numUnits + 1) * 250_000),
             UnitType.Warship,
           ),
           maxHealth: 1000,
