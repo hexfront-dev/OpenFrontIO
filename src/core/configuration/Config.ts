@@ -168,6 +168,17 @@ export const JwksSchema = z.object({
 /** SAM launcher construction duration in ticks (non-instant-build). */
 export const SAM_CONSTRUCTION_TICKS = 30 * 10;
 
+/** Cost of the next SAM launcher (or anti-air missile ship): scales with the
+ * number owned and caps at 3M gold. */
+function samLauncherCost(numUnits: number): number {
+  return Math.min(3_000_000, (numUnits + 1) * 1_500_000);
+}
+
+/** Cost of a missile silo (or missile ship): flat 1M gold. */
+function missileSiloCost(): number {
+  return 1_000_000;
+}
+
 // Doomsday Clock tunables (anti-stall). Off unless enabled in GameConfig.
 // Times in seconds. The required map share rises in waves (levels + times in
 // DoomsdayClock.ts, chosen by `speed`). A side caught below the bar gets a
@@ -543,7 +554,7 @@ export class Config {
         break;
       case UnitType.MissileSilo:
         info = {
-          cost: this.costWrapper(() => 1_000_000, UnitType.MissileSilo),
+          cost: this.costWrapper(missileSiloCost, UnitType.MissileSilo),
           constructionDuration: this.instantBuild() ? 0 : 10 * 10,
           upgradable: true,
         };
@@ -559,11 +570,7 @@ export class Config {
         break;
       case UnitType.SAMLauncher:
         info = {
-          cost: this.costWrapper(
-            (numUnits: number) =>
-              Math.min(3_000_000, (numUnits + 1) * 1_500_000),
-            UnitType.SAMLauncher,
-          ),
+          cost: this.costWrapper(samLauncherCost, UnitType.SAMLauncher),
           constructionDuration: this.instantBuild()
             ? 0
             : SAM_CONSTRUCTION_TICKS,
@@ -598,11 +605,7 @@ export class Config {
         break;
       case UnitType.MissileShip:
         info = {
-          cost: this.costWrapper(
-            (numUnits: number) =>
-              Math.min(1_000_000, (numUnits + 1) * 250_000) + 1_000_000,
-            UnitType.MissileShip,
-          ),
+          cost: this.costWrapper(missileSiloCost, UnitType.MissileShip),
           maxHealth: 1000,
           constructionDuration: this.instantBuild() ? 0 : 10 * 10,
           upgradable: true,
@@ -610,12 +613,7 @@ export class Config {
         break;
       case UnitType.MissileDefenseShip:
         info = {
-          cost: this.costWrapper(
-            (numUnits: number) =>
-              Math.min(1_000_000, (numUnits + 1) * 250_000) +
-              Math.min(3_000_000, (numUnits + 1) * 1_500_000),
-            UnitType.MissileDefenseShip,
-          ),
+          cost: this.costWrapper(samLauncherCost, UnitType.MissileDefenseShip),
           maxHealth: 1000,
           constructionDuration: this.instantBuild() ? 0 : 10 * 10,
           upgradable: true,
