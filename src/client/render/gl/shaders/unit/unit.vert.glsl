@@ -14,7 +14,7 @@ uniform float uUnitSize;
 uniform float uHBombGlowScale; // quad enlargement for the hydrogen bomb glow halo
 
 out vec2  vQuadPos;     // quad coords [0,1] — drives the radial glow falloff
-out vec2  vCellUV;      // sprite cell coords; the central 1/scale region is the sprite
+out vec2  vCellUV;      // sprite cell coords; the central 1/glowScale region is the sprite
 out vec2  vWorldPos;    // world-space tile coords — drives the train effect's gradient
 flat out float vAtlasCol;
 flat out float vOwnerID;
@@ -37,11 +37,12 @@ void main() {
   vHash = aInstFlags.z * (1.0 / 255.0);
 
   // Hydrogen bombs render an enlarged quad so there's room for a glow halo
-  // around the sprite. All other units keep scale 1 (no behavior change).
+  // around the sprite. Ships additionally scale their sprite via aInstScale.
   float isHBomb = step(abs(atlasCol - float(HYDROGEN_BOMB_COL)), 0.5);
   vGlow = isHBomb;
   float shipScale = 1.0 + aInstScale * 0.1;
-  float scale = mix(1.0, uHBombGlowScale, isHBomb) * shipScale;
+  float glowScale = mix(1.0, uHBombGlowScale, isHBomb);
+  float scale = glowScale * shipScale;
 
   // UNIT_SIZE is in world-space tiles — no zoom division needed.
   // Units scale with the map like territory tiles do.
@@ -56,7 +57,9 @@ void main() {
 
   vQuadPos = aPos;
 
-  // Map the enlarged quad back to sprite cell space: the central 1/scale
-  // portion is the sprite, anything outside [0,1] is glow-only margin.
-  vCellUV = (aPos - 0.5) * scale + 0.5;
+  // Map the quad back to sprite cell space. Only the hydrogen-bomb glow
+  // enlargement (glowScale) should shrink the sprite within the quad to leave
+  // a glow margin. The ship scale must scale the sprite itself, so it is NOT
+  // applied here — the sprite fills the quad and grows with the ship.
+  vCellUV = (aPos - 0.5) * glowScale + 0.5;
 }
