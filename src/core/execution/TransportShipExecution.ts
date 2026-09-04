@@ -34,6 +34,7 @@ export class TransportShipExecution implements Execution {
   private dst: TileRef | null;
   private src: TileRef | null;
   private retreatDst: TileRef | false | null = null;
+  private retreating = false;
   private boat: Unit;
   private motionPlanId = 1;
   private motionPlanDst: TileRef | null = null;
@@ -70,7 +71,7 @@ export class TransportShipExecution implements Execution {
     if (
       !this.escort &&
       this.attacker.unitCount(UnitType.TransportShip) >=
-      mg.config().boatMaxNumber()
+        mg.config().boatMaxNumber()
     ) {
       mg.displayMessage(
         "events_display.no_boats_available",
@@ -134,7 +135,9 @@ export class TransportShipExecution implements Execution {
 
     if (this.escort) {
       // Create a warship that carries troops — no combat, just transports.
-      const escortCost = this.mg.unitInfo(UnitType.Warship).cost(this.mg, this.attacker);
+      const escortCost = this.mg
+        .unitInfo(UnitType.Warship)
+        .cost(this.mg, this.attacker);
       if (this.attacker.gold() < escortCost) {
         this.active = false;
         return;
@@ -218,16 +221,15 @@ export class TransportShipExecution implements Execution {
     }
 
     // Auto-retreat if destination was destroyed by nuke (turned to water)
-    // Escort warships don't retreat.
-    if (!this.escort && this.dst !== null && this.mg.isWater(this.dst)) {
-      if (!this.boat.transportShipState().isRetreating) {
-        this.boat.updateTransportShipState({ isRetreating: true });
+    if (this.dst !== null && this.mg.isWater(this.dst)) {
+      if (!this.isRetreating()) {
+        this.setRetreating(true);
       }
       // Reset cached retreat destination so it's recomputed from current position
       this.retreatDst = null;
     }
 
-    if (!this.escort && this.boat.transportShipState().isRetreating) {
+    if (this.isRetreating()) {
       // Resolve retreat destination once, based on current boat location when retreat begins.
       this.retreatDst ??= this.attacker.bestTransportShipSpawn(
         this.boat.tile(),
@@ -237,7 +239,7 @@ export class TransportShipExecution implements Execution {
         console.warn(
           `TransportShipExecution: retreating but no retreat destination found`,
         );
-        this.attacker.addTroops(this.boat.troops());
+        this.attacker.addTroops(this.escort ? this.troops : this.boat.troops());
         this.boat.delete(false);
         this.active = false;
         return;
@@ -252,7 +254,17 @@ export class TransportShipExecution implements Execution {
 
     const result = this.pathFinder.next(this.boat.tile(), this.dst);
     switch (result.status) {
-      case PathStatus.COMPLETE:
+      case PathStatus.COMPLETE: {
+        // If the destination was nuked into water while the boat was en route,
+        // don't attempt to conquer it — refund the troops and disband the boat.
+        if (this.mg.isWater(this.dst)) {
+          this.attacker.addTroops(
+            this.escort ? this.troops : this.boat.troops(),
+          );
+          this.boat.delete(false);
+          this.active = false;
+          return;
+        }
         if (this.mg.owner(this.dst) === this.attacker) {
           const boatTroops = this.escort ? this.troops : this.boat.troops();
           const deaths = this.escort ? 0 : boatTroops * (malusForRetreat / 100);
@@ -297,6 +309,7 @@ export class TransportShipExecution implements Execution {
           .stats()
           .boatArriveTroops(this.attacker, this.target, landingTroops);
         return;
+      }
       case PathStatus.NEXT:
         this.boat.move(result.node);
         break;
@@ -341,6 +354,20 @@ export class TransportShipExecution implements Execution {
 
   isActive(): boolean {
     return this.active;
+  }
+
+  private isRetreating(): boolean {
+    return this.escort
+      ? this.retreating
+      : this.boat.transportShipState().isRetreating;
+  }
+
+  private setRetreating(value: boolean): void {
+    if (this.escort) {
+      this.retreating = value;
+    } else {
+      this.boat.updateTransportShipState({ isRetreating: value });
+    }
   }
 
   private rejectIncomingAllianceRequests(target: Player) {
