@@ -42,14 +42,14 @@ import {
   UT_HYDROGEN_BOMB,
   UT_MIRV,
   UT_MIRV_WARHEAD,
+  UT_MISSILE_DEFENSE_SHIP,
+  UT_MISSILE_SHIP,
   UT_SAM_MISSILE,
   UT_SHELL,
   UT_TRADE_SHIP,
   UT_TRAIN,
   UT_TRANSPORT,
   UT_WARSHIP,
-  UT_MISSILE_SHIP,
-  UT_MISSILE_DEFENSE_SHIP,
 } from "../../types";
 import { DynamicInstanceBuffer } from "../DynamicBuffer";
 import type { RenderSettings } from "../RenderSettings";
@@ -193,7 +193,7 @@ function createUnitVao(
   gl.vertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, false, BYTES_PER_INSTANCE, 12);
   gl.vertexAttribDivisor(2, 1);
 
-  // Attribute 3: per-instance scale (uint8) at offset 15 — 0=1x, 1=1.5x, 2=2x
+  // Attribute 3: per-instance scale (uint8) at offset 15 — 0=1x, +10% per step (2=1.2x, 4=1.4x)
   gl.enableVertexAttribArray(3);
   gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, false, BYTES_PER_INSTANCE, 15);
   gl.vertexAttribDivisor(3, 1);
@@ -539,9 +539,9 @@ export class UnitPass {
 
       const scale =
         unit.unitType === UT_MISSILE_SHIP
-          ? 1
+          ? 2
           : unit.unitType === UT_MISSILE_DEFENSE_SHIP
-            ? 2
+            ? 4
             : 0;
 
       const x = unit.pos % this.mapW;
