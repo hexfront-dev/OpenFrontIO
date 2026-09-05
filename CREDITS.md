@@ -33,6 +33,11 @@ License: (https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resourc
 [New Jersey Topographic Map](https://en-gb.topographic-map.com/map-b8knh/New-Jersey/)
 Licensed under [Open Data Commons Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/summary/)
 
+### Sweden Map
+
+[Sweden Topographic Map](https://en-gb.topographic-map.com/map-sweden/)
+Licensed under [Open Data Commons Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/summary/)
+
 ### Geographicus Rare Antique Maps
 
 1901 (1915) U.S. Geological Survey Topographic Map of New York City

@@ -104,6 +104,7 @@ export enum GameMapType {
   StraitOfMalacca = "Strait Of Malacca", // map-generator/assets/maps/straitofmalacca/info.json
   Surrounded = "Surrounded", // map-generator/assets/maps/surrounded/info.json
   Svalmel = "Svalmel", // map-generator/assets/maps/svalmel/info.json
+  Sweden = "Sweden", // map-generator/assets/maps/sweden/info.json
   TaiwanStrait = "Taiwan Strait", // map-generator/assets/maps/taiwanstrait/info.json
   TheBox = "The Box", // map-generator/assets/maps/thebox/info.json
   TierraDelFuego = "Tierra Del Fuego", // map-generator/assets/maps/tierradelfuego/info.json
@@ -1801,6 +1802,16 @@ export const maps: readonly MapInfo[] = [
     specialFrequency: -1,
   },
   {
+    id: "SixIslands",
+    type: GameMapType.SixIslands,
+    translationKey: "map.sixislands",
+    categories: ["featured", "fictional"],
+    multiplayerFrequency: 4,
+    ffaFrequency: -1,
+    teamFrequency: -1,
+    specialFrequency: -1,
+  },
+  {
     id: "Sol",
     type: GameMapType.Sol,
     translationKey: "map.sol",
@@ -1885,16 +1896,6 @@ export const maps: readonly MapInfo[] = [
     themes: ["asia"],
   },
   {
-    id: "SixIslands",
-    type: GameMapType.SixIslands,
-    translationKey: "map.sixislands",
-    categories: ["featured", "fictional"],
-    multiplayerFrequency: 4,
-    ffaFrequency: -1,
-    teamFrequency: -1,
-    specialFrequency: -1,
-  },
-  {
     id: "StraitOfGibraltar",
     type: GameMapType.StraitOfGibraltar,
     translationKey: "map.straitofgibraltar",
@@ -1950,6 +1951,17 @@ export const maps: readonly MapInfo[] = [
     teamFrequency: -1,
     specialFrequency: -1,
     themes: ["europe", "north_america"],
+  },
+  {
+    id: "Sweden",
+    type: GameMapType.Sweden,
+    translationKey: "map.sweden",
+    categories: ["europe", "countries"],
+    multiplayerFrequency: 5,
+    ffaFrequency: -1,
+    teamFrequency: -1,
+    specialFrequency: -1,
+    themes: ["europe"],
   },
   {
     id: "TaiwanStrait",

@@ -1,0 +1,25 @@
+{
+  "id": "Sweden",
+  "name": "Sweden",
+  "translation_key": "map.sweden",
+  "categories": ["europe", "countries"],
+  "multiplayer_frequency": 5,
+  "themes": ["europe"],
+  "nations": [
+    { "coordinates": [544, 320], "name": "Norrbotten", "flag": "se" },
+    { "coordinates": [544, 540], "name": "Västerbotten", "flag": "se" },
+    { "coordinates": [360, 700], "name": "Jämtland", "flag": "se" },
+    { "coordinates": [640, 700], "name": "Västernorrland", "flag": "se" },
+    { "coordinates": [400, 1040], "name": "Dalarna", "flag": "se" },
+    { "coordinates": [600, 960], "name": "Gävleborg", "flag": "se" },
+    { "coordinates": [320, 1200], "name": "Värmland", "flag": "se" },
+    { "coordinates": [480, 1140], "name": "Örebro", "flag": "se" },
+    { "coordinates": [536, 1152], "name": "Stockholm", "flag": "se" },
+    { "coordinates": [280, 1480], "name": "Västra Götaland", "flag": "se" },
+    { "coordinates": [500, 1340], "name": "Östergötland", "flag": "se" },
+    { "coordinates": [440, 1520], "name": "Jönköping", "flag": "se" },
+    { "coordinates": [560, 1580], "name": "Kalmar", "flag": "se" },
+    { "coordinates": [220, 1620], "name": "Halland", "flag": "se" },
+    { "coordinates": [444, 2076], "name": "Skåne", "flag": "se" }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "categories": ["europe", "countries"],
+  "id": "Sweden",
+  "map": {
+    "height": 2160,
+    "num_land_tiles": 993776,
+    "width": 1088
+  },
+  "map16x": {
+    "height": 540,
+    "num_land_tiles": 62111,
+    "width": 272
+  },
+  "map4x": {
+    "height": 1080,
+    "num_land_tiles": 248444,
+    "width": 544
+  },
+  "multiplayer_frequency": 5,
+  "name": "Sweden",
+  "nations": [
+    {
+      "coordinates": [544, 320],
+      "flag": "se",
+      "name": "Norrbotten"
+    },
+    {
+      "coordinates": [544, 540],
+      "flag": "se",
+      "name": "Västerbotten"
+    },
+    {
+      "coordinates": [360, 700],
+      "flag": "se",
+      "name": "Jämtland"
+    },
+    {
+      "coordinates": [640, 700],
+      "flag": "se",
+      "name": "Västernorrland"
+    },
+    {
+      "coordinates": [400, 1040],
+      "flag": "se",
+      "name": "Dalarna"
+    },
+    {
+      "coordinates": [600, 960],
+      "flag": "se",
+      "name": "Gävleborg"
+    },
+    {
+      "coordinates": [320, 1200],
+      "flag": "se",
+      "name": "Värmland"
+    },
+    {
+      "coordinates": [480, 1140],
+      "flag": "se",
+      "name": "Örebro"
+    },
+    {
+      "coordinates": [536, 1152],
+      "flag": "se",
+      "name": "Stockholm"
+    },
+    {
+      "coordinates": [280, 1480],
+      "flag": "se",
+      "name": "Västra Götaland"
+    },
+    {
+      "coordinates": [500, 1340],
+      "flag": "se",
+      "name": "Östergötland"
+    },
+    {
+      "coordinates": [440, 1520],
+      "flag": "se",
+      "name": "Jönköping"
+    },
+    {
+      "coordinates": [560, 1580],
+      "flag": "se",
+      "name": "Kalmar"
+    },
+    {
+      "coordinates": [220, 1620],
+      "flag": "se",
+      "name": "Halland"
+    },
+    {
+      "coordinates": [444, 2076],
+      "flag": "se",
+      "name": "Skåne"
+    }
+  ],
+  "themes": ["europe"],
+  "translation_key": "map.sweden"
+}
