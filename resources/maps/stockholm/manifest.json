@@ -1,0 +1,105 @@
+{
+  "categories": ["new", "europe"],
+  "id": "Stockholm",
+  "map": {
+    "height": 1160,
+    "num_land_tiles": 2144364,
+    "width": 2544
+  },
+  "map16x": {
+    "height": 290,
+    "num_land_tiles": 130496,
+    "width": 636
+  },
+  "map4x": {
+    "height": 580,
+    "num_land_tiles": 535905,
+    "width": 1272
+  },
+  "multiplayer_frequency": 4,
+  "name": "Stockholm",
+  "nations": [
+    {
+      "coordinates": [1250, 410],
+      "flag": "se",
+      "name": "Norrmalm"
+    },
+    {
+      "coordinates": [1300, 370],
+      "flag": "se",
+      "name": "Vasastan"
+    },
+    {
+      "coordinates": [1560, 420],
+      "flag": "se",
+      "name": "Östermalm"
+    },
+    {
+      "coordinates": [1350, 604],
+      "flag": "se",
+      "name": "Södermalm"
+    },
+    {
+      "coordinates": [1200, 470],
+      "flag": "se",
+      "name": "Kungsholmen"
+    },
+    {
+      "coordinates": [1330, 540],
+      "flag": "se",
+      "name": "Gamla Stan"
+    },
+    {
+      "coordinates": [1580, 520],
+      "flag": "se",
+      "name": "Djurgården"
+    },
+    {
+      "coordinates": [900, 411],
+      "flag": "se",
+      "name": "Bromma"
+    },
+    {
+      "coordinates": [1100, 340],
+      "flag": "se",
+      "name": "Solna"
+    },
+    {
+      "coordinates": [1750, 400],
+      "flag": "se",
+      "name": "Lidingö"
+    },
+    {
+      "coordinates": [1654, 650],
+      "flag": "se",
+      "name": "Nacka"
+    },
+    {
+      "coordinates": [650, 850],
+      "flag": "se",
+      "name": "Södertälje"
+    },
+    {
+      "coordinates": [1500, 150],
+      "flag": "se",
+      "name": "Täby"
+    },
+    {
+      "coordinates": [1200, 900],
+      "flag": "se",
+      "name": "Huddinge"
+    },
+    {
+      "coordinates": [430, 568],
+      "flag": "se",
+      "name": "Ekerö"
+    },
+    {
+      "coordinates": [2200, 318],
+      "flag": "se",
+      "name": "Värmdö"
+    }
+  ],
+  "themes": ["europe"],
+  "translation_key": "map.stockholm"
+}

@@ -99,6 +99,7 @@ export enum GameMapType {
   Sol = "Sol", // map-generator/assets/maps/sol/info.json
   SouthAmerica = "South America", // map-generator/assets/maps/southamerica/info.json
   SoutheastAsia = "SoutheastAsia", // map-generator/assets/maps/southeastasia/info.json
+  Stockholm = "Stockholm", // map-generator/assets/maps/stockholm/info.json
   StraitOfGibraltar = "Strait of Gibraltar", // map-generator/assets/maps/straitofgibraltar/info.json
   StraitOfHormuz = "Strait of Hormuz", // map-generator/assets/maps/straitofhormuz/info.json
   StraitOfMalacca = "Strait Of Malacca", // map-generator/assets/maps/straitofmalacca/info.json
@@ -1894,6 +1895,17 @@ export const maps: readonly MapInfo[] = [
     teamFrequency: -1,
     specialFrequency: -1,
     themes: ["asia"],
+  },
+  {
+    id: "Stockholm",
+    type: GameMapType.Stockholm,
+    translationKey: "map.stockholm",
+    categories: ["new", "europe"],
+    multiplayerFrequency: 4,
+    ffaFrequency: -1,
+    teamFrequency: -1,
+    specialFrequency: -1,
+    themes: ["europe"],
   },
   {
     id: "StraitOfGibraltar",

@@ -38,6 +38,11 @@ Licensed under [Open Data Commons Open Database License (ODbL)](https://opendata
 [Sweden Topographic Map](https://en-gb.topographic-map.com/map-sweden/)
 Licensed under [Open Data Commons Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/summary/)
 
+### Stockholm Map
+
+[Stockholm Topographic Map](https://en-gb.topographic-map.com/map-stockholm/)
+Licensed under [Open Data Commons Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/summary/)
+
 ### Geographicus Rare Antique Maps
 
 1901 (1915) U.S. Geological Survey Topographic Map of New York City
