@@ -49,6 +49,8 @@ export class UnitImpl implements Unit {
   // Nuke only
   private _deletionAt: number | null = null;
   private _samLauncherState: SamLauncherState | undefined;
+  // Tick at which a defense post's upgrade construction completes (null = none).
+  private _defensePostUpgradeFinishTick: number | null = null;
 
   constructor(
     private _type: UnitType,
@@ -320,7 +322,9 @@ export class UnitImpl implements Unit {
       return;
     }
     this._deletionAt =
-      this.mg.ticks() + this.mg.config().deletionMarkDuration() + this._level * 5;
+      this.mg.ticks() +
+      this.mg.config().deletionMarkDuration() +
+      this._level * 5;
     this.mg.addUpdate(this.toUpdate());
   }
 
@@ -522,6 +526,26 @@ export class UnitImpl implements Unit {
       this._owner._myUnitsVersion++; // unitsOwned() weighs under-construction units differently
       this.mg.addUpdate(this.toUpdate());
     }
+  }
+
+  beginDefensePostUpgrade(): void {
+    const duration = this.mg.config().defensePostUpgradeDuration();
+    if (duration <= 0) {
+      return;
+    }
+    this._defensePostUpgradeFinishTick = this.mg.ticks() + duration;
+    this.setUnderConstruction(true);
+  }
+
+  maybeFinishDefensePostUpgrade(ticks: number): void {
+    if (this._defensePostUpgradeFinishTick === null) {
+      return;
+    }
+    if (ticks < this._defensePostUpgradeFinishTick) {
+      return;
+    }
+    this._defensePostUpgradeFinishTick = null;
+    this.setUnderConstruction(false);
   }
 
   hash(): number {

@@ -44,6 +44,9 @@ export class DefensePostExecution implements Execution {
       return;
     }
 
+    // Complete an upgrade's construction once its build time elapses.
+    this.post.maybeFinishDefensePostUpgrade(ticks);
+
     // Do nothing while the structure is under construction
     if (this.post.isUnderConstruction()) {
       return;

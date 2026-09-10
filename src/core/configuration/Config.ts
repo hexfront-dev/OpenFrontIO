@@ -357,6 +357,11 @@ export class Config {
     return 2.5 * pow(1.25, level - 1);
   }
 
+  /** Time (in ticks) to upgrade a defense post — same as building a new one. */
+  defensePostUpgradeDuration(): number {
+    return this.unitInfo(UnitType.DefensePost).constructionDuration ?? 0;
+  }
+
   playerTeams(): TeamCountConfig {
     return this._gameConfig.playerTeams ?? 0;
   }

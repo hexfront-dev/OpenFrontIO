@@ -586,6 +586,10 @@ export interface Unit {
   level(): number;
   increaseLevel(): void;
   decreaseLevel(destroyer?: Player): void;
+
+  // Defense post upgrade construction
+  beginDefensePostUpgrade(): void;
+  maybeFinishDefensePostUpgrade(ticks: number): void;
 }
 
 export interface TerraNullius {

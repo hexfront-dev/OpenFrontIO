@@ -50,6 +50,10 @@ export class TestConfig extends Config {
     return 5;
   }
 
+  defensePostUpgradeDuration(): number {
+    return 10;
+  }
+
   defaultSamRange(): number {
     return 20;
   }

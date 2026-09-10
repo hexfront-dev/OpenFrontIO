@@ -1,4 +1,4 @@
-import { Execution, Game, Player, Unit } from "../game/Game";
+import { Execution, Game, Player, Unit, UnitType } from "../game/Game";
 
 export class UpgradeStructureExecution implements Execution {
   private structure: Unit | undefined;
@@ -22,6 +22,7 @@ export class UpgradeStructureExecution implements Execution {
       return;
     }
 
+    let upgraded = 0;
     for (let i = 0; i < this.amount; i++) {
       if (!this.player.canUpgradeUnit(this.structure)) {
         if (i === 0) {
@@ -32,6 +33,13 @@ export class UpgradeStructureExecution implements Execution {
         break;
       }
       this.player.upgradeUnit(this.structure);
+      upgraded++;
+    }
+
+    // Defense posts take time to upgrade: once the level increases are applied,
+    // the post goes under construction for the same duration as a fresh build.
+    if (upgraded > 0 && this.structure.type() === UnitType.DefensePost) {
+      this.structure.beginDefensePostUpgrade();
     }
     return;
   }
