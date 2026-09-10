@@ -254,19 +254,19 @@ exports[`attack scenarios > plains 100-troop attack vs 1M defender 1`] = `
 
 exports[`attack scenarios > plains 400-tile turtle, 4M troops (10k/tile) under a defense post, attacked with 1M 1`] = `
 {
-  "attackerLossPerSecond": 555600,
-  "attackerLossPerTile": 31250,
+  "attackerLossPerSecond": 384600,
+  "attackerLossPerTile": 18870,
   "attackerTiles": 9600,
   "attackerTroopsLost": 1000000,
   "defenderEliminated": false,
-  "defenderLossPerSecond": 177800,
+  "defenderLossPerSecond": 203800,
   "defenderLossPerTile": 10000,
   "defenderTiles": 400,
-  "defenderTroopsLost": 320000,
+  "defenderTroopsLost": 530000,
   "finished": true,
-  "ticks": 18,
-  "tilesConquered": 32,
-  "tilesPerSecond": 17.78,
+  "ticks": 26,
+  "tilesConquered": 53,
+  "tilesPerSecond": 20.38,
 }
 `;
 
@@ -344,37 +344,37 @@ exports[`attack scenarios > plains bot vs terra nullius, attack 2k 1`] = `
 
 exports[`attack scenarios > plains defender with defense posts covering the whole border 1`] = `
 {
-  "attackerLossPerSecond": 8333,
-  "attackerLossPerTile": 400,
+  "attackerLossPerSecond": 5556,
+  "attackerLossPerTile": 238.1,
   "attackerTiles": 5000,
   "attackerTroopsLost": 10000,
   "defenderEliminated": false,
-  "defenderLossPerSecond": 208.3,
+  "defenderLossPerSecond": 233.3,
   "defenderLossPerTile": 10,
   "defenderTiles": 5000,
-  "defenderTroopsLost": 250,
+  "defenderTroopsLost": 420,
   "finished": true,
-  "ticks": 12,
-  "tilesConquered": 25,
-  "tilesPerSecond": 20.83,
+  "ticks": 18,
+  "tilesConquered": 42,
+  "tilesPerSecond": 23.33,
 }
 `;
 
 exports[`attack scenarios > plains defender with one defense post at the border 1`] = `
 {
-  "attackerLossPerSecond": 7143,
-  "attackerLossPerTile": 256.4,
+  "attackerLossPerSecond": 5263,
+  "attackerLossPerTile": 175.4,
   "attackerTiles": 5000,
   "attackerTroopsLost": 10000,
   "defenderEliminated": false,
-  "defenderLossPerSecond": 278.6,
+  "defenderLossPerSecond": 300,
   "defenderLossPerTile": 10,
   "defenderTiles": 5000,
-  "defenderTroopsLost": 390,
+  "defenderTroopsLost": 570,
   "finished": true,
-  "ticks": 14,
-  "tilesConquered": 39,
-  "tilesPerSecond": 27.86,
+  "ticks": 19,
+  "tilesConquered": 57,
+  "tilesPerSecond": 30,
 }
 `;
 

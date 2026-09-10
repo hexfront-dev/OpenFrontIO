@@ -872,6 +872,13 @@ export interface Game extends GameMap {
     playerId?: PlayerID,
     includeUnderConstruction?: boolean,
   ): boolean;
+  highestLevelNearby(
+    tile: TileRef,
+    searchRange: number,
+    type: UnitType,
+    playerId?: PlayerID,
+    includeUnderConstruction?: boolean,
+  ): number;
   anyUnitNearby(
     tile: TileRef,
     searchRange: number,

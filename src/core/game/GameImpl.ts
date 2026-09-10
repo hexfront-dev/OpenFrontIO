@@ -1140,6 +1140,22 @@ export class GameImpl implements Game {
     );
   }
 
+  highestLevelNearby(
+    tile: TileRef,
+    searchRange: number,
+    type: UnitType,
+    playerId?: PlayerID,
+    includeUnderConstruction?: boolean,
+  ): number {
+    return this.unitGrid.highestLevelNearby(
+      tile,
+      searchRange,
+      type,
+      playerId,
+      includeUnderConstruction,
+    );
+  }
+
   anyUnitNearby(
     tile: TileRef,
     searchRange: number,

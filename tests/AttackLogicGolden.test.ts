@@ -39,7 +39,7 @@ function run(o: Partial<AttackLogicInput> & { attackTroops: number }) {
     terrain: TerrainType.Plains,
     attacker: { type: PlayerType.Human, numTiles: 20_000 },
     defender: null,
-    defenderHasDefensePost: false,
+    defensePostLevel: 0,
     falloutRatio: null,
     borderSize: 100,
     ...o,
@@ -87,7 +87,7 @@ describe("attackLogic golden values", () => {
       run({ attackTroops: 100_000, defender: defender(base), ...o });
     const cases: Record<string, ReturnType<typeof run>> = {
       baseline: pvp(),
-      "defender has defense post": pvp({ defenderHasDefensePost: true }),
+      "defender has defense post": pvp({ defensePostLevel: 1 }),
       "no fallout": pvp({ falloutRatio: null }),
       "fallout 10%": pvp({ falloutRatio: 0.1 }),
       "fallout 100%": pvp({ falloutRatio: 1 }),
@@ -113,7 +113,7 @@ describe("attackLogic golden values", () => {
       }),
       "defense post + fallout + traitor (stacking)": pvp({
         terrain: TerrainType.Mountain,
-        defenderHasDefensePost: true,
+        defensePostLevel: 1,
         falloutRatio: 0.5,
         defender: defender({ ...base, isTraitor: true }),
       }),

@@ -74,8 +74,8 @@ export interface AttackLogicInput {
     /** Defender is disconnected and on the attacker's team. */
     isDisconnectedTeammate: boolean;
   } | null;
-  /** A defense post owned by the defender is in range of the tile. */
-  defenderHasDefensePost: boolean;
+  /** Highest level of an in-range defense post owned by the defender (0 if none). */
+  defensePostLevel: number;
   /** Fraction of land tiles with fallout, or null if the tile has no fallout. */
   falloutRatio: number | null;
   /** Tiles on the attack front this tick (plus jitter); fixed for the tick. */
@@ -347,12 +347,14 @@ export class Config {
     return 30;
   }
 
-  defensePostDefenseBonus(): number {
-    return 5;
+  defensePostDefenseBonus(level: number): number {
+    // Attacker troop-loss multiplier: 3x at level 1, ×1.5 per additional level.
+    return 3 * pow(1.5, level - 1);
   }
 
-  defensePostSpeedBonus(): number {
-    return 3;
+  defensePostSpeedBonus(level: number): number {
+    // Tile-capture cost multiplier: 2.5x at level 1, ×1.25 per additional level.
+    return 2.5 * pow(1.25, level - 1);
   }
 
   playerTeams(): TeamCountConfig {
@@ -566,6 +568,7 @@ export class Config {
             UnitType.DefensePost,
           ),
           constructionDuration: this.instantBuild() ? 0 : 5 * 10,
+          upgradable: true,
         };
         break;
       case UnitType.SAMLauncher:
@@ -809,9 +812,9 @@ export class Config {
     const { attackTroops, attacker, defender } = input;
     let { mag, tileCost } = terrainAttackBase(input.terrain);
 
-    if (defender !== null && input.defenderHasDefensePost) {
-      mag *= this.defensePostDefenseBonus();
-      tileCost *= this.defensePostSpeedBonus();
+    if (defender !== null && input.defensePostLevel > 0) {
+      mag *= this.defensePostDefenseBonus(input.defensePostLevel);
+      tileCost *= this.defensePostSpeedBonus(input.defensePostLevel);
     }
     if (input.falloutRatio !== null) {
       const fallout = this.falloutDefenseModifier(input.falloutRatio);
