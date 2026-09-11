@@ -569,7 +569,7 @@ export class Config {
       case UnitType.DefensePost:
         info = {
           cost: this.costWrapper(
-            (numUnits: number) => Math.min(500_000, (numUnits + 1) * 50_000),
+            (numUnits: number) => Math.min(250_000, (numUnits + 1) * 50_000),
             UnitType.DefensePost,
           ),
           constructionDuration: this.instantBuild() ? 0 : 5 * 10,
