@@ -11,6 +11,7 @@ export type {
   AttackRingInput,
   ConquestFx,
   DeadUnitFx,
+  DefenseLinePreviewData,
   EmojiData,
   GhostPreviewData,
   NameEntry,
@@ -45,6 +46,8 @@ export {
   UT_HYDROGEN_BOMB,
   UT_MIRV,
   UT_MIRV_WARHEAD,
+  UT_MISSILE_DEFENSE_SHIP,
+  UT_MISSILE_SHIP,
   UT_MISSILE_SILO,
   UT_PORT,
   UT_SAM_LAUNCHER,
@@ -54,6 +57,4 @@ export {
   UT_TRAIN,
   UT_TRANSPORT,
   UT_WARSHIP,
-  UT_MISSILE_SHIP,
-  UT_MISSILE_DEFENSE_SHIP,
 } from "./UnitType";

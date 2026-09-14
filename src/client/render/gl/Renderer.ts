@@ -18,6 +18,7 @@ import type {
   BonusEvent,
   ConquestFx,
   DeadUnitFx,
+  DefenseLinePreviewData,
   GhostPreviewData,
   NameEntry,
   NukeTelegraphData,
@@ -1066,6 +1067,10 @@ export class GPURenderer {
     this.samRadiusPass.setVisible(
       this.samGhostVisible || this.samHighlightVisible,
     );
+  }
+
+  updateDefenseLine(data: DefenseLinePreviewData | null): void {
+    this.rangeCirclePass.updateDefenseLine(data);
   }
 
   updateNukeTrajectory(data: NukeTrajectoryData | null): void {

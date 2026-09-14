@@ -104,6 +104,30 @@ export class SwapRocketDirectionEvent implements GameEvent {
   constructor(public readonly rocketDirectionUp: boolean) {}
 }
 
+/**
+ * Emitted while the user is dragging a defense-post line (ghost is a
+ * defense post and the left button is held while moving past the drag
+ * threshold). `start` is the pointer-down position, `end` the live cursor.
+ */
+export class DefensePostLineUpdateEvent implements GameEvent {
+  constructor(
+    public readonly startX: number,
+    public readonly startY: number,
+    public readonly endX: number,
+    public readonly endY: number,
+  ) {}
+}
+
+/** Emitted when the user releases the mouse after dragging a defense-post line. */
+export class DefensePostLineCompleteEvent implements GameEvent {
+  constructor(
+    public readonly startX: number,
+    public readonly startY: number,
+    public readonly endX: number,
+    public readonly endY: number,
+  ) {}
+}
+
 /** Emitted while the user is drawing a shift+drag selection rectangle */
 export class WarshipSelectionBoxUpdateEvent implements GameEvent {
   constructor(
@@ -247,6 +271,10 @@ export class InputHandler {
   private unitSelectionActive: boolean = false;
   // Currently selected warship IDs (for fleet creation via Enter)
   private selectedWarshipIds: number[] = [];
+
+  // Defense-post line drag state (hold left mouse + drag while a defense
+  // post ghost is active).
+  private defenseLineActive = false;
 
   // Touch long-press state
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -521,6 +549,7 @@ export class InputHandler {
       }
       this.longPressActive = false;
       this.suppressNextTap = false;
+      this.defenseLineActive = false;
       if (this.selectionBoxActive || this.multiSelectionActive) {
         this.selectionBoxActive = false;
         this.multiSelectionActive = false;
@@ -845,6 +874,20 @@ export class InputHandler {
       }
     }
 
+    // Complete a defense-post line drag.
+    if (this.defenseLineActive) {
+      this.defenseLineActive = false;
+      this.eventBus.emit(
+        new DefensePostLineCompleteEvent(
+          this.lastPointerDownX,
+          this.lastPointerDownY,
+          event.clientX,
+          event.clientY,
+        ),
+      );
+      return;
+    }
+
     // Complete selection box if it was active
     if (this.selectionBoxActive) {
       this.selectionBoxActive = false;
@@ -1013,6 +1056,26 @@ export class InputHandler {
             event.clientY,
           ),
         );
+      } else if (
+        this.uiState.ghostStructure === UnitType.DefensePost &&
+        !this.activeKeys.has(this.keybinds.boxSelectWarships)
+      ) {
+        // Hold left mouse + drag with a defense-post ghost active → draw a
+        // line of defense posts instead of panning the camera.
+        const dist =
+          Math.abs(event.clientX - this.lastPointerDownX) +
+          Math.abs(event.clientY - this.lastPointerDownY);
+        if (this.defenseLineActive || dist >= this.DRAG_THRESHOLD_PX) {
+          this.defenseLineActive = true;
+          this.eventBus.emit(
+            new DefensePostLineUpdateEvent(
+              this.lastPointerDownX,
+              this.lastPointerDownY,
+              event.clientX,
+              event.clientY,
+            ),
+          );
+        }
       } else {
         this.eventBus.emit(new DragEvent(deltaX, deltaY));
       }

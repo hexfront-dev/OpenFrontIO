@@ -19,6 +19,7 @@ import type {
   BonusEvent,
   ConquestFx,
   DeadUnitFx,
+  DefenseLinePreviewData,
   GhostPreviewData,
   NameEntry,
   NukeTelegraphData,
@@ -256,6 +257,11 @@ export class MapRenderer {
   /** Update ghost structure preview (build-mode visualization). null = clear. */
   updateGhostPreview(data: GhostPreviewData | null): void {
     this.renderer?.updateGhostPreview(data);
+  }
+
+  /** Update defense-post line preview circles. null = clear. */
+  updateDefenseLine(data: DefenseLinePreviewData | null): void {
+    this.renderer?.updateDefenseLine(data);
   }
 
   // ---- Nuke UI ----

@@ -7,7 +7,7 @@
  * Active only when a ghost preview with rangeRadius > 0 is set.
  */
 
-import type { GhostPreviewData } from "../../types";
+import type { DefenseLinePreviewData, GhostPreviewData } from "../../types";
 import { createProgram } from "../utils/GlUtils";
 
 import fragSrc from "../shaders/range-circle/range-circle.frag.glsl?raw";
@@ -27,6 +27,9 @@ export class RangeCirclePass {
   private centerY = 0;
   private radius = 0;
   private warning = false;
+
+  // Defense-post line preview circles (overrides the single ghost circle).
+  private line: DefenseLinePreviewData | null = null;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -64,13 +67,32 @@ export class RangeCirclePass {
     }
   }
 
-  draw(cameraMatrix: Float32Array): void {
-    if (this.radius <= 0) return;
+  /** Set (or clear, with null) the defense-post line preview circles. */
+  updateDefenseLine(data: DefenseLinePreviewData | null): void {
+    this.line = data;
+  }
 
+  draw(cameraMatrix: Float32Array): void {
     const gl = this.gl;
     gl.useProgram(this.program);
     gl.uniformMatrix3fv(this.uCamera, false, cameraMatrix);
     gl.bindVertexArray(this.vao);
+
+    // Defense-post line preview takes priority over the single ghost circle.
+    if (this.line !== null) {
+      const { centers, radius } = this.line;
+      if (radius > 0 && centers.length > 0) {
+        gl.uniform1f(this.uRadius, radius);
+        gl.uniform3f(this.uColor, 1.0, 1.0, 1.0);
+        for (const c of centers) {
+          gl.uniform2f(this.uCenter, c.x, c.y);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+        }
+      }
+      return;
+    }
+
+    if (this.radius <= 0) return;
 
     gl.uniform2f(this.uCenter, this.centerX, this.centerY);
     gl.uniform1f(this.uRadius, this.radius);

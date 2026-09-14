@@ -288,6 +288,15 @@ export interface AttackRingInput {
   unitId: number;
 }
 
+/**
+ * Defense-post line preview — a set of range circles (defense posts) placed
+ * along a drag so their coverage overlaps with no gaps.
+ */
+export interface DefenseLinePreviewData {
+  centers: { x: number; y: number }[];
+  radius: number;
+}
+
 /** In-flight nuke target circle data. */
 export interface NukeTelegraphData {
   x: number;

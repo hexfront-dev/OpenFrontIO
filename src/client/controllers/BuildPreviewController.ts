@@ -20,9 +20,12 @@ import {
 } from "../../core/game/Game";
 import { TileRef } from "../../core/game/GameMap";
 import { UserSettings } from "../../core/game/UserSettings";
+import { sampleDefensePostLine } from "../../core/utilities/DefensePostLine";
 import { Controller } from "../Controller";
 import {
   ConfirmGhostStructureEvent,
+  DefensePostLineCompleteEvent,
+  DefensePostLineUpdateEvent,
   MouseMoveEvent,
   MouseUpEvent,
 } from "../InputHandler";
@@ -46,6 +49,12 @@ export function shouldPreserveGhostAfterBuild(unitType: UnitType): boolean {
 // draws the red X marker essentially at the destination while leaving the
 // visible line unchanged (1.0 would mean "no marker").
 const T_BLOCKED_DST = 0.9999;
+
+// Defense posts along a dragged line are spaced so their range circles
+// slightly overlap (no gaps). A pair of range circles would be tangent at
+// 2 * range, so we subtract a small overlap to guarantee every tile between
+// adjacent posts is covered.
+const DEFENSE_POST_LINE_OVERLAP = 5;
 
 /**
  * Whether a SAM belongs in the nuke trajectory preview's threat set.
@@ -84,6 +93,9 @@ export class BuildPreviewController implements Controller {
   // frame with the current cursor world position.
   private lastGhostData: GhostPreviewData | null = null;
 
+  // Defense-post line drag preview state.
+  private defenseLineActive = false;
+
   // Static inputs for the nuke trajectory preview (source silo + threatening
   // SAMs). Recomputed in the throttled renderGhost path; cursorLoop rebuilds
   // the Bezier each frame with the live cursor position as the destination so
@@ -111,6 +123,12 @@ export class BuildPreviewController implements Controller {
       this.requestConfirmStructure(
         new MouseUpEvent(this.mousePos.x, this.mousePos.y),
       ),
+    );
+    this.eventBus.on(DefensePostLineUpdateEvent, (e) =>
+      this.onDefenseLineUpdate(e),
+    );
+    this.eventBus.on(DefensePostLineCompleteEvent, (e) =>
+      this.onDefenseLineComplete(e),
     );
 
     // Re-emit the ghost each render frame at the cursor's current world
@@ -203,6 +221,7 @@ export class BuildPreviewController implements Controller {
 
   renderGhost() {
     if (!this.ghostUnit) return;
+    if (this.defenseLineActive) return;
 
     const now = performance.now();
     if (now - this.lastGhostQueryAt < 50) return;
@@ -635,6 +654,90 @@ export class BuildPreviewController implements Controller {
     this.mousePos.y = e.y;
   }
 
+  private defenseLineSpacing(): number {
+    return (
+      this.game.config().defensePostRange() * 2 - DEFENSE_POST_LINE_OVERLAP
+    );
+  }
+
+  /**
+   * Compute the tile positions of a dragged defense-post line, filtered to
+   * tiles the local player can actually build on (owned land, not impassable).
+   */
+  private defenseLineTiles(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ): { x: number; y: number }[] {
+    const myPlayer = this.game.myPlayer();
+    const sampled = sampleDefensePostLine(
+      startX,
+      startY,
+      endX,
+      endY,
+      this.defenseLineSpacing(),
+    );
+    const result: { x: number; y: number }[] = [];
+    for (const p of sampled) {
+      if (!this.game.isValidCoord(p.x, p.y)) continue;
+      const ref = this.game.ref(p.x, p.y);
+      if (this.game.isImpassable(ref)) continue;
+      if (!this.game.isLand(ref)) continue;
+      if (myPlayer && this.game.ownerID(ref) !== myPlayer.smallID()) continue;
+      result.push(p);
+    }
+    return result;
+  }
+
+  private onDefenseLineUpdate(e: DefensePostLineUpdateEvent) {
+    // Only draw a line while the active ghost is a defense post.
+    if (this.uiState.ghostStructure !== UnitType.DefensePost) return;
+
+    const start = this.transformHandler.screenToWorldCoordinatesFloat(
+      e.startX,
+      e.startY,
+    );
+    const end = this.transformHandler.screenToWorldCoordinatesFloat(
+      e.endX,
+      e.endY,
+    );
+    const tiles = this.defenseLineTiles(start.x, start.y, end.x, end.y);
+
+    this.defenseLineActive = true;
+    // Hide the single ghost while the line preview is shown.
+    this.lastGhostData = null;
+    this.view.updateGhostPreview(null);
+    this.view.updateDefenseLine({
+      centers: tiles,
+      radius: this.game.config().defensePostRange(),
+    });
+  }
+
+  private onDefenseLineComplete(e: DefensePostLineCompleteEvent) {
+    if (!this.defenseLineActive) return;
+    this.defenseLineActive = false;
+    this.view.updateDefenseLine(null);
+
+    const start = this.transformHandler.screenToWorldCoordinatesFloat(
+      e.startX,
+      e.startY,
+    );
+    const end = this.transformHandler.screenToWorldCoordinatesFloat(
+      e.endX,
+      e.endY,
+    );
+    const tiles = this.defenseLineTiles(start.x, start.y, end.x, end.y);
+    for (const t of tiles) {
+      const tileRef = this.game.ref(t.x, t.y);
+      this.eventBus.emit(
+        new BuildUnitIntentEvent(UnitType.DefensePost, tileRef),
+      );
+    }
+
+    this.removeGhostStructure();
+  }
+
   private createGhostStructure(type: PlayerBuildableUnitType | null) {
     if (type === null) return;
     if (this.game.myPlayer() === null) return;
@@ -654,7 +757,9 @@ export class BuildPreviewController implements Controller {
     this.pendingConfirm = null;
     this.ghostUnit = null;
     this.lastGhostData = null;
+    this.defenseLineActive = false;
     this.view.updateGhostPreview(null);
+    this.view.updateDefenseLine(null);
     this.clearNukeTrajectory();
   }
 
