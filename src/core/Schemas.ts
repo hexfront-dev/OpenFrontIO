@@ -33,6 +33,7 @@ export type Intent =
   | SpawnIntent
   | AttackIntent
   | CancelAttackIntent
+  | AvoidConquestIntent
   | BoatAttackIntent
   | CancelBoatIntent
   | AllianceRequestIntent
@@ -61,6 +62,7 @@ export type Intent =
 
 export type AttackIntent = z.infer<typeof AttackIntentSchema>;
 export type CancelAttackIntent = z.infer<typeof CancelAttackIntentSchema>;
+export type AvoidConquestIntent = z.infer<typeof AvoidConquestIntentSchema>;
 export type SpawnIntent = z.infer<typeof SpawnIntentSchema>;
 export type BoatAttackIntent = z.infer<typeof BoatAttackIntentSchema>;
 export type EmbargoAllIntent = z.infer<typeof EmbargoAllIntentSchema>;
@@ -689,6 +691,15 @@ export const CancelAttackIntentSchema = z.object({
   attackID: z.string(),
 });
 
+export const AvoidConquestIntentSchema = z.object({
+  type: z.literal("avoid_conquest"),
+  attackID: z.string(),
+  // TileRefs on the attack's front line to toggle in/out of the exclusion
+  // set. Each tile is toggled: already-avoided tiles are un-avoided and
+  // vice-versa, so re-dragging the same area removes the exclusion.
+  tiles: z.array(zb.uint()),
+});
+
 export const CancelBoatIntentSchema = z.object({
   type: z.literal("cancel_boat"),
   unitID: zb.uint(),
@@ -764,6 +775,7 @@ export const ToggleGameStartTimerIntentSchema = z.object({
 export const IntentSchema = z.discriminatedUnion("type", [
   AttackIntentSchema,
   CancelAttackIntentSchema,
+  AvoidConquestIntentSchema,
   SpawnIntentSchema,
   MarkDisconnectedIntentSchema,
   BoatAttackIntentSchema,

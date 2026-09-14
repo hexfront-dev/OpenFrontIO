@@ -297,6 +297,14 @@ export interface DefenseLinePreviewData {
   radius: number;
 }
 
+/**
+ * Frontline tiles excluded from a conquest attempt (ctrl+drag selection),
+ * highlighted as small markers so the player can see what won't be conquered.
+ */
+export interface AvoidedTilesData {
+  tiles: { x: number; y: number }[];
+}
+
 /** In-flight nuke target circle data. */
 export interface NukeTelegraphData {
   x: number;

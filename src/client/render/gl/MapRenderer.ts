@@ -16,6 +16,7 @@ import type { MapLayer } from "../../../core/game/TerrainMapLoader";
 import type { SpiralRibbon } from "../frame/SpiralTrails";
 import type {
   AttackRingInput,
+  AvoidedTilesData,
   BonusEvent,
   ConquestFx,
   DeadUnitFx,
@@ -262,6 +263,11 @@ export class MapRenderer {
   /** Update defense-post line preview circles. null = clear. */
   updateDefenseLine(data: DefenseLinePreviewData | null): void {
     this.renderer?.updateDefenseLine(data);
+  }
+
+  /** Update the avoided (excluded-from-conquest) frontline tile markers. */
+  updateAvoidedTiles(data: AvoidedTilesData | null): void {
+    this.renderer?.updateAvoidedTiles(data);
   }
 
   // ---- Nuke UI ----

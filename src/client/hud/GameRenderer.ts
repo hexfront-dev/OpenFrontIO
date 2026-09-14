@@ -2,6 +2,7 @@ import { EventBus } from "../../core/EventBus";
 import { UserSettings } from "../../core/game/UserSettings";
 import { Controller } from "../Controller";
 import { AttackingTroopsController } from "../controllers/AttackingTroopsController";
+import { AvoidConquestController } from "../controllers/AvoidConquestController";
 import { BuildPreviewController } from "../controllers/BuildPreviewController";
 import { HoverHighlightController } from "../controllers/HoverHighlightController";
 import { LiveStatsController } from "../controllers/LiveStatsController";
@@ -296,6 +297,7 @@ export function createRenderer(
 
   const layers: Controller[] = [
     new WarshipSelectionController(game, eventBus, transformHandler, view),
+    new AvoidConquestController(game, eventBus, transformHandler, view),
     new BuildPreviewController(
       game,
       eventBus,

@@ -151,6 +151,32 @@ export class WarshipSelectionBoxCompleteEvent implements GameEvent {
 /** Emitted when the selection box is cancelled (e.g. Escape or no drag) */
 export class WarshipSelectionBoxCancelEvent implements GameEvent {}
 
+/**
+ * Emitted while the user is drawing a ctrl+drag rectangle to exclude a region
+ * of the frontline from an ongoing conquest attempt.
+ */
+export class AvoidConquestBoxUpdateEvent implements GameEvent {
+  constructor(
+    public readonly startX: number,
+    public readonly startY: number,
+    public readonly endX: number,
+    public readonly endY: number,
+  ) {}
+}
+
+/** Emitted when the user releases the mouse after drawing an avoid-conquest rectangle. */
+export class AvoidConquestBoxCompleteEvent implements GameEvent {
+  constructor(
+    public readonly startX: number,
+    public readonly startY: number,
+    public readonly endX: number,
+    public readonly endY: number,
+  ) {}
+}
+
+/** Emitted when the avoid-conquest selection is cancelled (e.g. Escape or no drag). */
+export class AvoidConquestBoxCancelEvent implements GameEvent {}
+
 /** Emitted when the player triggers select-all-warships hotkey */
 export class SelectAllWarshipsEvent implements GameEvent {}
 
@@ -275,6 +301,9 @@ export class InputHandler {
   // Defense-post line drag state (hold left mouse + drag while a defense
   // post ghost is active).
   private defenseLineActive = false;
+
+  // Avoid-conquest selection state (hold ctrl + left mouse + drag).
+  private avoidConquestBoxActive = false;
 
   // Touch long-press state
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -550,6 +579,10 @@ export class InputHandler {
       this.longPressActive = false;
       this.suppressNextTap = false;
       this.defenseLineActive = false;
+      if (this.avoidConquestBoxActive) {
+        this.avoidConquestBoxActive = false;
+        this.eventBus.emit(new AvoidConquestBoxCancelEvent());
+      }
       if (this.selectionBoxActive || this.multiSelectionActive) {
         this.selectionBoxActive = false;
         this.multiSelectionActive = false;
@@ -649,6 +682,12 @@ export class InputHandler {
         if (this.selectionBoxActive) {
           this.selectionBoxActive = false;
           this.eventBus.emit(new WarshipSelectionBoxCancelEvent());
+          closedUI = true;
+        }
+
+        if (this.avoidConquestBoxActive) {
+          this.avoidConquestBoxActive = false;
+          this.eventBus.emit(new AvoidConquestBoxCancelEvent());
           closedUI = true;
         }
 
@@ -908,6 +947,26 @@ export class InputHandler {
         this.eventBus.emit(new WarshipSelectionBoxCancelEvent());
       }
     }
+    // Complete an avoid-conquest selection box (ctrl+drag).
+    if (this.avoidConquestBoxActive) {
+      this.avoidConquestBoxActive = false;
+      const dist =
+        Math.abs(event.clientX - this.lastPointerDownX) +
+        Math.abs(event.clientY - this.lastPointerDownY);
+      if (dist >= this.DRAG_THRESHOLD_PX) {
+        this.eventBus.emit(
+          new AvoidConquestBoxCompleteEvent(
+            this.lastPointerDownX,
+            this.lastPointerDownY,
+            event.clientX,
+            event.clientY,
+          ),
+        );
+        return;
+      } else {
+        this.eventBus.emit(new AvoidConquestBoxCancelEvent());
+      }
+    }
     if (this.activeKeys.has(this.keybinds.buildMenuModifier)) {
       this.suppressNextTap = false;
       this.eventBus.emit(new ShowBuildMenuEvent(event.clientX, event.clientY));
@@ -1076,6 +1135,23 @@ export class InputHandler {
             ),
           );
         }
+      } else if (this.isCtrlHeld(event)) {
+        // Ctrl + left-drag → draw an avoid-conquest selection rectangle
+        // (exclude a region of the frontline from conquest).
+        const dist =
+          Math.abs(event.clientX - this.lastPointerDownX) +
+          Math.abs(event.clientY - this.lastPointerDownY);
+        if (this.avoidConquestBoxActive || dist >= this.DRAG_THRESHOLD_PX) {
+          this.avoidConquestBoxActive = true;
+          this.eventBus.emit(
+            new AvoidConquestBoxUpdateEvent(
+              this.lastPointerDownX,
+              this.lastPointerDownY,
+              event.clientX,
+              event.clientY,
+            ),
+          );
+        }
       } else {
         this.eventBus.emit(new DragEvent(deltaX, deltaY));
       }
@@ -1103,6 +1179,13 @@ export class InputHandler {
     }
     if (this.uiState.ghostStructure !== null) {
       this.setGhostStructure(null);
+      return;
+    }
+    // While an avoid-conquest selection is being drawn, right-click (or
+    // ctrl+click on macOS) cancels it instead of opening the context menu.
+    if (this.avoidConquestBoxActive) {
+      this.avoidConquestBoxActive = false;
+      this.eventBus.emit(new AvoidConquestBoxCancelEvent());
       return;
     }
     // If a warship/boat is selected, right-click cancels the selection rather
@@ -1240,6 +1323,19 @@ export class InputHandler {
   private canUseBuildKeybinds(): boolean {
     const myPlayer = this.gameView.myPlayer?.();
     return !this.gameView.inSpawnPhase() && myPlayer?.isAlive() === true;
+  }
+
+  /**
+   * Whether a control modifier is currently held. The pointer event's
+   * `ctrlKey` is authoritative; `activeKeys` is a fallback for the rare case
+   * the keydown was swallowed (e.g. ctrl+wheel browser zoom).
+   */
+  private isCtrlHeld(e: { ctrlKey: boolean }): boolean {
+    return (
+      e.ctrlKey ||
+      this.activeKeys.has("ControlLeft") ||
+      this.activeKeys.has("ControlRight")
+    );
   }
 
   private getPinchDistance(): number {

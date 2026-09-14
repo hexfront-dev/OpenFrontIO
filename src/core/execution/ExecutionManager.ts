@@ -7,10 +7,10 @@ import { AllianceRejectExecution } from "./alliance/AllianceRejectExecution";
 import { AllianceRequestExecution } from "./alliance/AllianceRequestExecution";
 import { BreakAllianceExecution } from "./alliance/BreakAllianceExecution";
 import { AttackExecution } from "./AttackExecution";
+import { AvoidConquestExecution } from "./AvoidConquestExecution";
 import { BoatRetreatExecution } from "./BoatRetreatExecution";
 import { ConstructionExecution } from "./ConstructionExecution";
 import { CreateFleetExecution } from "./CreateFleetExecution";
-import { LeaveFleetExecution } from "./LeaveFleetExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
 import { DisableTrainStationExecution } from "./DisableTrainStationExecution";
 import { DonateGoldExecution } from "./DonateGoldExecution";
@@ -18,6 +18,7 @@ import { DonateTroopsExecution } from "./DonateTroopExecution";
 import { EmbargoAllExecution } from "./EmbargoAllExecution";
 import { EmbargoExecution } from "./EmbargoExecution";
 import { EmojiExecution } from "./EmojiExecution";
+import { LeaveFleetExecution } from "./LeaveFleetExecution";
 import { MarkDisconnectedExecution } from "./MarkDisconnectedExecution";
 import { MoveWarshipExecution } from "./MoveWarshipExecution";
 import { NationExecution } from "./NationExecution";
@@ -70,6 +71,12 @@ export class Executor {
       }
       case "cancel_attack":
         return new RetreatExecution(player, intent.attackID);
+      case "avoid_conquest":
+        return new AvoidConquestExecution(
+          player,
+          intent.attackID,
+          intent.tiles,
+        );
       case "cancel_boat":
         return new BoatRetreatExecution(player, intent.unitID);
       case "move_warship":
@@ -84,7 +91,12 @@ export class Executor {
           true,
         );
       case "boat":
-        return new TransportShipExecution(player, intent.dst, intent.troops, intent.escort);
+        return new TransportShipExecution(
+          player,
+          intent.dst,
+          intent.troops,
+          intent.escort,
+        );
       case "allianceRequest":
         return new AllianceRequestExecution(player, intent.recipient);
       case "allianceReject":

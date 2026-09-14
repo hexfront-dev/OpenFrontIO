@@ -424,6 +424,13 @@ export interface Attack {
   clearBorder(): void;
   borderSize(): number;
   clusteredPositions(): TileRef[];
+  // Tiles on the attack's front that are excluded from this conquest attempt.
+  // The attack simply won't conquer them (it keeps advancing past them).
+  addAvoidedTile(tile: TileRef): void;
+  removeAvoidedTile(tile: TileRef): void;
+  isAvoided(tile: TileRef): boolean;
+  clearAvoided(): void;
+  avoidedTiles(): TileRef[];
 }
 
 export interface AllianceRequest {

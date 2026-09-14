@@ -15,6 +15,7 @@ import { translateText } from "../../Utils";
 import type { SpiralRibbon } from "../frame/SpiralTrails";
 import type {
   AttackRingInput,
+  AvoidedTilesData,
   BonusEvent,
   ConquestFx,
   DeadUnitFx,
@@ -1071,6 +1072,10 @@ export class GPURenderer {
 
   updateDefenseLine(data: DefenseLinePreviewData | null): void {
     this.rangeCirclePass.updateDefenseLine(data);
+  }
+
+  updateAvoidedTiles(data: AvoidedTilesData | null): void {
+    this.rangeCirclePass.updateAvoidedTiles(data);
   }
 
   updateNukeTrajectory(data: NukeTrajectoryData | null): void {

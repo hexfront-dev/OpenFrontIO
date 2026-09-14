@@ -9,6 +9,7 @@ export type {
   AllianceData,
   AttackData,
   AttackRingInput,
+  AvoidedTilesData,
   ConquestFx,
   DeadUnitFx,
   DefenseLinePreviewData,

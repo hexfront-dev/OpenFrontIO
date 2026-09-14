@@ -7,11 +7,18 @@
  * Active only when a ghost preview with rangeRadius > 0 is set.
  */
 
-import type { DefenseLinePreviewData, GhostPreviewData } from "../../types";
+import type {
+  AvoidedTilesData,
+  DefenseLinePreviewData,
+  GhostPreviewData,
+} from "../../types";
 import { createProgram } from "../utils/GlUtils";
 
 import fragSrc from "../shaders/range-circle/range-circle.frag.glsl?raw";
 import vertSrc from "../shaders/range-circle/range-circle.vert.glsl?raw";
+
+/** Marker radius for a frontline tile excluded from conquest (in tiles). */
+const AVOIDED_TILE_RADIUS = 0.5;
 
 export class RangeCirclePass {
   private gl: WebGL2RenderingContext;
@@ -30,6 +37,9 @@ export class RangeCirclePass {
 
   // Defense-post line preview circles (overrides the single ghost circle).
   private line: DefenseLinePreviewData | null = null;
+
+  // Avoided (excluded-from-conquest) frontline tile markers.
+  private avoided: AvoidedTilesData | null = null;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -72,6 +82,11 @@ export class RangeCirclePass {
     this.line = data;
   }
 
+  /** Set (or clear, with null) the avoided-conquest tile markers. */
+  updateAvoidedTiles(data: AvoidedTilesData | null): void {
+    this.avoided = data;
+  }
+
   draw(cameraMatrix: Float32Array): void {
     const gl = this.gl;
     gl.useProgram(this.program);
@@ -89,19 +104,26 @@ export class RangeCirclePass {
           gl.drawArrays(gl.TRIANGLES, 0, 6);
         }
       }
-      return;
+    } else if (this.radius > 0) {
+      gl.uniform2f(this.uCenter, this.centerX, this.centerY);
+      gl.uniform1f(this.uRadius, this.radius);
+      if (this.warning) {
+        gl.uniform3f(this.uColor, 1.0, 0.2, 0.2);
+      } else {
+        gl.uniform3f(this.uColor, 1.0, 1.0, 1.0);
+      }
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
-    if (this.radius <= 0) return;
-
-    gl.uniform2f(this.uCenter, this.centerX, this.centerY);
-    gl.uniform1f(this.uRadius, this.radius);
-    if (this.warning) {
-      gl.uniform3f(this.uColor, 1.0, 0.2, 0.2);
-    } else {
-      gl.uniform3f(this.uColor, 1.0, 1.0, 1.0);
+    // Avoided conquest tiles — orange markers drawn last so they sit on top.
+    if (this.avoided !== null && this.avoided.tiles.length > 0) {
+      gl.uniform1f(this.uRadius, AVOIDED_TILE_RADIUS);
+      gl.uniform3f(this.uColor, 1.0, 0.4, 0.1);
+      for (const t of this.avoided.tiles) {
+        gl.uniform2f(this.uCenter, t.x, t.y);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
     }
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
   dispose(): void {

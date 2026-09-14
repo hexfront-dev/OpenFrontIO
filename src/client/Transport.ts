@@ -168,6 +168,13 @@ export class CancelAttackIntentEvent implements GameEvent {
   constructor(public readonly attackID: string) {}
 }
 
+export class SendAvoidConquestIntentEvent implements GameEvent {
+  constructor(
+    public readonly attackID: string,
+    public readonly tiles: number[],
+  ) {}
+}
+
 export class CancelBoatIntentEvent implements GameEvent {
   constructor(public readonly unitID: number) {}
 }
@@ -307,6 +314,9 @@ export class Transport {
     this.eventBus.on(SendHashEvent, (e) => this.onSendHashEvent(e));
     this.eventBus.on(CancelAttackIntentEvent, (e) =>
       this.onCancelAttackIntentEvent(e),
+    );
+    this.eventBus.on(SendAvoidConquestIntentEvent, (e) =>
+      this.onSendAvoidConquestIntent(e),
     );
     this.eventBus.on(CancelBoatIntentEvent, (e) =>
       this.onCancelBoatIntentEvent(e),
@@ -735,6 +745,14 @@ export class Transport {
     });
   }
 
+  private onSendAvoidConquestIntent(event: SendAvoidConquestIntentEvent) {
+    this.sendIntent({
+      type: "avoid_conquest",
+      attackID: event.attackID,
+      tiles: event.tiles,
+    });
+  }
+
   private onCancelBoatIntentEvent(event: CancelBoatIntentEvent) {
     this.sendIntent({
       type: "cancel_boat",
@@ -757,7 +775,9 @@ export class Transport {
     });
   }
 
-  private onSendDisableTrainStationIntent(event: SendDisableTrainStationIntentEvent) {
+  private onSendDisableTrainStationIntent(
+    event: SendDisableTrainStationIntentEvent,
+  ) {
     this.sendIntent({
       type: "disable_train_station",
       unitId: event.unitId,
