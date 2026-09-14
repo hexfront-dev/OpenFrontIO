@@ -8,10 +8,6 @@ export class AttackImpl implements Attack {
   private _borderSize = 0;
   public _retreating = false;
   public _retreated = false;
-  // Frontier tiles excluded from this conquest attempt. Kept separate from
-  // `_border` so a tile that is un-avoided stays eligible to be re-enqueued
-  // by the next refreshToConquer pass.
-  private _avoided = new Set<TileRef>();
 
   constructor(
     private _id: string,
@@ -99,26 +95,6 @@ export class AttackImpl implements Attack {
       this._borderSize -= 1;
       this._border.delete(tile);
     }
-  }
-
-  addAvoidedTile(tile: TileRef): void {
-    this._avoided.add(tile);
-  }
-
-  removeAvoidedTile(tile: TileRef): void {
-    this._avoided.delete(tile);
-  }
-
-  isAvoided(tile: TileRef): boolean {
-    return this._avoided.has(tile);
-  }
-
-  clearAvoided(): void {
-    this._avoided.clear();
-  }
-
-  avoidedTiles(): TileRef[] {
-    return [...this._avoided];
   }
 
   // Returns the top 2 clustered positions of the attack's border.

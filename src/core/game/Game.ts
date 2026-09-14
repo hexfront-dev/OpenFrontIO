@@ -424,13 +424,6 @@ export interface Attack {
   clearBorder(): void;
   borderSize(): number;
   clusteredPositions(): TileRef[];
-  // Tiles on the attack's front that are excluded from this conquest attempt.
-  // The attack simply won't conquer them (it keeps advancing past them).
-  addAvoidedTile(tile: TileRef): void;
-  removeAvoidedTile(tile: TileRef): void;
-  isAvoided(tile: TileRef): boolean;
-  clearAvoided(): void;
-  avoidedTiles(): TileRef[];
 }
 
 export interface AllianceRequest {
@@ -790,6 +783,14 @@ export interface Player {
   incomingAttacks(): Attack[];
   orderRetreat(attackID: string): void;
   executeRetreat(attackID: string): void;
+
+  // Conquest avoidance (ctrl+drag): tiles this player has excluded from their
+  // own conquest attempts. Persistent across attacks until toggled off again —
+  // every attack this player launches consults the same per-player set.
+  addAvoidedTile(tile: TileRef): void;
+  removeAvoidedTile(tile: TileRef): void;
+  isAvoidedTile(tile: TileRef): boolean;
+  avoidedTiles(): TileRef[];
 
   // Misc
   toUpdate(

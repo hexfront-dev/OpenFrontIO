@@ -14,21 +14,22 @@ import { GameView } from "../view";
 
 /**
  * AvoidConquestController — handles the ctrl+drag gesture that excludes a
- * region of the frontline from the player's ongoing conquest attempts.
+ * region of the frontline from the player's conquest attempts.
  *
- * The player drags a rectangle; every frontier tile of an outgoing attack
- * that falls inside it is toggled (excluded tiles are re-enabled, new tiles
- * are excluded). Excluded tiles are skipped by the attack's conquest loop on
- * the server-authoritative core, so they are never conquered while avoided.
+ * The player drags a rectangle; every frontier tile that falls inside it is
+ * toggled (excluded tiles are re-enabled, new tiles are excluded). Excluded
+ * tiles are skipped by every attack's conquest loop in the core, and they stay
+ * excluded across attacks until toggled off again.
  *
  * Avoidance state is tracked here optimistically (only the local player can
- * modify their own attacks), and the same toggles are relayed to the core via
- * `avoid_conquest` intents so every client agrees deterministically.
+ * modify their own exclusions), and the same toggles are relayed to the core
+ * via `avoid_conquest` intents so every client agrees deterministically.
  */
 export class AvoidConquestController implements Controller {
-  // attackID → avoided TileRefs. Authoritative for the local player (they are
-  // the only actor that can toggle these), and mirrored by the core.
-  private avoidedByAttack = new Map<string, Set<TileRef>>();
+  // Authoritative-for-local-player mirror of the core's per-player exclusion
+  // set. Only the local player toggles these, and the core applies the same
+  // toggles deterministically.
+  private avoided = new Set<TileRef>();
 
   // Screen-space DOM overlay drawn while the user is dragging the rectangle.
   private dragRectEl: HTMLDivElement | null = null;
@@ -52,8 +53,9 @@ export class AvoidConquestController implements Controller {
   }
 
   tick() {
-    this.pruneStaleAttacks();
+    this.renderAvoided();
   }
+
   private ensureDragRectEl(): void {
     if (this.dragRectEl !== null) return;
     const el = document.createElement("div");
@@ -110,59 +112,48 @@ export class AvoidConquestController implements Controller {
       y2: Math.max(start.y, end.y),
     };
 
-    const attacks = myPlayer.outgoingAttacks();
-    for (const [targetID, tiles] of this.frontierTilesInRect(
+    const toggled: TileRef[] = [];
+    for (const tile of this.frontierTilesInRect(
       rect.x1,
       rect.y1,
       rect.x2,
       rect.y2,
     )) {
-      const attack = attacks.find((a) => a.targetID === targetID);
-      if (attack === undefined) continue;
-
-      const set = this.avoidedByAttack.get(attack.id) ?? new Set<TileRef>();
-      this.avoidedByAttack.set(attack.id, set);
-
-      const toggled: TileRef[] = [];
-      for (const tile of tiles) {
-        if (set.has(tile)) {
-          set.delete(tile);
-        } else {
-          set.add(tile);
-        }
-        toggled.push(tile);
+      if (this.avoided.has(tile)) {
+        this.avoided.delete(tile);
+      } else {
+        this.avoided.add(tile);
       }
+      toggled.push(tile);
+    }
 
-      if (toggled.length > 0) {
-        this.eventBus.emit(
-          new SendAvoidConquestIntentEvent(attack.id, toggled),
-        );
-      }
+    if (toggled.length > 0) {
+      this.eventBus.emit(new SendAvoidConquestIntentEvent(toggled));
     }
 
     this.renderAvoided();
   }
 
   /**
-   * Frontier tiles of the local player's attacks that fall inside the given
-   * (inclusive) world-tile rectangle, grouped by the target's smallID. A
-   * frontier tile is land owned by a target (anyone but the local player)
-   * that is 4-adjacent to the local player's territory.
+   * Frontier tiles that fall inside the given (inclusive) world-tile
+   * rectangle. A frontier tile is land owned by anyone but the local player
+   * that is 4-adjacent to the local player's territory. This is independent of
+   * any specific attack, so exclusions can be marked before or between attacks.
    */
   private frontierTilesInRect(
     x1: number,
     y1: number,
     x2: number,
     y2: number,
-  ): Map<number, TileRef[]> {
+  ): TileRef[] {
     const myID = this.game.myPlayer()?.smallID() ?? -1;
-    const result = new Map<number, TileRef[]>();
+    const result: TileRef[] = [];
     const nbuf: TileRef[] = [0, 0, 0, 0];
 
-    const minX = Math.max(0, x1);
-    const minY = Math.max(0, y1);
-    const maxX = Math.min(this.game.width() - 1, x2);
-    const maxY = Math.min(this.game.height() - 1, y2);
+    const minX = Math.max(0, Math.floor(x1));
+    const minY = Math.max(0, Math.floor(y1));
+    const maxX = Math.min(this.game.width() - 1, Math.floor(x2));
+    const maxY = Math.min(this.game.height() - 1, Math.floor(y2));
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -181,38 +172,13 @@ export class AvoidConquestController implements Controller {
         }
         if (!onFrontier) continue;
 
-        let tiles = result.get(owner);
-        if (tiles === undefined) {
-          tiles = [];
-          result.set(owner, tiles);
-        }
-        tiles.push(ref);
+        result.push(ref);
       }
     }
     return result;
   }
 
-  private pruneStaleAttacks(): void {
-    const myPlayer = this.game.myPlayer();
-    const activeIDs = new Set<string>();
-    if (myPlayer) {
-      for (const attack of myPlayer.outgoingAttacks()) {
-        activeIDs.add(attack.id);
-      }
-    }
-    let pruned = false;
-    for (const id of this.avoidedByAttack.keys()) {
-      if (!activeIDs.has(id)) {
-        this.avoidedByAttack.delete(id);
-        pruned = true;
-      }
-    }
-    if (pruned) {
-      this.renderAvoided();
-    }
-  }
-
-  /** Push the union of all avoided tiles to the renderer. */
+  /** Push the excluded tiles (minus any the player now owns) to the renderer. */
   private renderAvoided(): void {
     const myPlayer = this.game.myPlayer();
     if (!myPlayer) {
@@ -220,13 +186,13 @@ export class AvoidConquestController implements Controller {
       return;
     }
 
-    const activeIDs = new Set(myPlayer.outgoingAttacks().map((a) => a.id));
+    const myID = myPlayer.smallID();
     const tiles: { x: number; y: number }[] = [];
-    for (const [attackID, set] of this.avoidedByAttack) {
-      if (!activeIDs.has(attackID)) continue;
-      for (const ref of set) {
-        tiles.push({ x: this.game.x(ref), y: this.game.y(ref) });
-      }
+    for (const ref of this.avoided) {
+      // A tile the player now owns is no longer "excluded from conquest" —
+      // hide its marker (e.g. after a whole-player elimination conquers it).
+      if (this.game.ownerID(ref) === myID) continue;
+      tiles.push({ x: this.game.x(ref), y: this.game.y(ref) });
     }
     this.view.updateAvoidedTiles({ tiles });
   }

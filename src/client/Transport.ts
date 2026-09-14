@@ -169,10 +169,7 @@ export class CancelAttackIntentEvent implements GameEvent {
 }
 
 export class SendAvoidConquestIntentEvent implements GameEvent {
-  constructor(
-    public readonly attackID: string,
-    public readonly tiles: number[],
-  ) {}
+  constructor(public readonly tiles: number[]) {}
 }
 
 export class CancelBoatIntentEvent implements GameEvent {
@@ -748,7 +745,6 @@ export class Transport {
   private onSendAvoidConquestIntent(event: SendAvoidConquestIntentEvent) {
     this.sendIntent({
       type: "avoid_conquest",
-      attackID: event.attackID,
       tiles: event.tiles,
     });
   }

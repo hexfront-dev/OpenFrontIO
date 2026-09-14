@@ -72,11 +72,7 @@ export class Executor {
       case "cancel_attack":
         return new RetreatExecution(player, intent.attackID);
       case "avoid_conquest":
-        return new AvoidConquestExecution(
-          player,
-          intent.attackID,
-          intent.tiles,
-        );
+        return new AvoidConquestExecution(player, intent.tiles);
       case "cancel_boat":
         return new BoatRetreatExecution(player, intent.unitID);
       case "move_warship":

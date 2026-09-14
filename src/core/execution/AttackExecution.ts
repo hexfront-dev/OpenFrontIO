@@ -285,10 +285,10 @@ export class AttackExecution implements Execution {
       const tileToConquer = this.toConquer.dequeue();
       this.attack.removeBorderTile(tileToConquer);
 
-      // A tile the player excluded from the conquest is skipped outright — it
-      // was already filtered out of addNeighbors, but this also covers tiles
-      // avoided after they were enqueued.
-      if (this.attack.isAvoided(tileToConquer)) {
+      // A tile the player excluded from conquest is skipped outright — it was
+      // already filtered out of addNeighbors, but this also covers tiles
+      // excluded after they were enqueued.
+      if (this._owner.isAvoidedTile(tileToConquer)) {
         continue;
       }
 
@@ -394,7 +394,7 @@ export class AttackExecution implements Execution {
         this.map.isWater(neighbor) ||
         this.map.isImpassable(neighbor) ||
         this.map.ownerID(neighbor) !== this.targetSmallID ||
-        this.attack.isAvoided(neighbor)
+        this._owner.isAvoidedTile(neighbor)
       ) {
         continue;
       }

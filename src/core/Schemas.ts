@@ -693,10 +693,11 @@ export const CancelAttackIntentSchema = z.object({
 
 export const AvoidConquestIntentSchema = z.object({
   type: z.literal("avoid_conquest"),
-  attackID: z.string(),
-  // TileRefs on the attack's front line to toggle in/out of the exclusion
-  // set. Each tile is toggled: already-avoided tiles are un-avoided and
-  // vice-versa, so re-dragging the same area removes the exclusion.
+  // TileRefs to toggle in/out of the player's persistent conquest-exclusion
+  // set. Each tile is toggled: already-excluded tiles are re-enabled and
+  // vice-versa, so re-dragging the same area removes the exclusion. The set is
+  // per-player (not per-attack), so exclusions persist across attacks until
+  // toggled off again.
   tiles: z.array(zb.uint()),
 });
 

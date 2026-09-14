@@ -41,11 +41,10 @@ describe("AvoidConquestExecution", () => {
     return attacker.outgoingAttacks()[0];
   }
 
-  // Apply an avoid intent. Executions init on their first tick and run their
-  // tick on the second, so this advances the game by two ticks.
-  function applyAvoid(attackID: string, tiles: TileRef[]): void {
-    game.addExecution(new AvoidConquestExecution(attacker, attackID, tiles));
-    game.executeNextTick();
+  // Apply an avoid intent. AvoidConquestExecution toggles the player's
+  // persistent set in init(), which runs on the next tick.
+  function applyAvoid(tiles: TileRef[]): void {
+    game.addExecution(new AvoidConquestExecution(attacker, tiles));
     game.executeNextTick();
   }
 
@@ -67,51 +66,72 @@ describe("AvoidConquestExecution", () => {
     return [...result];
   }
 
-  test("toggles tiles in the attack avoidance set", () => {
-    const attack = startAttack();
+  // Let any ongoing attacks run until the player has none left (they retreat).
+  function runAttacksToCompletion(): void {
+    for (let i = 0; i < 200 && attacker.outgoingAttacks().length > 0; i++) {
+      game.executeNextTick();
+    }
+  }
+
+  test("toggles tiles in the player's avoidance set", () => {
     const frontier = frontierTiles();
     expect(frontier.length).toBeGreaterThan(0);
     const a = frontier[0];
     const b = frontier[1] ?? frontier[0];
 
-    applyAvoid(attack.id(), [a, b]);
+    applyAvoid([a, b]);
 
-    expect(attack.isAvoided(a)).toBe(true);
-    expect(attack.isAvoided(b)).toBe(true);
-    expect(attack.avoidedTiles()).toHaveLength(a === b ? 1 : 2);
+    expect(attacker.isAvoidedTile(a)).toBe(true);
+    expect(attacker.isAvoidedTile(b)).toBe(true);
+    expect(attacker.avoidedTiles()).toHaveLength(a === b ? 1 : 2);
 
     // Re-toggling the same tile removes the avoidance.
-    applyAvoid(attack.id(), [a]);
+    applyAvoid([a]);
 
-    expect(attack.isAvoided(a)).toBe(false);
-    expect(attack.isAvoided(b)).toBe(true);
-  });
-
-  test("is a no-op for an unknown attack id", () => {
-    const attack = startAttack();
-    const frontier = frontierTiles();
-
-    applyAvoid("does-not-exist", frontier);
-
-    expect(attack.avoidedTiles()).toHaveLength(0);
+    expect(attacker.isAvoidedTile(a)).toBe(false);
+    expect(attacker.isAvoidedTile(b)).toBe(true);
   });
 
   test("an avoided frontier tile is never conquered", () => {
-    const attack = startAttack();
     const frontier = frontierTiles();
     expect(frontier.length).toBeGreaterThan(1);
     const avoided = frontier[0];
 
-    applyAvoid(attack.id(), [avoided]);
-
-    // Let the attack run until it retreats on its own.
-    for (let i = 0; i < 200 && attacker.outgoingAttacks().length > 0; i++) {
-      game.executeNextTick();
-    }
+    applyAvoid([avoided]);
+    startAttack();
+    runAttacksToCompletion();
 
     // The avoided tile stays terra nullius even though everything around it
     // was conquered.
     expect(game.ownerID(avoided)).toBe(game.terraNullius().smallID());
     expect(attacker.outgoingAttacks()).toHaveLength(0);
+  });
+
+  test("avoidance persists across attacks until toggled off", () => {
+    const frontier = frontierTiles();
+    expect(frontier.length).toBeGreaterThan(1);
+    const avoided = frontier[0];
+
+    applyAvoid([avoided]);
+
+    // First attack completes without conquering the avoided tile.
+    startAttack();
+    runAttacksToCompletion();
+    expect(game.ownerID(avoided)).toBe(game.terraNullius().smallID());
+    expect(attacker.isAvoidedTile(avoided)).toBe(true);
+
+    // A later attack still respects the same persistent exclusion.
+    startAttack();
+    runAttacksToCompletion();
+    expect(game.ownerID(avoided)).toBe(game.terraNullius().smallID());
+    expect(attacker.isAvoidedTile(avoided)).toBe(true);
+
+    // Toggling it off re-enables conquest for future attacks.
+    applyAvoid([avoided]);
+    expect(attacker.isAvoidedTile(avoided)).toBe(false);
+
+    startAttack();
+    runAttacksToCompletion();
+    expect(game.ownerID(avoided)).toBe(attacker.smallID());
   });
 });

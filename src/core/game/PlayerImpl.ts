@@ -136,6 +136,11 @@ export class PlayerImpl implements Player {
 
   public _borderTiles = new TileSet();
 
+  // Tiles this player has excluded from their own conquest attempts
+  // (ctrl+drag "avoid" selection). Persistent across attacks: every attack the
+  // player launches consults this set, and it is only changed by toggling.
+  private _avoidedTiles = new Set<TileRef>();
+
   public _units: Unit[] = [];
   /** Bumped on every change that can alter a per-type answer over _units: add, remove, ownership
    *  transfer, level-up, construction toggle (see UnitImpl). Keys the three memos below. */
@@ -573,6 +578,22 @@ export class PlayerImpl implements Player {
 
   borderTiles(): ReadonlyTileSet {
     return this._borderTiles;
+  }
+
+  addAvoidedTile(tile: TileRef): void {
+    this._avoidedTiles.add(tile);
+  }
+
+  removeAvoidedTile(tile: TileRef): void {
+    this._avoidedTiles.delete(tile);
+  }
+
+  isAvoidedTile(tile: TileRef): boolean {
+    return this._avoidedTiles.has(tile);
+  }
+
+  avoidedTiles(): TileRef[] {
+    return [...this._avoidedTiles];
   }
 
   private nearbyMemo: {
