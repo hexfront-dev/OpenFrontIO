@@ -193,6 +193,9 @@ export class TradeShipExecution implements Execution {
     for (const { unit, distSquared } of tollhouses) {
       const tollOwner = unit.owner();
       if (tollOwner === owner) continue;
+      // Don't tax a ship that is trading with the toller: a ship bound for one
+      // of the toller's own ports passes free.
+      if (this._dstPort.owner() === tollOwner) continue;
       const range = this.mg.config().tollhouseRange(unit.level());
       if (distSquared > range * range) continue;
       const percent = tollOwner.tollRateFor(owner);

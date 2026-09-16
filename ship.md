@@ -121,6 +121,9 @@ would normally be added there too:
 - Toll capacity: `level` ships per `30`-tick window.
 - A nation may toll a given ship at most once; the rate is a per-nation
   percentage (0–100) set from the other-nation info overlay.
+- A ship bound for one of the toller's own ports is exempt (it passes free);
+  only the ship's own owner is otherwise exempt, so allies/teammates still pay
+  if a rate is set.
 - Gold is deducted from the ship's payout at arrival and paid to the Tollhouse
   owner (`src/core/execution/TradeShipExecution.ts`). Registration happens as
   the ship traverses the range (`applyTolls`), settlement at `complete()`

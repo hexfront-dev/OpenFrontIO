@@ -128,6 +128,44 @@ describe("Tollhouse", () => {
     expect(tollhouse.canTollShip(1)).toBe(false);
   });
 
+  test("does not toll a ship bound for the toller's own port", () => {
+    const { land, water } = findLandWaterPair(game);
+    toller.buildUnit(UnitType.Tollhouse, land, {});
+    toller.setTollRate(trader, 25);
+
+    const srcPort = {
+      id: () => 9001,
+      tile: () => water,
+      owner: () => trader,
+      isActive: () => true,
+    } as unknown as Unit;
+    // Destination owned by the same nation as the Tollhouse.
+    const dstPort = {
+      id: () => 9002,
+      tile: () => game.ref(0, 0),
+      owner: () => toller,
+      isActive: () => true,
+    } as unknown as Unit;
+
+    const ship = trader.buildUnit(UnitType.TradeShip, water, {
+      targetUnit: dstPort,
+    });
+
+    const exec = new TradeShipExecution(trader, srcPort, dstPort);
+    exec.init(game, 0);
+    exec["pathFinder"] = {
+      rebuilt: false,
+      next: () => ({ status: PathStatus.NEXT, node: water }),
+      pathForTraversal: () => [water],
+    } as any;
+    exec["tradeShip"] = ship;
+
+    exec.tick(1);
+
+    expect(ship.hasTollFrom(toller.smallID())).toBe(false);
+    expect(ship.tolls()).toHaveLength(0);
+  });
+
   test("registered tolls are deducted from the ship's payout", () => {
     const { land, water } = findLandWaterPair(game);
     const dstOwner = other;
