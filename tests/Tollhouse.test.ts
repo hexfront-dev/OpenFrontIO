@@ -166,10 +166,66 @@ describe("Tollhouse", () => {
     expect(ship.tolls()).toHaveLength(0);
   });
 
-  test("registered tolls are deducted from the ship's payout", () => {
+  test("a toll is paid to the toller the moment the ship is tolled", () => {
+    const { land, water } = findLandWaterPair(game);
+    toller.buildUnit(UnitType.Tollhouse, land, {});
+    toller.setTollRate(trader, 25);
+
+    const dstOwner = other;
+    const srcPort = {
+      id: () => 9001,
+      tile: () => water,
+      owner: () => trader,
+      isActive: () => true,
+    } as unknown as Unit;
+    const dstPort = {
+      id: () => 9002,
+      tile: () => game.ref(0, 0),
+      owner: () => dstOwner,
+      isActive: () => true,
+    } as unknown as Unit;
+
+    const ship = trader.buildUnit(UnitType.TradeShip, water, {
+      targetUnit: dstPort,
+    });
+
+    const exec = new TradeShipExecution(trader, srcPort, dstPort);
+    exec.init(game, 0);
+    exec["pathFinder"] = {
+      rebuilt: false,
+      next: () => ({ status: PathStatus.NEXT, node: water }),
+      pathForTraversal: () => [water],
+    } as any;
+    exec["tradeShip"] = ship;
+
+    const tollerBefore = toller.gold();
+    const displaySpy = vi.spyOn(game, "displayMessage");
+
+    exec.tick(1);
+
+    const value = game.config().tradeShipGold(0, trader);
+    const taken = (value * 25n) / 100n;
+
+    expect(taken).toBeGreaterThan(0n);
+    expect(toller.gold() - tollerBefore).toBe(taken);
+    expect(ship.tolls()).toHaveLength(1);
+    expect(ship.tolls()[0].gold).toBe(taken);
+
+    // The toller is told, privately, that a ship paid them.
+    expect(displaySpy).toHaveBeenCalledWith(
+      "events_display.toll_earned",
+      MessageType.TOLL,
+      toller.id(),
+      taken,
+      { gold: expect.any(String) },
+      undefined,
+      toller.id(),
+    );
+  });
+
+  test("tolls already paid are deducted from the endpoints' payout", () => {
     const { land, water } = findLandWaterPair(game);
     const dstOwner = other;
-    toller.setTollRate(trader, 50);
 
     const srcPort = {
       id: () => 9001,
@@ -187,8 +243,10 @@ describe("Tollhouse", () => {
     const ship = trader.buildUnit(UnitType.TradeShip, water, {
       targetUnit: dstPort,
     });
-    // Simulate the ship having already passed toller's Tollhouse.
-    ship.addToll(toller.smallID(), 50, land);
+    // Simulate the ship having already paid a toll while passing a Tollhouse.
+    const gross = game.config().tradeShipGold(200, trader);
+    const paidToll = gross / 4n;
+    ship.addToll(toller.smallID(), 50, land, paidToll);
 
     const exec = new TradeShipExecution(trader, srcPort, dstPort);
     exec.init(game, 0);
@@ -198,31 +256,19 @@ describe("Tollhouse", () => {
       pathForTraversal: () => [water],
     } as any;
     exec["tradeShip"] = ship;
+    exec["tilesTraveled"] = 200;
 
     const tollerBefore = toller.gold();
     const traderBefore = trader.gold();
     const otherBefore = dstOwner.gold();
-    const displaySpy = vi.spyOn(game, "displayMessage");
 
     exec.tick(1);
 
-    const gross = game.config().tradeShipGold(0, trader);
-    const toll = gross / 2n;
-    const remaining = gross - toll;
+    const remaining = gross - paidToll;
 
-    expect(toller.gold() - tollerBefore).toBe(toll);
+    // No gold is paid at arrival; the toller already got it when tolled.
+    expect(toller.gold()).toBe(tollerBefore);
     expect(trader.gold() - traderBefore).toBe(remaining);
     expect(dstOwner.gold() - otherBefore).toBe(remaining);
-
-    // The toll is broadcast to every player (playerID null).
-    expect(displaySpy).toHaveBeenCalledWith(
-      "events_display.toll_collected",
-      MessageType.TOLL,
-      null,
-      toll,
-      { name: toller.displayName(), gold: expect.any(String) },
-      undefined,
-      toller.id(),
-    );
   });
 });

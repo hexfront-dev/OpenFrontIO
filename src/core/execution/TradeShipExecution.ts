@@ -175,10 +175,11 @@ export class TradeShipExecution implements Execution {
   }
 
   /**
-   * Register every Tollhouse whose range currently covers the ship. Only one
-   * toll per tolling nation is recorded; each Tollhouse spends one unit of its
-   * per-window capacity. Gold is not moved here — the ship's value is only
-   * known once it arrives, so the toll is settled in complete().
+   * Toll the ship the instant it enters a Tollhouse's range: the toller is paid
+   * immediately a percentage of the ship's current value. Only one toll per
+   * tolling nation is recorded, and each Tollhouse spends one unit of its
+   * per-window capacity. The gold paid here is subtracted from the trade's
+   * payout when the ship arrives.
    */
   private applyTolls(ticks: number): void {
     const ship = this.tradeShip!;
@@ -202,38 +203,38 @@ export class TradeShipExecution implements Execution {
       if (percent <= 0) continue;
       if (ship.hasTollFrom(tollOwner.smallID())) continue;
       if (!unit.canTollShip(ticks)) continue;
-      ship.addToll(tollOwner.smallID(), percent, unit.tile());
+
+      // A ship's worth grows with the distance it has travelled, so the toll is
+      // a cut of its value at the moment it entered the range. Pay the toller
+      // now and remember the amount so the trade endpoints are not taxed twice.
+      const value = this.mg.config().tradeShipGold(this.tilesTraveled, owner);
+      const taken = (value * BigInt(percent)) / 100n;
+      ship.addToll(tollOwner.smallID(), percent, unit.tile(), taken);
       unit.recordToll(ticks);
+      if (taken <= 0n) continue;
+      tollOwner.addGold(taken, unit.tile());
+      // Notify the toller that they collected from a passing trade ship.
+      this.mg.displayMessage(
+        "events_display.toll_earned",
+        MessageType.TOLL,
+        tollOwner.id(),
+        taken,
+        { gold: renderNumber(taken) },
+        undefined,
+        tollOwner.id(),
+      );
     }
   }
 
   /**
-   * Pay each registered toller a percentage of the ship's gross value and
-   * return what is left for the trade's normal split. Each toll is computed
-   * from the gross value (so stacking tolls don't compound), clamped so the
-   * total never exceeds the ship's worth.
+   * Tolls are paid the moment a ship is tolled, so on arrival we only remove
+   * the already-paid amounts from the value the trade endpoints split.
    */
   private deductTolls(gross: Gold): Gold {
     let remaining = gross;
     for (const toll of this.tradeShip!.tolls()) {
-      const toller = this.mg.playerBySmallID(toll.tollerSmallID);
-      if (!toller.isPlayer()) continue;
-      const share = (gross * BigInt(toll.percent)) / 100n;
-      const taken = share > remaining ? remaining : share;
-      if (taken <= 0n) continue;
-      remaining -= taken;
-      toller.addGold(taken, toll.tile);
-      // Broadcast to every player (playerID null) so a toll is common
-      // knowledge: the tolling nation took gold from a passing trade ship.
-      this.mg.displayMessage(
-        "events_display.toll_collected",
-        MessageType.TOLL,
-        null,
-        taken,
-        { name: toller.displayName(), gold: renderNumber(taken) },
-        undefined,
-        toller.id(),
-      );
+      remaining -= toll.gold;
+      if (remaining <= 0n) return 0n;
     }
     return remaining;
   }

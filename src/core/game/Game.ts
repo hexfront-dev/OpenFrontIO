@@ -588,12 +588,19 @@ export interface Unit {
   /** Record that this tollhouse tolled a ship this tick. */
   recordToll(nowTick: number): void;
 
-  // Trade-ship toll ledger: which tollers have already taxed this ship.
+  // Trade-ship toll ledger: which tollers have already taxed this ship, the
+  // gold already paid to each, and where the toll was collected.
   hasTollFrom(tollerSmallID: number): boolean;
-  addToll(tollerSmallID: number, percent: number, tile: TileRef): void;
+  addToll(
+    tollerSmallID: number,
+    percent: number,
+    tile: TileRef,
+    gold: Gold,
+  ): void;
   tolls(): ReadonlyArray<{
     tollerSmallID: number;
     percent: number;
+    gold: Gold;
     tile: TileRef;
   }>;
 

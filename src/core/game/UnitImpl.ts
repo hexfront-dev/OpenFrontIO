@@ -1,6 +1,7 @@
 import { simpleHash, toInt, withinInt } from "../Util";
 import {
   AllUnitParams,
+  Gold,
   MessageType,
   NukeState,
   Player,
@@ -55,10 +56,12 @@ export class UnitImpl implements Unit {
   // window, oldest first). Pruned against tollhouseTollCooldown().
   private _tollTicks: number[] = [];
   // Trade ship only: nations that have already tolled this ship, with the
-  // percentage they charged and the Tollhouse tile the toll is paid at.
+  // percentage they charged, the gold already paid to them, and the Tollhouse
+  // tile the toll was paid at.
   private _tolls: Array<{
     tollerSmallID: number;
     percent: number;
+    gold: Gold;
     tile: TileRef;
   }> = [];
 
@@ -681,13 +684,19 @@ export class UnitImpl implements Unit {
     return false;
   }
 
-  addToll(tollerSmallID: number, percent: number, tile: TileRef): void {
-    this._tolls.push({ tollerSmallID, percent, tile });
+  addToll(
+    tollerSmallID: number,
+    percent: number,
+    tile: TileRef,
+    gold: Gold,
+  ): void {
+    this._tolls.push({ tollerSmallID, percent, gold, tile });
   }
 
   tolls(): ReadonlyArray<{
     tollerSmallID: number;
     percent: number;
+    gold: Gold;
     tile: TileRef;
   }> {
     return this._tolls;
