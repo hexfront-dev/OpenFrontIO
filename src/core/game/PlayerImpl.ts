@@ -1266,10 +1266,16 @@ export class PlayerImpl implements Player {
   }
 
   setUniversalTollRate(percent: number): void {
-    this.universalTollRateValue = Math.max(
-      0,
-      Math.min(100, Math.floor(percent)),
-    );
+    const clamped = Math.max(0, Math.min(100, Math.floor(percent)));
+    this.universalTollRateValue = clamped;
+    // Raising the floor also raises every stored per-nation rate that sits
+    // below it, so the per-nation sliders track the global minimum and stay
+    // there if the floor is later lowered again.
+    for (const [id, rate] of this.tollRates) {
+      if (rate < clamped) {
+        this.tollRates.set(id, clamped);
+      }
+    }
   }
 
   getEmbargoes(): Embargo[] {

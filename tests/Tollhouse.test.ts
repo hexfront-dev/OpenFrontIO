@@ -111,10 +111,17 @@ describe("Tollhouse", () => {
     over.init(game, 0);
     over.tick(0);
     expect(toller.universalTollRate()).toBe(100);
+
+    // Raising the floor also raises stored per-nation rates to match...
+    expect(toller.tollRateFor(trader)).toBe(100);
+    expect(toller.tollRateFor(other)).toBe(100);
+    // ...and lowering it later leaves them raised.
     const under = new SetUniversalTollRateExecution(toller, -10);
     under.init(game, 0);
     under.tick(0);
     expect(toller.universalTollRate()).toBe(0);
+    expect(toller.tollRateFor(trader)).toBe(100);
+    expect(toller.tollRateFor(other)).toBe(100);
   });
 
   test("a ship is tolled by the universal rate with no per-nation rate", () => {
