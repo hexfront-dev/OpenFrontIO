@@ -469,13 +469,15 @@ export class Config {
    * the base range (reached at level 11).
    */
   tollhouseRange(level: number): number {
-    const multiplier = Math.min(1.5, 1 + 0.05 * (level - 1));
-    return Math.floor(this.tollhouseBaseRange() * multiplier);
+    // Integer math keeps the value bit-exact across clients: +5% per level
+    // above 1, capped at +50% (1.5x) at level 11.
+    const bonusPercent = Math.min(50, 5 * (level - 1));
+    return Math.floor((this.tollhouseBaseRange() * (100 + bonusPercent)) / 100);
   }
 
   /** Largest possible Tollhouse range (level 11+), for broad-phase searches. */
   tollhouseMaxRange(): number {
-    return Math.floor(this.tollhouseBaseRange() * 1.5);
+    return Math.floor((this.tollhouseBaseRange() * 150) / 100);
   }
 
   /** A Tollhouse may toll this many ships per cooldown window. */
