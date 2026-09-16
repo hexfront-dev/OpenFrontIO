@@ -204,8 +204,6 @@ export class GPURenderer {
   // Local player relationship data (for SAM radius coloring)
   private localPlayerID = 0;
   private playerTeams = new Map<number, string>(); // smallID → team
-  // Friendly smallIDs (self + allies + teammates), for Tollhouse ring colors.
-  private friendlySmallIDs = new Set<number>();
 
   // Alt-view: affiliation recoloring (space hold)
   private altView = false;
@@ -922,7 +920,6 @@ export class GPURenderer {
       }
       this.samRadiusPass.setAllies(friendly);
       this.unitPass.setAllies(friendly);
-      this.friendlySmallIDs = friendly;
     }
   }
 
@@ -962,9 +959,6 @@ export class GPURenderer {
           x,
           y: (u.pos - x) / w,
           radius: this.config.tollhouseRange(u.level),
-          friendly:
-            u.ownerID === this.localPlayerID ||
-            this.friendlySmallIDs.has(u.ownerID),
         });
       }
     }

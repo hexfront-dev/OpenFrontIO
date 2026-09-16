@@ -86,7 +86,8 @@ Tollhouse is reworked:
   translucent circle per Tollhouse via `updateTollhouseRanges(...)`. The list
   is built in `Renderer.updateStructures()` from the unit map using
   `config.tollhouseRange(level)`, so it always reflects the current level.
-  Colors: amber for self/allies/teammates, red for everyone else. Remove the
+  Every Tollhouse range is amber (`TOLLHOUSE_COLOR`), regardless of owner, so
+  every player sees the same overlay. Remove the
   `else if (u.unitType === UT_TOLLHOUSE ...)` branch in `Renderer.ts` and the
   `tollhouses` field/draw loop in `RangeCirclePass.ts` to drop it.
 - **Toll broadcast.** When a toll is settled in

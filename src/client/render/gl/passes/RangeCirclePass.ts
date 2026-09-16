@@ -25,12 +25,11 @@ export interface TollhouseRangeCircle {
   x: number;
   y: number;
   radius: number;
-  friendly: boolean;
 }
 
-// Tollhouse range colors: amber for self/allies, red for everyone else.
-const TOLLHOUSE_FRIENDLY_COLOR: [number, number, number] = [1.0, 0.85, 0.2];
-const TOLLHOUSE_ENEMY_COLOR: [number, number, number] = [1.0, 0.25, 0.25];
+// Every Tollhouse range is amber, regardless of owner, so all players see the
+// same overlay.
+const TOLLHOUSE_COLOR: [number, number, number] = [1.0, 0.85, 0.2];
 
 export class RangeCirclePass {
   private gl: WebGL2RenderingContext;
@@ -121,10 +120,12 @@ export class RangeCirclePass {
       if (t.radius <= 0) continue;
       gl.uniform2f(this.uCenter, t.x, t.y);
       gl.uniform1f(this.uRadius, t.radius);
-      const color = t.friendly
-        ? TOLLHOUSE_FRIENDLY_COLOR
-        : TOLLHOUSE_ENEMY_COLOR;
-      gl.uniform3f(this.uColor, color[0], color[1], color[2]);
+      gl.uniform3f(
+        this.uColor,
+        TOLLHOUSE_COLOR[0],
+        TOLLHOUSE_COLOR[1],
+        TOLLHOUSE_COLOR[2],
+      );
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
