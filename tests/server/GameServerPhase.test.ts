@@ -108,6 +108,21 @@ describe("GameServer.phase()", () => {
     expect(game.numClients()).toBe(0);
   });
 
+  it("finishes a started private game that never had a start time", () => {
+    // A private lobby is created with no startsAt, and a restored save clears
+    // it. An empty started game must still finish; otherwise its turn loop and
+    // autosave run until the 3h cap.
+    const game = makeGame();
+    game.joinClient(makeClient());
+    game.joinClient(makeClient());
+    startGame(game);
+
+    vi.advanceTimersByTime(60_500);
+    game.pruneStaleClients();
+    expect(game.numClients()).toBe(0);
+    expect(game.phase()).toBe(GamePhase.Finished);
+  });
+
   it("reads the phase without pruning; only pruneStaleClients drops anyone", () => {
     const game = makeGame({ startsAt: T0 + 1000 });
     const quiet = makeClient({ clientID: cid("quiet") });

@@ -1696,7 +1696,15 @@ export class GameServer {
     ) {
       return GamePhase.Lobby;
     }
-    const warmupOver = now > this.startsAt! + 30 * 1000;
+    // `startsAt` is optional: a normal private lobby is created without one
+    // (Worker.create_game passes none) and a restored save clears it. Using it
+    // directly made `startsAt! + 30_000` NaN, so `now > NaN` was always false
+    // and an unattended started private game never reached Finished. GameManager
+    // then never called end(), leaving the turn loop pushing empty turns and the
+    // autosave re-serializing a growing log until the 3h cap. Fall back to the
+    // real start time (then creation) so an empty started game still finishes.
+    const warmupBase = this.startsAt ?? this._startTime ?? this.createdAt;
+    const warmupOver = now > warmupBase + 30 * 1000;
     if (noActive && warmupOver && noRecentPings) {
       return GamePhase.Finished;
     }
