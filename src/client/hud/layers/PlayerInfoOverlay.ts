@@ -562,7 +562,7 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
     );
     return html`
       <div
-        class="flex items-center gap-2 mt-1"
+        class="flex items-center gap-2 mt-1 pr-1.5"
         @click=${(e: Event) => e.stopPropagation()}
         @contextmenu=${(e: MouseEvent) => e.preventDefault()}
       >
@@ -578,7 +578,9 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
           class="flex-1 min-w-0 accent-yellow-400"
           @input=${(e: Event) => this.onTollRateInput(player, e)}
         />
-        <span class="text-xs w-10 text-right tabular-nums" translate="no"
+        <span
+          class="text-xs w-10 shrink-0 text-right tabular-nums"
+          translate="no"
           >${rate}%</span
         >
       </div>
