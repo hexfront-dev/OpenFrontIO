@@ -133,11 +133,11 @@ describe("TradeShipExecution", () => {
     expect(tradeShipExecution.isActive()).toBe(false);
   });
 
-  it("should delete ship if port owner changes to current owner", () => {
+  it("should allow trading with a destination owned by the same nation", () => {
     dstPort.owner = vi.fn(() => origOwner);
     tradeShipExecution.tick(1);
-    expect(tradeShip.delete).toHaveBeenCalledWith(false);
-    expect(tradeShipExecution.isActive()).toBe(false);
+    expect(tradeShip.delete).not.toHaveBeenCalled();
+    expect(tradeShipExecution.isActive()).toBe(true);
   });
 
   it("should pick another port if ship is captured", () => {
@@ -184,6 +184,24 @@ describe("TradeShipExecution", () => {
     // A normal arrival is trade, not piracy.
     expect(origOwner.addPiracyGold).not.toHaveBeenCalled();
     expect(dstOwner.addPiracyGold).not.toHaveBeenCalled();
+  });
+
+  it("should award half gold once for a same-nation trade", () => {
+    dstPort.owner = vi.fn(() => origOwner);
+    tradeShipExecution["pathFinder"] = {
+      next: vi.fn(() => ({ status: PathStatus.COMPLETE, node: 32 })),
+      findPath: vi.fn((from: number) => [from]),
+      pathForTraversal: vi.fn(() => [32]),
+    } as any;
+    tradeShipExecution.tick(1);
+    const gold = game.config().tradeShipGold(0, origOwner as any);
+    expect(origOwner.addGold).toHaveBeenCalledTimes(1);
+    expect(origOwner.addGold).toHaveBeenCalledWith(gold / 2n, srcPort.tile());
+    expect(origOwner.addTradeGold).toHaveBeenCalledWith(gold / 2n);
+    // The single owner is not paid twice.
+    expect(dstOwner.addGold).not.toHaveBeenCalled();
+    expect(dstOwner.addTradeGold).not.toHaveBeenCalled();
+    expect(origOwner.addPiracyGold).not.toHaveBeenCalled();
   });
 
   it("should count captured-ship payout as piracy revenue only", () => {

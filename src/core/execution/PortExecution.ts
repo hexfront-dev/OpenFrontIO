@@ -50,13 +50,15 @@ export class PortExecution implements Execution {
       return;
     }
 
-    const ports = this.tradingPorts();
+    const port = this.pickTradeDestination(
+      this.tradingPorts(),
+      this.ownNationPorts(),
+    );
 
-    if (ports.length === 0) {
+    if (port === null) {
       return;
     }
 
-    const port = this.random.randElement(ports);
     this.mg.addExecution(
       new TradeShipExecution(this.port.owner(), this.port, port),
     );
@@ -96,25 +98,35 @@ export class PortExecution implements Execution {
     }
   }
 
-  // It's a probability list, so if an element appears twice it's because it's
-  // twice more likely to be picked later.
-  tradingPorts(): Unit[] {
+  private waterComponents(): Set<number> {
     const sourceComponents = new Set<number>();
     for (const neighbor of this.mg.neighbors(this.port!.tile())) {
       if (!this.mg.isWater(neighbor)) continue;
       const comp = this.mg.getWaterComponent(neighbor);
       if (comp !== null) sourceComponents.add(comp);
     }
+    return sourceComponents;
+  }
+
+  private sharesWaterComponent(
+    port: Unit,
+    sourceComponents: Set<number>,
+  ): boolean {
+    for (const comp of sourceComponents) {
+      if (this.mg.hasWaterComponent(port.tile(), comp)) return true;
+    }
+    return false;
+  }
+
+  // It's a probability list, so if an element appears twice it's because it's
+  // twice more likely to be picked later.
+  tradingPorts(): Unit[] {
+    const sourceComponents = this.waterComponents();
     const ports = this.mg
       .players()
       .filter((p) => p !== this.port!.owner() && p.canTrade(this.port!.owner()))
       .flatMap((p) => p.units(UnitType.Port))
-      .filter((p) => {
-        for (const comp of sourceComponents) {
-          if (this.mg.hasWaterComponent(p.tile(), comp)) return true;
-        }
-        return false;
-      })
+      .filter((p) => this.sharesWaterComponent(p, sourceComponents))
       .sort((p1, p2) => {
         return (
           this.mg.manhattanDist(this.port!.tile(), p1.tile()) -
@@ -142,5 +154,45 @@ export class PortExecution implements Execution {
       }
     }
     return weightedPorts;
+  }
+
+  // Other ports owned by the same player. These are valid trade destinations,
+  // but at half the weight of an equivalent foreign port.
+  ownNationPorts(): Unit[] {
+    const owner = this.port!.owner();
+    const sourceComponents = this.waterComponents();
+    const weightedPorts: Unit[] = [];
+
+    for (const port of owner.units(UnitType.Port)) {
+      if (port === this.port) continue;
+      if (
+        !port.isActive() ||
+        port.isMarkedForDeletion() ||
+        port.isUnderConstruction()
+      ) {
+        continue;
+      }
+      if (!this.sharesWaterComponent(port, sourceComponents)) continue;
+      weightedPorts.push(...new Array(port.level()).fill(port));
+    }
+    return weightedPorts;
+  }
+
+  // Each foreign port occupies two slots and each same-nation port one, making
+  // a same-nation port half as likely to be selected.
+  private pickTradeDestination(
+    foreignPorts: Unit[],
+    ownPorts: Unit[],
+  ): Unit | null {
+    const foreignSlots = foreignPorts.length * 2;
+    const totalSlots = foreignSlots + ownPorts.length;
+    if (totalSlots === 0) {
+      return null;
+    }
+    const roll = this.random.nextInt(0, totalSlots);
+    if (roll < foreignSlots) {
+      return foreignPorts[roll >> 1];
+    }
+    return ownPorts[roll - foreignSlots];
   }
 }

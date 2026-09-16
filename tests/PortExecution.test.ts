@@ -4,6 +4,7 @@ import {
   Player,
   PlayerInfo,
   PlayerType,
+  Unit,
   UnitType,
 } from "../src/core/game/Game";
 import { setup } from "./util/Setup";
@@ -93,6 +94,57 @@ describe("PortExecution", () => {
     const ports = execution.tradingPorts();
 
     expect(ports.length).toBe(1);
+  });
+
+  test("same-nation ports are included at half weight", () => {
+    game.config().proximityBonusPortsNb = () => 0;
+    game.config().tradeShipShortRangeDebuff = () => 0;
+
+    player.conquer(game.ref(7, 10));
+    const spawn = player.canBuild(UnitType.Port, game.ref(7, 10));
+    if (spawn === false) {
+      throw new Error("Unable to build port for test");
+    }
+    const port = player.buildUnit(UnitType.Port, spawn, {});
+    const execution = new PortExecution(port);
+    execution.init(game, 0);
+
+    const ownPort = {
+      tile: () => spawn,
+      level: () => 2,
+      isActive: () => true,
+      isMarkedForDeletion: () => false,
+      isUnderConstruction: () => false,
+    } as unknown as Unit;
+    vi.spyOn(player, "units").mockReturnValue([port, ownPort]);
+
+    expect(execution.ownNationPorts()).toEqual([ownPort, ownPort]);
+  });
+
+  test("same-nation port is half as likely to be picked as a foreign port", () => {
+    player.conquer(game.ref(7, 10));
+    const spawn = player.canBuild(UnitType.Port, game.ref(7, 10));
+    if (spawn === false) {
+      throw new Error("Unable to build port for test");
+    }
+    const port = player.buildUnit(UnitType.Port, spawn, {});
+    const execution = new PortExecution(port);
+    execution.init(game, 0);
+
+    const foreignPort = { tile: () => game.ref(0, 0) } as unknown as Unit;
+    const ownPort = { tile: () => game.ref(1, 0) } as unknown as Unit;
+    const pick = (roll: number) => {
+      execution["random"] = { nextInt: () => roll } as any;
+      return execution["pickTradeDestination"]([foreignPort], [ownPort]);
+    };
+
+    // The foreign port occupies slots 0 and 1, the own port slot 2.
+    expect(pick(0)).toBe(foreignPort);
+    expect(pick(1)).toBe(foreignPort);
+    expect(pick(2)).toBe(ownPort);
+
+    execution["random"] = { nextInt: () => 0 } as any;
+    expect(execution["pickTradeDestination"]([], [])).toBe(null);
   });
 
   test("shouldSpawnTradeShip recomputes spawn rate per level with updated rejection count", () => {

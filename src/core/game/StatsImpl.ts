@@ -195,7 +195,10 @@ export class StatsImpl implements Stats {
   boatArriveTrade(player: Player, target: Player, gold: BigIntLike): void {
     this._addBoat(player, "trade", BOAT_INDEX_ARRIVE, 1);
     this._addGold(player, GOLD_INDEX_TRADE, gold);
-    this._addGold(target, GOLD_INDEX_TRADE, gold);
+    // Same-nation trades have a single owner and pay gold once.
+    if (target !== player) {
+      this._addGold(target, GOLD_INDEX_TRADE, gold);
+    }
   }
 
   boatCapturedTrade(player: Player, target: Player, gold: BigIntLike): void {

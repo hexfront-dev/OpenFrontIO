@@ -80,17 +80,14 @@ export class TradeShipExecution implements Execution {
       );
     }
 
-    // If a player captures another player's port while trading we should delete
-    // the ship.
-    if (dstPortOwner.id() === this.srcPort.owner().id()) {
-      this.tradeShip.delete(false);
-      this.active = false;
-      return;
-    }
+    // A ship may legitimately trade with another port of its own nation, so a
+    // destination owned by the source owner is no longer invalid.
+    const sameNation = tradeShipOwner.id() === dstPortOwner.id();
 
     if (
       !this.wasCaptured &&
-      (!this._dstPort.isActive() || !tradeShipOwner.canTrade(dstPortOwner))
+      (!this._dstPort.isActive() ||
+        (!sameNation && !tradeShipOwner.canTrade(dstPortOwner)))
     ) {
       this.tradeShip.delete(false);
       this.active = false;
@@ -198,14 +195,22 @@ export class TradeShipExecution implements Execution {
         .stats()
         .boatCapturedTrade(this.tradeShip!.owner(), this.origOwner, gold);
     } else {
-      this.srcPort.owner().addGold(gold, this.srcPort.tile());
-      this._dstPort.owner().addGold(gold, this._dstPort.tile());
-      this.srcPort.owner().addTradeGold(gold);
-      this._dstPort.owner().addTradeGold(gold);
-      // Record stats
-      this.mg
-        .stats()
-        .boatArriveTrade(this.srcPort.owner(), this._dstPort.owner(), gold);
+      const srcOwner = this.srcPort.owner();
+      const dstOwner = this._dstPort.owner();
+      if (srcOwner.id() === dstOwner.id()) {
+        // Trading with your own nation yields half as much gold, paid once.
+        const sameNationGold = gold / 2n;
+        srcOwner.addGold(sameNationGold, this.srcPort.tile());
+        srcOwner.addTradeGold(sameNationGold);
+        this.mg.stats().boatArriveTrade(srcOwner, dstOwner, sameNationGold);
+      } else {
+        srcOwner.addGold(gold, this.srcPort.tile());
+        dstOwner.addGold(gold, this._dstPort.tile());
+        srcOwner.addTradeGold(gold);
+        dstOwner.addTradeGold(gold);
+        // Record stats
+        this.mg.stats().boatArriveTrade(srcOwner, dstOwner, gold);
+      }
     }
     return;
   }
