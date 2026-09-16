@@ -34,6 +34,7 @@ import { MapPlaylist } from "./MapPlaylist";
 import { setNoStoreHeaders } from "./NoStoreHeaders";
 import { startPolling } from "./PollingLoop";
 import { PrivilegeRefresher } from "./PrivilegeRefresher";
+import { FilesystemSaveStore } from "./SaveStore";
 import { ServerEnv } from "./ServerEnv";
 import { applyStaticAssetCacheControl } from "./StaticAssetCache";
 import { createMatchTelemetryEmitter } from "./telemetry/BufferedMatchTelemetryEmitter";
@@ -70,7 +71,8 @@ export async function startWorker() {
     // undefined.
     workerId,
   });
-  const gm = new GameManager(log, telemetry, buildHash);
+  const saveStore = new FilesystemSaveStore(ServerEnv.saveWorkerDir(workerId));
+  const gm = new GameManager(log, telemetry, buildHash, saveStore);
   server.on("close", () => telemetry.stop());
 
   // Initialize lobby service (handles WebSocket upgrade routing)
@@ -360,6 +362,119 @@ export async function startWorker() {
       return res.status(404).json({ error: "Game not found" });
     }
     res.json(game.gameInfo());
+  });
+
+  // Seats a joiner may claim on a game restored from a save (original human
+  // nations; AI nations have no clientID and never appear). No PII: only the
+  // clientID the saved turns reference and the display name that is already
+  // visible in the lobby. Empty for a normally created game.
+  app.get("/api/game/:id/seats", (req, res) => {
+    const game = gm.game(req.params.id);
+    res.json({ seats: game?.claimableSeats() ?? [] });
+  });
+
+  // Resolve the caller's persistentID from a Bearer token, or send the error
+  // response and return null. Shared by the save routes below.
+  const requireAccount = async (
+    req: Request,
+    res: Response,
+  ): Promise<string | null> => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      res.status(400).json({ error: "Authorization header required" });
+      return null;
+    }
+    const auth = await verifyClientToken(
+      authHeader.substring("Bearer ".length),
+    );
+    if (auth.type !== "success") {
+      res.status(401).json({ error: "Invalid token" });
+      return null;
+    }
+    return auth.persistentId;
+  };
+
+  // The host's resumable saves on this worker. Scoped to the caller's account
+  // (the store filters); the raw persistentID is never echoed back.
+  app.get("/api/saves", async (req, res) => {
+    const persistentId = await requireAccount(req, res);
+    if (persistentId === null) return;
+    const metas = await saveStore.list(persistentId);
+    res.json({
+      saves: metas.map((m) => ({
+        gameID: m.gameID,
+        label: m.label,
+        createdAt: m.createdAt,
+        savedAt: m.savedAt,
+        stage: m.stage,
+        numTurns: m.numTurns,
+        playerCount: m.playerCount,
+        gameMap: m.gameMap,
+        gitCommit: m.gitCommit,
+      })),
+    });
+  });
+
+  // Resume a saved private lobby/game: rebuild it on this worker (the shard
+  // that owns its id). Creator-only, and idempotent — an already-live game is
+  // returned rather than rebuilt.
+  app.post("/api/saves/:id/resume", async (req, res) => {
+    const persistentId = await requireAccount(req, res);
+    if (persistentId === null) return;
+    const idResult = ID.safeParse(req.params.id);
+    if (!idResult.success) {
+      return res.status(400).json({ error: "Invalid game id" });
+    }
+    const id = idResult.data;
+
+    const live = gm.game(id);
+    if (live !== null) {
+      return res.json({
+        ...live.gameInfo(),
+        workerIndex: workerId,
+        workerPath: ServerEnv.workerPath(id),
+        seats: live.claimableSeats(persistentId),
+      });
+    }
+
+    const save = await saveStore.load(id);
+    if (save === null) {
+      return res.status(404).json({ error: "save_not_found" });
+    }
+    if (save.creatorPersistentID !== persistentId) {
+      return res.status(403).json({ error: "not_creator" });
+    }
+    const game = gm.restoreGame(save);
+    log.info("resumed saved game", {
+      gameID: id,
+      stage: save.stage,
+      turns: save.turns.length,
+    });
+    res.json({
+      ...game.gameInfo(),
+      workerIndex: workerId,
+      workerPath: ServerEnv.workerPath(id),
+      seats: game.claimableSeats(persistentId),
+    });
+  });
+
+  // Forget a saved game. Creator-only. The live game (if any) is left alone.
+  app.delete("/api/saves/:id", async (req, res) => {
+    const persistentId = await requireAccount(req, res);
+    if (persistentId === null) return;
+    const idResult = ID.safeParse(req.params.id);
+    if (!idResult.success) {
+      return res.status(400).json({ error: "Invalid game id" });
+    }
+    const save = await saveStore.load(idResult.data);
+    if (save === null) {
+      return res.status(404).json({ error: "save_not_found" });
+    }
+    if (save.creatorPersistentID !== persistentId) {
+      return res.status(403).json({ error: "not_creator" });
+    }
+    await saveStore.delete(idResult.data);
+    res.json({ deleted: true });
   });
 
   registerGamePreviewRoute({
@@ -675,7 +790,11 @@ export async function startWorker() {
           trusted,
         );
 
-        const joinResult = gm.joinClient(client, clientMsg.gameID);
+        const joinResult = gm.joinClient(
+          client,
+          clientMsg.gameID,
+          clientMsg.claimClientID,
+        );
 
         if (joinResult === "not_found") {
           log.info(`game ${clientMsg.gameID} not found on worker ${workerId}`);

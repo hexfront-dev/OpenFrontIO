@@ -1,4 +1,4 @@
-import { html, TemplateResult } from "lit";
+import { html, nothing, TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { ClientEnv } from "src/client/ClientEnv";
 import {
@@ -27,7 +27,7 @@ import {
   GameType,
   HumansVsNations,
 } from "../core/game/Game";
-import { getApiBase } from "./Api";
+import { fetchGameSeats, getApiBase, type ResumableSeat } from "./Api";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
 import { desktopPresence } from "./DesktopPresence";
 import { PublicLobbySocket } from "./LobbySocket";
@@ -63,6 +63,12 @@ export class JoinLobbyModal extends BaseModal {
   // the pre-join form.
   @state() private hostedLobbies: PublicGameInfo[] = [];
   @state() private hostedLobbiesLoaded = false;
+  // Resume-as-lobby: joining a game restored from a save offers its original
+  // human nations to claim (AI nations never appear). While picking, the join
+  // is deferred until the player confirms a seat (or watch-only).
+  @state() private claimSeats: ResumableSeat[] = [];
+  @state() private pendingSeatChoice = false;
+  @state() private chosenSeat: string | null = null;
 
   private leaveLobbyOnClose = true;
   private countdownTimerId: number | null = null;
@@ -198,6 +204,96 @@ export class JoinLobbyModal extends BaseModal {
     `;
   }
 
+  // Seat picker shown when the lobby being joined is a restored save. The
+  // chosen clientID is claimed on join; choosing watch-only leaves it unset.
+  private renderSeatPicker(): TemplateResult {
+    return html`
+      <div
+        class="mt-6 rounded-xl border border-malibu-blue/40 bg-malibu-blue/10 p-4"
+      >
+        <p class="text-sm text-white/70 mb-3">
+          ${translateText("save_game.choose_nation")}
+        </p>
+        <div class="flex flex-col gap-2">
+          ${this.claimSeats.map((seat) => this.renderSeatRow(seat))}
+          <label
+            class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${this
+              .chosenSeat === null
+              ? "border-malibu-blue bg-malibu-blue/10"
+              : "border-white/10 bg-white/5 hover:bg-white/10"}"
+          >
+            <input
+              type="radio"
+              name="claim-seat"
+              class="accent-malibu-blue"
+              .checked=${this.chosenSeat === null}
+              @change=${() => (this.chosenSeat = null)}
+            />
+            <span class="text-white"
+              >${translateText("save_game.spectate")}</span
+            >
+          </label>
+        </div>
+        <o-button
+          class="mt-4"
+          variant="primary"
+          width="block"
+          size="lg"
+          translationKey="save_game.resume_lobby"
+          @click=${this.confirmSeatClaim}
+        ></o-button>
+      </div>
+    `;
+  }
+
+  private renderSeatRow(seat: ResumableSeat): TemplateResult {
+    const active = this.chosenSeat === seat.clientID;
+    return html`
+      <label
+        class="flex items-center gap-3 p-3 rounded-xl border transition-colors ${seat.claimed
+          ? "opacity-40 cursor-not-allowed border-white/10 bg-white/5"
+          : active
+            ? "cursor-pointer border-malibu-blue bg-malibu-blue/10"
+            : "cursor-pointer border-white/10 bg-white/5 hover:bg-white/10"}"
+      >
+        <input
+          type="radio"
+          name="claim-seat"
+          class="accent-malibu-blue"
+          .disabled=${seat.claimed}
+          .checked=${active}
+          @change=${() => {
+            if (!seat.claimed) this.chosenSeat = seat.clientID;
+          }}
+        />
+        <span class="text-white">${seat.username}</span>
+        ${seat.claimed
+          ? html`<span class="ml-auto text-xs text-white/50"
+              >${translateText("save_game.claimed")}</span
+            >`
+          : nothing}
+      </label>
+    `;
+  }
+
+  private confirmSeatClaim = (): void => {
+    const lobbyId = this.currentLobbyId;
+    if (!lobbyId) return;
+    this.pendingSeatChoice = false;
+    this.dispatchEvent(
+      new CustomEvent("join-lobby", {
+        detail: {
+          gameID: lobbyId,
+          source: "private",
+          claimClientID: this.chosenSeat ?? undefined,
+          spectator: this.chosenSeat === null ? true : undefined,
+        } as JoinLobbyEvent,
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   protected renderBody() {
     // Pre-join state: show lobby ID input form
     if (!this.currentLobbyId) {
@@ -246,6 +342,7 @@ export class JoinLobbyModal extends BaseModal {
               `
             : html`
                 ${this.gameConfig ? this.renderGameConfig() : html``}
+                ${this.pendingSeatChoice ? this.renderSeatPicker() : nothing}
                 ${this.players.length > 0
                   ? html`
                       <lobby-player-view
@@ -572,6 +669,9 @@ export class JoinLobbyModal extends BaseModal {
     this.lobbyCreatorClientID = null;
     this.isConnecting = true;
     this.handledJoinTimeout = false;
+    this.claimSeats = [];
+    this.pendingSeatChoice = false;
+    this.chosenSeat = null;
     this.startLobbyUpdates();
     if (lobbyInfo) {
       this.updateFromLobby(lobbyInfo);
@@ -1247,6 +1347,18 @@ export class JoinLobbyModal extends BaseModal {
     }
 
     if (gameInfo.exists) {
+      // A game restored from a save exposes its original human nations to
+      // claim. Offer the picker and defer the actual join until the player
+      // confirms a seat (or chooses watch-only). AI nations never appear.
+      const seats = spectator ? [] : await fetchGameSeats(lobbyId);
+      if (seats.length > 0) {
+        this.claimSeats = seats;
+        this.chosenSeat = seats.find((s) => !s.claimed)?.clientID ?? null;
+        this.pendingSeatChoice = true;
+        this.isConnecting = false;
+        return true;
+      }
+
       // A spectator can enter a game that is already running, so the usual
       // "waiting for host to start" is wrong for them.
       this.showMessage(

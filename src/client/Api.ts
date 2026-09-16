@@ -1118,6 +1118,100 @@ export async function createNextLobby(
   return (await response.json()) as GameInfo;
 }
 
+// A private lobby/game the host saved on the game servers and can resume.
+export interface SavedLobbySummary {
+  gameID: string;
+  label: string;
+  createdAt: number;
+  savedAt: number;
+  stage: "lobby" | "prestart" | "started";
+  numTurns: number;
+  playerCount: number;
+  gameMap: string;
+  gitCommit: string;
+}
+
+// A saved human nation that can be claimed when resuming a lobby/game. AI
+// nations never appear (they have no clientID).
+export interface ResumableSeat {
+  clientID: string;
+  username: string;
+  claimed: boolean;
+}
+
+// GET /wN/api/saves on every worker — saves are sharded with the game, so the
+// host's list is the union. One worker being down/slow must not hide the rest.
+export async function listSavedLobbies(): Promise<SavedLobbySummary[]> {
+  const token = await getPlayToken();
+  const count = ClientEnv.numWorkers();
+  const results = await Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      try {
+        const res = await fetch(
+          `${ClientEnv.serverHttpBase()}/w${index}/api/saves`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) return [] as SavedLobbySummary[];
+        const body = await res.json();
+        return Array.isArray(body?.saves)
+          ? (body.saves as SavedLobbySummary[])
+          : [];
+      } catch (e) {
+        console.warn(`listSavedLobbies: worker ${index} failed`, e);
+        return [] as SavedLobbySummary[];
+      }
+    }),
+  );
+  return results.flat().sort((a, b) => b.savedAt - a.savedAt);
+}
+
+// POST /wN/api/saves/:id/resume — rebuilds the saved private game on its owning
+// worker (creator-only) and returns the claimable seats. Idempotent.
+export async function resumeSavedLobby(
+  gameID: string,
+): Promise<ResumableSeat[]> {
+  const token = await getPlayToken();
+  const res = await fetch(
+    `${ClientEnv.serverHttpBase()}/${ClientEnv.workerPath(gameID)}/api/saves/${gameID}/resume`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`resume failed: HTTP ${res.status}`);
+  }
+  const body = await res.json();
+  return Array.isArray(body?.seats) ? (body.seats as ResumableSeat[]) : [];
+}
+
+// DELETE /wN/api/saves/:id — forget a saved game (creator-only).
+export async function deleteSavedLobby(gameID: string): Promise<void> {
+  const token = await getPlayToken();
+  await fetch(
+    `${ClientEnv.serverHttpBase()}/${ClientEnv.workerPath(gameID)}/api/saves/${gameID}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+}
+
+// GET /wN/api/game/:id/seats — the saved human nations a joiner may claim.
+// Empty for a normally created game.
+export async function fetchGameSeats(gameID: string): Promise<ResumableSeat[]> {
+  try {
+    const res = await fetch(
+      `${ClientEnv.serverHttpBase()}/${ClientEnv.workerPath(gameID)}/api/game/${gameID}/seats`,
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    return Array.isArray(body?.seats) ? (body.seats as ResumableSeat[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function getApiBase() {
   const domainname = getAudience();
 

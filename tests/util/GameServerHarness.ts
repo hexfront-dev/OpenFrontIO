@@ -11,6 +11,7 @@ import {
   ClientMessage,
   GameConfig,
   PublicGameType,
+  SavedLobby,
   ServerMessage,
 } from "../../src/core/Schemas";
 import { Client } from "../../src/server/Client";
@@ -154,6 +155,7 @@ export interface GameOpts {
   startsAt?: number;
   publicGameType?: PublicGameType;
   matchmakingTeams?: string[][];
+  restore?: SavedLobby;
   telemetry?: MatchTelemetryEmitter;
   buildHash?: string;
   // Overrides for what the game reaches outside itself for. By default the
@@ -182,6 +184,7 @@ export function makeGame(opts: GameOpts = {}): GameServer {
       startsAt: opts.startsAt,
       publicGameType: opts.publicGameType,
       matchmakingTeams: opts.matchmakingTeams,
+      restore: opts.restore,
     },
     deps,
   );

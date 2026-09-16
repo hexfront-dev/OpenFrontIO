@@ -83,7 +83,10 @@ describe("JoinLobbyModal.checkActiveLobby", () => {
         checkActiveLobby(id: string): Promise<boolean>;
       }
     ).checkActiveLobby("game-1");
-    expect(lastUrl()).toBe(
+    // The lobby existence probe goes to the configured game server. (A
+    // restored save may add a follow-up seats probe; the exists call is what
+    // this test pins.)
+    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toContain(
       `https://${SERVER_HOST}/${ClientEnv.workerPath("game-1")}/api/game/game-1/exists`,
     );
   });

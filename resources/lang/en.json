@@ -1623,6 +1623,26 @@
   "rewards_modal": {
     "title": "Rewards"
   },
+  "save_game": {
+    "choose_nation": "Choose which nation to play as:",
+    "claimed": "Taken",
+    "delete": "Delete",
+    "empty": "No saved games yet. Start a game and it will be saved automatically.",
+    "load": "Load",
+    "load_failed": "Failed to load saved games.",
+    "loading": "Loading saves\u2026",
+    "missing": "This save could not be found.",
+    "players": "players",
+    "resume": "Resume game",
+    "resume_failed": "Failed to resume that lobby.",
+    "resume_lobby": "Resume as lobby",
+    "server_empty": "No resumable lobbies on the server.",
+    "server_section": "Resumable lobbies",
+    "spectate": "Watch only",
+    "title": "Saved games",
+    "turns": "turns",
+    "version_mismatch": "This save was created on a different game version and cannot be resumed."
+  },
   "select_lang": {
     "title": "Select Language"
   },

@@ -7,9 +7,15 @@ import {
   GameMode,
   GameType,
 } from "../core/game/Game";
-import { GameConfig, GameID, PublicGameType } from "../core/Schemas";
+import {
+  GameConfig,
+  GameID,
+  PublicGameType,
+  SavedLobby,
+} from "../core/Schemas";
 import { Client } from "./Client";
 import { GamePhase, GameServer } from "./GameServer";
+import { noopSaveStore, type ServerSaveStore } from "./SaveStore";
 import {
   noopMatchTelemetryEmitter,
   type MatchTelemetryEmitter,
@@ -22,6 +28,7 @@ export class GameManager {
     private log: Logger,
     private readonly telemetry: MatchTelemetryEmitter = noopMatchTelemetryEmitter,
     private readonly telemetryBuildHash: string = "DEV",
+    private readonly saveStore: ServerSaveStore = noopSaveStore,
   ) {
     setInterval(() => this.tick(), 1000);
   }
@@ -47,6 +54,7 @@ export class GameManager {
   joinClient(
     client: Client,
     gameID: GameID,
+    claimClientID?: string,
   ):
     | "joined"
     | "kicked"
@@ -56,7 +64,7 @@ export class GameManager {
     | "not_found" {
     const game = this.games.get(gameID);
     if (!game) return "not_found";
-    return game.joinClient(client);
+    return game.joinClient(client, claimClientID);
   }
 
   rejoinClient(
@@ -115,9 +123,37 @@ export class GameManager {
       {
         telemetry: this.telemetry,
         telemetryBuildHash: this.telemetryBuildHash,
+        saveStore: this.saveStore,
       },
     );
     this.games.set(id, game);
+    return game;
+  }
+
+  // Rebuild a private lobby/game from a persisted snapshot on this worker. No-op
+  // (returns the live game) when one already exists, so a repeated resume is
+  // idempotent.
+  restoreGame(save: SavedLobby): GameServer {
+    const existing = this.games.get(save.gameID);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const game = new GameServer(
+      {
+        id: save.gameID,
+        log: this.log,
+        createdAt: save.createdAt,
+        gameConfig: save.gameConfig,
+        creatorPersistentID: save.creatorPersistentID,
+        restore: save,
+      },
+      {
+        telemetry: this.telemetry,
+        telemetryBuildHash: this.telemetryBuildHash,
+        saveStore: this.saveStore,
+      },
+    );
+    this.games.set(save.gameID, game);
     return game;
   }
 

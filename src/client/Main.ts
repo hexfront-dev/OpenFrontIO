@@ -27,7 +27,11 @@ import {
 } from "./Auth";
 import "./ChangeUsernameModal";
 import "./ClanModal";
-import { joinLobby, type JoinLobbyResult } from "./ClientGameRunner";
+import {
+  joinLobby,
+  type JoinLobbyResult,
+  type ResumeInfo,
+} from "./ClientGameRunner";
 import {
   completeCosmeticPurchaseReturn,
   getPlayerCosmeticsRefs,
@@ -73,6 +77,7 @@ import "./NewsModal";
 import { fallbackPlayerName } from "./PlayerName";
 import "./PlayerProfileModal";
 import { RewardsModal } from "./RewardsModal";
+import "./SavesModal";
 import "./SinglePlayerModal";
 import {
   isSteamLinkHash,
@@ -190,6 +195,11 @@ export interface JoinLobbyEvent {
   gameStartInfo?: GameStartInfo;
   // GameRecord exists when replaying an archived game.
   gameRecord?: GameRecord;
+  // A locally stored save being resumed (replay history, then live play).
+  resume?: ResumeInfo;
+  // Resume-as-lobby: claim this saved nation's clientID from a game the server
+  // restored from a save. Others can join the same link.
+  claimClientID?: string;
   source?: "public" | "private" | "host" | "matchmaking" | "singleplayer";
   publicLobbyInfo?: GameInfo | PublicGameInfo;
   // Watch without playing.
@@ -303,6 +313,10 @@ class Client {
     modalRouter.register("single-player", {
       tag: "single-player-modal",
       pageId: "page-single-player",
+    });
+    modalRouter.register("load-game", {
+      tag: "saves-modal",
+      pageId: "page-load-game",
     });
     modalRouter.register("ranked", {
       tag: "ranked-modal",
@@ -1100,6 +1114,7 @@ class Client {
     // config up front; everything else is filled in by the lobby_info
     // subscription in initialize() a moment later.
     const joinConfig =
+      lobby.resume?.startInfo.config ??
       lobby.gameStartInfo?.config ??
       lobby.publicLobbyInfo?.gameConfig ??
       lobby.gameRecord?.info.config;
@@ -1117,11 +1132,13 @@ class Client {
             ? joinInfo.numClients
             : joinInfo.clients?.filter((c) => !c.spectator).length,
       maxPlayers: joinConfig?.maxPlayers,
-      // Omitted for singleplayer and replays: no server hosts those ids, so
-      // advertising one has the shell offer friends a Join that cannot work.
-      // The optional field already means "not joinable".
+      // Omitted for singleplayer, replays and resumed local saves: no server
+      // hosts those ids, so advertising one has the shell offer friends a Join
+      // that cannot work. The optional field already means "not joinable".
       lobbyId:
-        lobby.source === "singleplayer" || lobby.gameRecord !== undefined
+        lobby.source === "singleplayer" ||
+        lobby.gameRecord !== undefined ||
+        lobby.resume !== undefined
           ? undefined
           : lobby.gameID,
     };
@@ -1164,14 +1181,17 @@ class Client {
       playerClanTag: this.usernameInput?.getClanTag() ?? null,
       clanTagCheck: this.usernameInput?.getClanCheck(),
       playerRole,
-      gameStartInfo:
-        lobby.gameStartInfo ??
-        // Replays simulate from the archived record; re-apply the server's
-        // wire blanking or team games desync (see toWireGameStartInfo).
-        (lobby.gameRecord
-          ? toWireGameStartInfo(lobby.gameRecord.info)
-          : undefined),
+      gameStartInfo: lobby.resume
+        ? toWireGameStartInfo(lobby.resume.startInfo)
+        : (lobby.gameStartInfo ??
+          // Replays simulate from the archived record; re-apply the server's
+          // wire blanking or team games desync (see toWireGameStartInfo).
+          (lobby.gameRecord
+            ? toWireGameStartInfo(lobby.gameRecord.info)
+            : undefined)),
       gameRecord: lobby.gameRecord,
+      resume: lobby.resume,
+      claimClientID: lobby.claimClientID,
       spectator: lobby.spectator,
     });
 
@@ -1212,6 +1232,7 @@ class Client {
       this.joinModal?.closeWithoutLeaving();
       [
         "single-player-modal",
+        "saves-modal",
         "game-starting-modal",
         "game-top-bar",
         "help-modal",

@@ -10,10 +10,12 @@ import {
   PlayerCosmeticRefs,
   PlayerRecord,
   ServerMessage,
+  Turn,
 } from "../core/Schemas";
 import { createPartialGameRecord, findClosestBy, replacer } from "../core/Util";
 import {
   BuildableUnit,
+  GameType,
   MAX_FLEET_SIZE,
   PlayerType,
   Structures,
@@ -39,6 +41,7 @@ import { getPersistentID } from "./Auth";
 import { showInGameAlert } from "./InGameModal";
 import {
   AutoUpgradeEvent,
+  CreateFleetEvent,
   DoBoatAttackEvent,
   DoBreakAllianceEvent,
   DoGroundAttackEvent,
@@ -49,9 +52,9 @@ import {
   MouseUpEvent,
   TickMetricsEvent,
   ToggleRenderDebugGuiEvent,
-  CreateFleetEvent,
 } from "./InputHandler";
 import { endGame, startGame, startTime } from "./LocalPersistantStats";
+import { SaveManager } from "./SaveManager";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
 import { GoToPlayerEvent } from "./TransformHandler";
 import {
@@ -62,11 +65,11 @@ import {
   SendAttackIntentEvent,
   SendBoatAttackIntentEvent,
   SendBreakAllianceIntentEvent,
+  SendCreateFleetIntentEvent,
   SendHashEvent,
+  SendLeaveFleetIntentEvent,
   SendSpawnIntentEvent,
   SendUpgradeStructureIntentEvent,
-  SendCreateFleetIntentEvent,
-  SendLeaveFleetIntentEvent,
   Transport,
 } from "./Transport";
 import { createCanvas } from "./Utils";
@@ -91,6 +94,12 @@ import { SoundManager } from "./sound/SoundManager";
 import { themeProvider } from "./theme/ThemeProvider";
 import { GameView, PlayerView } from "./view";
 
+export interface ResumeInfo {
+  startInfo: GameStartInfo;
+  turns: Turn[];
+  myClientID: ClientID;
+}
+
 export interface LobbyConfig {
   cosmetics: PlayerCosmeticRefs;
   playerName: string;
@@ -105,6 +114,12 @@ export interface LobbyConfig {
   gameStartInfo?: GameStartInfo;
   // GameRecord exists when replaying an archived game.
   gameRecord?: GameRecord;
+  // A locally stored save being resumed: history replays, then play continues.
+  resume?: ResumeInfo;
+  // Resume-as-lobby: join a game restored from a server-side save and claim
+  // this saved nation's clientID. Unlike `resume`, the game is hosted by the
+  // server (normal WebSocket join), so other players can join too.
+  claimClientID?: ClientID;
   // Watch without playing.
   spectator?: boolean;
 }
@@ -617,7 +632,7 @@ async function createClientGame(
   const config = new Config(
     lobbyConfig.gameStartInfo.config,
     userSettings,
-    lobbyConfig.gameRecord !== undefined,
+    lobbyConfig.gameRecord !== undefined && lobbyConfig.resume === undefined,
     lobbyConfig.gameStartInfo.listed,
     lobbyConfig.spectator === true,
   );
@@ -835,6 +850,7 @@ export class ClientGameRunner {
 
   private turnsSeen = 0;
   private lastMousePosition: { x: number; y: number } | null = null;
+  private readonly saveManager = new SaveManager();
 
   private lastMessageTime: number = 0;
   private connectionCheckInterval: NodeJS.Timeout | null = null;
@@ -914,6 +930,13 @@ export class ClientGameRunner {
 
     this.isActive = true;
     this.lastMessageTime = Date.now();
+    if (
+      this.lobby.gameRecord === undefined &&
+      this.lobby.gameStartInfo &&
+      this.lobby.gameStartInfo.config.gameType !== GameType.Public
+    ) {
+      this.saveManager.begin(this.lobby.gameStartInfo, this.clientID);
+    }
     setTimeout(() => {
       this.connectionCheckInterval = setInterval(
         () => this.onConnectionCheck(),
@@ -944,10 +967,7 @@ export class ClientGameRunner {
       DoBreakAllianceEvent,
       this.doBreakAllianceUnderCursor.bind(this),
     );
-    this.eventBus.on(
-      CreateFleetEvent,
-      this.onCreateFleet.bind(this),
-    );
+    this.eventBus.on(CreateFleetEvent, this.onCreateFleet.bind(this));
 
     this.renderer.initialize();
     this.input.initialize();
@@ -1035,13 +1055,16 @@ export class ClientGameRunner {
             continue;
           }
           while (turn.turnNumber - 1 > this.turnsSeen) {
-            this.worker.sendTurn({
+            const emptyTurn = {
               turnNumber: this.turnsSeen,
               intents: [],
-            });
+            };
+            this.worker.sendTurn(emptyTurn);
+            this.saveManager.recordTurn(emptyTurn);
             this.turnsSeen++;
           }
           this.worker.sendTurn(turn);
+          this.saveManager.recordTurn(turn);
           this.turnsSeen++;
         }
       }
@@ -1111,6 +1134,7 @@ export class ClientGameRunner {
                 }
               : message.turn,
           );
+          this.saveManager.recordTurn(message.turn);
           this.turnsSeen++;
         }
       }
@@ -1128,6 +1152,7 @@ export class ClientGameRunner {
     if (!this.isActive) return;
 
     this.isActive = false;
+    this.saveManager.dispose();
     this.worker.cleanup();
     this.transport.leaveGame();
     if (this.connectionCheckInterval) {

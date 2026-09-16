@@ -1,4 +1,5 @@
 import { JWK } from "jose";
+import path from "path";
 import { z } from "zod";
 import { GameEnv, parseGameEnv } from "../core/configuration/Config";
 import { GameID } from "../core/Schemas";
@@ -118,6 +119,15 @@ export class ServerEnv {
   }
   static workerPath(gameID: GameID): string {
     return `w${ServerEnv.workerIndex(gameID)}`;
+  }
+  // Root directory for resumable save files. Saves are written per worker
+  // (saves/w<N>) so a shard change never makes a worker read another shard's
+  // game. Overridable for tests/deployments; defaults under the process cwd.
+  static saveDir(): string {
+    return process.env.SAVE_DIR ?? path.join(process.cwd(), "saves");
+  }
+  static saveWorkerDir(workerId: number = ServerEnv.workerId() ?? 0): string {
+    return path.join(ServerEnv.saveDir(), `w${workerId}`);
   }
   static workerPort(gameID: GameID): number {
     return ServerEnv.workerPortByIndex(ServerEnv.workerIndex(gameID));

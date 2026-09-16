@@ -259,6 +259,7 @@ export class Transport {
     // For multiplayer games, GameConfig is not known until game starts.
     this.isLocal =
       lobbyConfig.gameRecord !== undefined ||
+      lobbyConfig.resume !== undefined ||
       lobbyConfig.gameStartInfo?.config.gameType === GameType.Singleplayer;
 
     this.eventBus.on(SendAllianceRequestIntentEvent, (e) =>
@@ -506,6 +507,7 @@ export class Transport {
       turnstileToken: this.lobbyConfig.turnstileToken,
       token: await getPlayToken(),
       spectator: this.lobbyConfig.spectator,
+      claimClientID: this.lobbyConfig.claimClientID,
     } satisfies ClientJoinMessage);
   }
 

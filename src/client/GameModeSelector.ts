@@ -34,6 +34,7 @@ import { HostLobbyModal } from "./HostLobbyModal";
 import { JoinLobbyModal } from "./JoinLobbyModal";
 import { PublicLobbySocket } from "./LobbySocket";
 import { JoinLobbyEvent } from "./Main";
+import { SavesModal } from "./SavesModal";
 import { SinglePlayerModal } from "./SinglePlayerModal";
 import { UsernameInput } from "./UsernameInput";
 import {
@@ -71,7 +72,8 @@ export function shouldBlockMultiplayerAction(
 export function joinIsGateable(lobby: JoinLobbyEvent): boolean {
   return (
     lobby.gameStartInfo?.config.gameType !== GameType.Singleplayer &&
-    lobby.gameRecord === undefined
+    lobby.gameRecord === undefined &&
+    lobby.resume === undefined
   );
 }
 
@@ -253,7 +255,7 @@ export class GameModeSelector extends LitElement {
           )}
         </div>
         <!-- Create/ranked/join: mobile only, below solo -->
-        <div class="sm:hidden grid grid-cols-3 gap-4 h-14">
+        <div class="sm:hidden grid grid-cols-4 gap-4 h-14">
           ${this.renderSmallActionCard(
             translateText("main.create"),
             this.openHostLobby,
@@ -274,6 +276,11 @@ export class GameModeSelector extends LitElement {
             "bg-surface hover:brightness-[1.08] active:brightness-[0.95] hover:scale-105 hover:shadow-[var(--shadow-action-card-hover)]",
             this.hostedLobbyCount(),
             true,
+          )}
+          ${this.renderSmallActionCard(
+            translateText("save_game.load"),
+            this.openSaves,
+            "bg-surface hover:brightness-[1.08] active:brightness-[0.95] hover:scale-105 hover:shadow-[var(--shadow-action-card-hover)]",
           )}
         </div>
         <!-- iOS Add to Home Screen banner -->
@@ -347,7 +354,7 @@ export class GameModeSelector extends LitElement {
           )}
         </div>
         <!-- Bottom row: create + ranked + join (desktop only) -->
-        <div class="hidden sm:grid grid-cols-3 gap-4 h-14">
+        <div class="hidden sm:grid grid-cols-4 gap-4 h-14">
           ${this.renderSmallActionCard(
             translateText("main.create"),
             this.openHostLobby,
@@ -368,6 +375,11 @@ export class GameModeSelector extends LitElement {
             "bg-surface hover:brightness-[1.08] active:brightness-[0.95] hover:scale-105 hover:shadow-[var(--shadow-action-card-hover)]",
             this.hostedLobbyCount(),
             true,
+          )}
+          ${this.renderSmallActionCard(
+            translateText("save_game.load"),
+            this.openSaves,
+            "bg-surface hover:brightness-[1.08] active:brightness-[0.95] hover:scale-105 hover:shadow-[var(--shadow-action-card-hover)]",
           )}
         </div>
         ${this.showTrustRequired
@@ -430,6 +442,11 @@ export class GameModeSelector extends LitElement {
     (
       document.querySelector("single-player-modal") as SinglePlayerModal
     )?.open();
+  };
+
+  private openSaves = () => {
+    if (!this.validateUsername()) return;
+    (document.querySelector("saves-modal") as SavesModal)?.open();
   };
 
   private openHostLobby = () => {

@@ -27,6 +27,7 @@ import {
   GameSpeedUpIntentEvent,
   ReplaySpeedChangeEvent,
 } from "./InputHandler";
+import { replayTransition } from "./ReplayTransition";
 import {
   defaultReplaySpeedMultiplier,
   ReplaySpeedMultiplier,
@@ -66,6 +67,10 @@ export class LocalServer {
   private turnsExecuted = 0;
   private turnStartTime = 0;
 
+  // Resumed games replay the saved history, then accept live intents.
+  private readonly resuming: boolean;
+  private live: boolean;
+
   private turnCheckInterval: NodeJS.Timeout;
   private clientConnect: () => void;
   private clientMessage: (message: ServerMessage) => void;
@@ -74,7 +79,10 @@ export class LocalServer {
     private lobbyConfig: LobbyConfig,
     private isReplay: boolean,
     private eventBus: EventBus,
-  ) {}
+  ) {
+    this.resuming = lobbyConfig.resume !== undefined;
+    this.live = lobbyConfig.gameRecord === undefined && !this.resuming;
+  }
 
   public updateCallback(
     clientConnect: () => void,
@@ -90,9 +98,10 @@ export class LocalServer {
       const turnIntervalMs =
         ClientEnv.turnIntervalMs() * this.replaySpeedMultiplier;
       const backlog = Math.max(0, this.turns.length - this.turnsExecuted);
-      const allowReplayBacklog =
-        this.replaySpeedMultiplier === ReplaySpeedMultiplier.fastest &&
-        this.lobbyConfig.gameRecord !== undefined;
+      const allowReplayBacklog = this.resuming
+        ? this.replayTurns.length > 0 && !this.live
+        : this.replaySpeedMultiplier === ReplaySpeedMultiplier.fastest &&
+          this.lobbyConfig.gameRecord !== undefined;
       const maxBacklog = allowReplayBacklog ? MAX_REPLAY_BACKLOG_TURNS : 0;
 
       const canQueueNextTurn =
@@ -133,7 +142,9 @@ export class LocalServer {
 
     this.startedAt = Date.now();
     this.clientConnect();
-    if (this.lobbyConfig.gameRecord) {
+    if (this.lobbyConfig.resume) {
+      this.replayTurns = this.lobbyConfig.resume.turns;
+    } else if (this.lobbyConfig.gameRecord) {
       this.replayTurns = decompressGameRecord(
         this.lobbyConfig.gameRecord,
       ).turns;
@@ -141,7 +152,9 @@ export class LocalServer {
     if (this.lobbyConfig.gameStartInfo === undefined) {
       throw new Error("missing gameStartInfo");
     }
-    this.clientID = this.lobbyConfig.gameStartInfo.players[0]?.clientID;
+    this.clientID = this.lobbyConfig.resume
+      ? this.lobbyConfig.resume.myClientID
+      : this.lobbyConfig.gameStartInfo.players[0]?.clientID;
     if (!this.clientID) {
       throw new Error("missing clientID");
     }
@@ -188,8 +201,9 @@ export class LocalServer {
         }
         return;
       }
-      // Don't process non-pause intents during replays or while paused
-      if (this.lobbyConfig.gameRecord || this.paused) {
+      // Don't process non-pause intents during replays or while paused.
+      // A resumed game starts in replay and accepts intents once it catches up.
+      if (!this.live || this.paused) {
         return;
       }
 
@@ -255,11 +269,20 @@ export class LocalServer {
     if (this.paused) {
       return;
     }
-    if (this.replayTurns.length > 0) {
-      if (this.turns.length >= this.replayTurns.length) {
-        this.endGame();
-        return;
-      }
+    const transition = replayTransition(
+      this.live,
+      this.resuming,
+      this.replayTurns.length,
+      this.turns.length,
+    );
+    if (transition === "end") {
+      this.endGame();
+      return;
+    }
+    if (transition === "goLive") {
+      this.live = true;
+    }
+    if (transition === "replay") {
       this.intents = this.replayTurns[this.turns.length].intents;
     }
     const pastTurn: Turn = {

@@ -127,6 +127,14 @@ export class Roster {
     return this.kicked.has(persistentID);
   }
 
+  // Records an admission recovered from a persisted snapshot, so the original
+  // players of a resumed game skip the single-use Turnstile re-check on their
+  // first reconnect. Safe for persistentIDs that never actually joined here:
+  // they only skip a challenge they already passed before the save.
+  restoreAdmitted(persistentID: string): void {
+    this.admitted.add(persistentID);
+  }
+
   // Whether this persistentID has already been admitted (passed Turnstile and
   // other join authorization) for this game. Kicked players are excluded so
   // a kick still forces them back through the gate.

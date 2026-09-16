@@ -1125,6 +1125,10 @@ export const ClientJoinMessageSchema = z.object({
   turnstileToken: z.string().nullable(),
   // Watch without playing: no spawn, no team, no lobby slot.
   spectator: z.boolean().optional(),
+  // Resume-as-lobby: claim a specific saved human nation when joining a game
+  // restored from a server-side save. Ignored unless the game is a restored
+  // save and the seat is an unclaimed original human player.
+  claimClientID: ID.optional(),
 });
 
 export const ClientRejoinMessageSchema = z.object({
@@ -1247,3 +1251,132 @@ export const PartialGameRecordSchema = PartialAnalyticsRecordSchema.extend({
 export type PartialGameRecord = z.infer<typeof PartialGameRecordSchema>;
 
 export type GameRecord = z.infer<typeof GameRecordSchema>;
+
+//
+// Local save/resume
+//
+
+export const SAVED_GAME_VERSION = "v0.1.0";
+
+export const SavedGameSchema = z.object({
+  version: z.literal(SAVED_GAME_VERSION),
+  saveId: ID,
+  gameID: ID,
+  label: z.string().max(120),
+  savedAt: zb.uint(),
+  gitCommit: z.string(),
+  myClientID: ID.optional(),
+  startInfo: GameStartInfoSchema,
+  turns: TurnSchema.array(),
+});
+export type SavedGame = z.infer<typeof SavedGameSchema>;
+
+export const SavedGameMetaSchema = z.object({
+  saveId: ID,
+  gameID: ID,
+  label: z.string().max(120),
+  savedAt: zb.uint(),
+  gitCommit: z.string(),
+  numTurns: z.number(),
+  playerCount: z.number(),
+  gameMap: z.string(),
+  gameType: z.string(),
+  playerNames: z.array(z.string()),
+});
+export type SavedGameMeta = z.infer<typeof SavedGameMetaSchema>;
+
+export function savedGameMetaFrom(save: SavedGame): SavedGameMeta {
+  return {
+    saveId: save.saveId,
+    gameID: save.gameID,
+    label: save.label,
+    savedAt: save.savedAt,
+    gitCommit: save.gitCommit,
+    numTurns: save.turns.length,
+    playerCount: save.startInfo.players.length,
+    gameMap: save.startInfo.config.gameMap,
+    gameType: save.startInfo.config.gameType,
+    playerNames: save.startInfo.players.map((p) => p.username),
+  };
+}
+
+//
+// Server-side saved lobbies / games
+//
+// A snapshot of a private GameServer, persisted on the host that owns the
+// game's shard so it can be resurrected later as a joinable private lobby.
+// Unlike SavedGame (browser-local, single-human), this carries the roster's
+// account identities so the original players can reconnect to their nations
+// and new players can claim an original human nation.
+//
+// WARNING: seats/creatorPersistentID are PII. A SavedLobby must never be sent
+// to a browser; the resume/list endpoints expose only clientID + username.
+
+export const SAVED_LOBBY_VERSION = "v0.1.0";
+
+export const SavedLobbyStageSchema = z.enum(["lobby", "prestart", "started"]);
+export type SavedLobbyStage = z.infer<typeof SavedLobbyStageSchema>;
+
+// A seat is one original participant of the saved game. persistentID is the
+// account that held it (for automatic reconnect); publicId/trusted are the
+// join-gate inputs. clientID is the simulation identity saved turns refer to.
+export const SavedLobbySeatSchema = PlayerSchema.extend({
+  persistentID: z.string(), // WARNING: PII
+  publicId: z.string().optional(), // WARNING: PII
+  trusted: z.boolean(),
+  spectator: z.boolean().optional(),
+});
+export type SavedLobbySeat = z.infer<typeof SavedLobbySeatSchema>;
+
+export const SavedLobbySchema = z.object({
+  version: z.literal(SAVED_LOBBY_VERSION),
+  gameID: ID,
+  createdAt: zb.uint(),
+  creatorPersistentID: z.string(), // WARNING: PII
+  // Full server-side config, including the join whitelist / name reveals that
+  // are stripped from GameStartInfo before it goes to clients.
+  gameConfig: GameConfigSchema,
+  stage: SavedLobbyStageSchema,
+  visibleAt: zb.uint().optional(),
+  seats: SavedLobbySeatSchema.array(),
+  // Frozen player list, present exactly when the game had started. Saved turns
+  // reference these clientIDs, so restoring must reuse it verbatim.
+  gameStartInfo: GameStartInfoSchema.optional(),
+  turns: TurnSchema.array(),
+  savedAt: zb.uint(),
+  gitCommit: z.string(),
+});
+export type SavedLobby = z.infer<typeof SavedLobbySchema>;
+
+export const SavedLobbyMetaSchema = z.object({
+  gameID: ID,
+  label: z.string().max(120),
+  createdAt: zb.uint(),
+  savedAt: zb.uint(),
+  stage: SavedLobbyStageSchema,
+  numTurns: z.number(),
+  playerCount: z.number(),
+  gameMap: z.string(),
+  creatorPersistentID: z.string(), // WARNING: PII
+  gitCommit: z.string(),
+});
+export type SavedLobbyMeta = z.infer<typeof SavedLobbyMetaSchema>;
+
+export function savedLobbyMetaFrom(save: SavedLobby): SavedLobbyMeta {
+  const players = save.gameStartInfo?.players ?? save.seats;
+  const first = players[0]?.username;
+  return {
+    gameID: save.gameID,
+    label: first
+      ? `${save.gameConfig.gameMap} · ${first}`
+      : save.gameConfig.gameMap,
+    createdAt: save.createdAt,
+    savedAt: save.savedAt,
+    stage: save.stage,
+    numTurns: save.turns.length,
+    playerCount: players.length,
+    gameMap: save.gameConfig.gameMap,
+    creatorPersistentID: save.creatorPersistentID,
+    gitCommit: save.gitCommit,
+  };
+}

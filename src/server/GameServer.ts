@@ -25,6 +25,9 @@ import {
   PlayerRecord,
   PlayerReport,
   PublicGameType,
+  SAVED_LOBBY_VERSION,
+  SavedLobby,
+  SavedLobbySeat,
   ServerDesyncSchema,
   ServerErrorMessage,
   ServerLobbyInfoMessage,
@@ -53,6 +56,7 @@ import { ListingState } from "./ListingState";
 import { identityFor, MatchTelemetryRecorder } from "./MatchTelemetryRecorder";
 import { friendsLookup, NameVisibility } from "./NameVisibility";
 import { Roster } from "./Roster";
+import { noopSaveStore, type ServerSaveStore } from "./SaveStore";
 import { ServerEnv } from "./ServerEnv";
 import { SocketIngress } from "./SocketIngress";
 import {
@@ -77,6 +81,11 @@ const KICK_REASON_ADMIN = "kick_reason.admin";
 const KICK_REASON_HOST_LEFT = "kick_reason.host_left";
 const KICK_REASON_MATCH_CANCELLED = "kick_reason.match_cancelled";
 
+// Autosave cadence for resumable private games (turns). The store write is
+// throttled further by SAVE_MIN_INTERVAL_MS, so a fast game saves less often.
+const SAVE_EVERY_TURNS = 25;
+const SAVE_MIN_INTERVAL_MS = 3000;
+
 export interface GameServerOptions {
   id: string;
   log: Logger;
@@ -88,6 +97,9 @@ export interface GameServerOptions {
   // Matchmade team split from the matchmaking assignment: publicIds per
   // team. At start each client is stamped with its team's index.
   matchmakingTeams?: string[][];
+  // Rebuild this game from a persisted snapshot instead of starting empty.
+  // When set, the other options are ignored except id/log/deps.
+  restore?: SavedLobby;
 }
 
 // Everything a GameServer reaches outside itself for. Production takes the
@@ -105,6 +117,9 @@ export interface GameServerDeps {
   turnIntervalMs: () => number;
   telemetry: MatchTelemetryEmitter;
   telemetryBuildHash: string;
+  // Where resumable private lobbies are persisted (see SaveStore.ts). The
+  // default no-op keeps tests that never resume from touching the disk.
+  saveStore: ServerSaveStore;
 }
 
 export function defaultGameServerDeps(): GameServerDeps {
@@ -115,6 +130,7 @@ export function defaultGameServerDeps(): GameServerDeps {
     turnIntervalMs: () => ServerEnv.turnIntervalMs(),
     telemetry: noopMatchTelemetryEmitter,
     telemetryBuildHash: "DEV",
+    saveStore: noopSaveStore,
   };
 }
 
@@ -146,6 +162,23 @@ export class GameServer {
   private paused = false;
   private _startTime: number | null = null;
   private hasReachedMaxPlayerCount: boolean = false;
+  // Basing the max-duration cutoff on this keeps a freshly restored save from
+  // being instantly "past max duration" because its createdAt is days old.
+  private durationBase: number;
+
+  // Resume-as-lobby state. Populated only by applyRestore(); a game created
+  // the normal way leaves these empty.
+  private restored = false;
+  // Original participants, keyed by the simulation clientID saved turns use.
+  private readonly restoredSeats = new Map<ClientID, SavedLobbySeat>();
+  // Original owner persistentID -> seat, so they reconnect without choosing.
+  private readonly seatToPersistent = new Map<string, ClientID>();
+  // Seat -> the persistentID currently holding it. Used to stop two players
+  // claiming the same nation. Persists across a holder's disconnect.
+  private readonly seatClaimants = new Map<ClientID, string>();
+  private saveInFlight = false;
+  private saveQueued = false;
+  private lastSaveAt = 0;
 
   private endTurnIntervalID: ReturnType<typeof setInterval> | undefined;
 
@@ -214,6 +247,7 @@ export class GameServer {
   constructor(opts: GameServerOptions, deps: Partial<GameServerDeps> = {}) {
     this.id = opts.id;
     this.createdAt = opts.createdAt;
+    this.durationBase = opts.createdAt;
     this.gameConfig = opts.gameConfig;
     this.creatorPersistentID = opts.creatorPersistentID;
     this.startsAt = opts.startsAt;
@@ -242,6 +276,9 @@ export class GameServer {
     if (opts.startsAt !== undefined) {
       this.visibleAt = Date.now();
     }
+    if (opts.restore !== undefined) {
+      this.applyRestore(opts.restore);
+    }
     this.telemetry.emit(
       "match_opened",
       {
@@ -257,6 +294,241 @@ export class GameServer {
     );
   }
 
+  // Rebuild the wire copy of gameStartInfo (clan tags stripped when disabled).
+  // Shared by start() and applyRestore() so a resumed game blanks exactly like
+  // a live one — the blanking feeds deterministic team assignment.
+  private buildWireGameStartInfo(): void {
+    const wire = { ...this.gameStartInfo, listed: this.listing.isListed() };
+    this.wireGameStartInfo = this.gameConfig.disableClanTags
+      ? {
+          ...wire,
+          players: this.gameStartInfo.players.map((p) => ({
+            ...p,
+            clanTag: null,
+          })),
+        }
+      : wire;
+  }
+
+  // Rebuild this game's live state from a persisted snapshot. Called from the
+  // constructor only. Deliberately does NOT go through start(): gameStartInfo
+  // and turns are restored verbatim (clientIDs in the saved turns must keep
+  // matching), and the turn loop is armed lazily on the first reconnect so an
+  // unvisited save does not accumulate empty turns.
+  private applyRestore(save: SavedLobby): void {
+    this.restored = true;
+    this.durationBase = Date.now();
+    this.gameConfig = save.gameConfig;
+    this.creatorPersistentID = save.creatorPersistentID;
+    this.visibleAt = save.visibleAt;
+    // "prestart" is a transient countdown state with no frozen player list;
+    // treat it as a not-yet-started lobby so it can fill and start normally.
+    // A "started" save missing its frozen player list is likewise unusable as
+    // a running game, so it too falls back to a lobby rather than serving a
+    // start message with no gameStartInfo.
+    this.stage =
+      save.stage === "prestart" ||
+      (save.stage === "started" && save.gameStartInfo === undefined)
+        ? "lobby"
+        : save.stage;
+    this.turns = save.turns;
+    this.paused = false;
+    this.ended = false;
+    // Neutralise the lifecycle traps: a restored "full" or past-deadline lobby
+    // must not auto-start or instantly finish.
+    this.hasReachedMaxPlayerCount = false;
+    this.startsAt = undefined;
+
+    for (const seat of save.seats) {
+      this.restoredSeats.set(seat.clientID, seat);
+      this.seatToPersistent.set(seat.persistentID, seat.clientID);
+      this.clients.restoreAdmitted(seat.persistentID);
+    }
+
+    if (save.stage === "started" && save.gameStartInfo !== undefined) {
+      this.gameStartInfo = save.gameStartInfo;
+      this.buildWireGameStartInfo();
+      this.zbinCtx = createGameWireContext(this.gameStartInfo.players);
+      this._startTime = Date.now();
+      this.lastPingUpdate = Date.now();
+      // Nobody is connected at restore: mark every original nation
+      // disconnected so the sim hands them to AI instead of leaving them
+      // idle. A player who then reconnects/claims pushes the opposite mark.
+      for (const seat of save.seats) {
+        this.addIntent({
+          type: "mark_disconnected",
+          clientID: seat.clientID,
+          isDisconnected: true,
+        });
+      }
+    }
+
+    this.log.info("restored saved game", {
+      gameID: this.id,
+      stage: save.stage,
+      turns: this.turns.length,
+      seats: save.seats.length,
+    });
+  }
+
+  // Build a snapshot of this game for persistence, or null when it must not be
+  // saved (public games and games without a creator account). Never send the
+  // result to a client: it carries persistentIDs.
+  public snapshot(): SavedLobby | null {
+    if (this.isPublic() || this.creatorPersistentID === undefined) {
+      return null;
+    }
+    return {
+      version: SAVED_LOBBY_VERSION,
+      gameID: this.id,
+      createdAt: this.createdAt,
+      creatorPersistentID: this.creatorPersistentID,
+      gameConfig: { ...this.gameConfig },
+      stage: this.stage,
+      visibleAt: this.visibleAt,
+      seats: this.buildSeats(),
+      gameStartInfo: this.stage === "started" ? this.gameStartInfo : undefined,
+      turns: this.turns,
+      savedAt: Date.now(),
+      gitCommit: this.deps.telemetryBuildHash,
+    };
+  }
+
+  private buildSeats(): SavedLobbySeat[] {
+    if (this.stage === "started" && this.gameStartInfo !== undefined) {
+      // The frozen player list is authoritative: saved turns reference these
+      // clientIDs, and only original humans have one (AI/nations do not).
+      return this.gameStartInfo.players.map((p) => {
+        const live = this.clients.get(p.clientID);
+        const prev = this.restoredSeats.get(p.clientID);
+        return {
+          clientID: p.clientID,
+          username: p.username,
+          clanTag: p.clanTag,
+          cosmetics: p.cosmetics,
+          isLobbyCreator: p.isLobbyCreator,
+          friends: p.friends,
+          teamIndex: p.teamIndex,
+          persistentID: live?.persistentID ?? prev?.persistentID ?? "",
+          publicId: live?.publicId ?? prev?.publicId,
+          trusted: live?.trusted ?? prev?.trusted ?? false,
+          spectator: false,
+        };
+      });
+    }
+    // Not yet started: the live roster is the source of truth. `friends` must
+    // be in-game clientIDs (PlayerSchema), so it goes through the same
+    // publicId -> clientID mapping start() uses, not the raw friend list.
+    const friendsFor = friendsLookup(this.clients.active());
+    return [...this.clients.all().values()].map((c) => ({
+      clientID: c.clientID,
+      username: c.username,
+      clanTag: c.clanTag,
+      cosmetics: c.cosmetics,
+      isLobbyCreator: this.lobbyCreatorID === c.clientID,
+      friends: friendsFor(c),
+      persistentID: c.persistentID,
+      publicId: c.publicId,
+      trusted: c.trusted,
+      spectator: c.spectator,
+    }));
+  }
+
+  // Fire-and-forget persistence, de-duplicated and rate limited so a burst of
+  // roster/config changes cannot queue a write per event. The sim is never
+  // blocked on the store.
+  public scheduleSave(force = false): void {
+    if (this.isPublic() || this.creatorPersistentID === undefined) {
+      return;
+    }
+    if (this.saveInFlight) {
+      // A write is already running; remember to take one more afterwards so
+      // the newest state lands without queueing a write per event.
+      this.saveQueued = true;
+      return;
+    }
+    const now = Date.now();
+    // Roster/config events are rate limited; the periodic turn autosave
+    // (force) is not, since it is already spaced by SAVE_EVERY_TURNS.
+    if (!force && now - this.lastSaveAt < SAVE_MIN_INTERVAL_MS) {
+      this.saveQueued = true;
+      return;
+    }
+    this.persistSave();
+  }
+
+  private persistSave(): void {
+    const snapshot = this.snapshot();
+    if (snapshot === null) {
+      return;
+    }
+    this.saveInFlight = true;
+    this.lastSaveAt = Date.now();
+    void this.deps.saveStore
+      .save(snapshot)
+      .catch((error) => {
+        this.log.error("failed to persist game save", {
+          gameID: this.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.saveInFlight = false;
+        if (this.saveQueued) {
+          this.saveQueued = false;
+          this.persistSave();
+        }
+      });
+  }
+
+  // Whether this game was rebuilt from a save (and so has claimable seats).
+  public isRestored(): boolean {
+    return this.restored;
+  }
+
+  // Seats available to joiners: original human nations not currently held by
+  // someone else, plus ones the caller may re-claim. Omits persistentIDs (PII).
+  public claimableSeats(persistentID?: string): {
+    clientID: ClientID;
+    username: string;
+    claimed: boolean;
+  }[] {
+    if (!this.restored) {
+      return [];
+    }
+    return [...this.restoredSeats.values()].map((seat) => {
+      const claimant = this.seatClaimants.get(seat.clientID);
+      return {
+        clientID: seat.clientID,
+        username: seat.username,
+        claimed:
+          claimant !== undefined &&
+          (persistentID === undefined || claimant !== persistentID),
+      };
+    });
+  }
+
+  // Reserve a restored seat for a joining account. Returns the seat when the
+  // account may hold it, else null. Idempotent for the same claimant.
+  private tryClaimSeat(
+    clientID: ClientID | undefined,
+    persistentID: string,
+  ): SavedLobbySeat | null {
+    if (!this.restored || clientID === undefined) {
+      return null;
+    }
+    const seat = this.restoredSeats.get(clientID);
+    if (seat === undefined) {
+      return null;
+    }
+    const claimant = this.seatClaimants.get(clientID);
+    if (claimant !== undefined && claimant !== persistentID) {
+      return null;
+    }
+    this.seatClaimants.set(clientID, persistentID);
+    return seat;
+  }
+
   private get lobbyCreatorID(): ClientID | undefined {
     return this.creatorPersistentID
       ? this.clients.byPersistentId(this.creatorPersistentID)?.clientID
@@ -265,6 +537,7 @@ export class GameServer {
 
   public updateGameConfig(gameConfig: Partial<GameConfig>): void {
     applyGameConfigPatch(this.gameConfig, gameConfig);
+    this.scheduleSave();
   }
 
   // Dispatch a control/gameplay intent from either a websocket client or the
@@ -389,10 +662,19 @@ export class GameServer {
     return persistentID !== undefined && this.clients.isKicked(persistentID);
   }
 
-  // Get existing clientID for this persistentID, or null if new player
+  // Get existing clientID for this persistentID, or null if new player. On a
+  // restored save, an unclaimed original seat (or one this account already
+  // holds) also resolves, so the account reconnects to its saved nation.
   public getClientIdForPersistentId(persistentID: string): ClientID | null {
     if (this.clients.isKicked(persistentID)) return null;
-    return this.clients.byPersistentId(persistentID)?.clientID ?? null;
+    const live = this.clients.byPersistentId(persistentID)?.clientID;
+    if (live !== undefined) return live;
+    const seat = this.seatToPersistent.get(persistentID);
+    if (seat !== undefined) {
+      const claimant = this.seatClaimants.get(seat);
+      if (claimant === undefined || claimant === persistentID) return seat;
+    }
+    return null;
   }
 
   // Whether this persistentID has already been admitted (passed Turnstile and
@@ -412,12 +694,18 @@ export class GameServer {
     const clientID = this.getClientIdForPersistentId(persistentID);
     if (clientID === null) return null;
     const client = this.clients.get(clientID);
-    if (client === undefined) return null;
+    if (client === undefined) {
+      const seat = this.restoredSeats.get(clientID);
+      return seat === undefined
+        ? null
+        : { username: seat.username, clanTag: seat.clanTag ?? null };
+    }
     return { username: client.username, clanTag: client.clanTag };
   }
 
   public joinClient(
     client: Client,
+    claimClientID?: ClientID,
   ): "joined" | "kicked" | "rejected" | "not_allowlisted" | "not_trusted" {
     // e.g. the host left an unstarted lobby and GameManager hasn't pruned
     // it yet.
@@ -445,16 +733,32 @@ export class GameServer {
       return "not_trusted";
     }
 
+    // Resume-as-lobby: a saved human nation can be claimed by an original
+    // player (their persistentID maps to a seat) or by a joiner naming a free
+    // seat. A claimed seat has a frozen clientID the saved turns already
+    // reference, so it must not be treated as a post-start spectator. AI
+    // nations never had a clientID, so they can never be claimed.
+    const requestedSeat =
+      claimClientID ?? this.seatToPersistent.get(client.persistentID);
+    const claimedSeat = this.tryClaimSeat(requestedSeat, client.persistentID);
+    if (claimedSeat !== null) {
+      client.clientID = claimedSeat.clientID;
+      client.spectator = false;
+    }
+
     // gameStartInfo.players is frozen at start, so a late arrival could never
     // spawn. They used to join as a player anyway; watching is what actually
-    // happened to them, so it is what they join as.
-    if (this.stage === "started") {
+    // happened to them, so it is what they join as. A claimed saved seat is
+    // the exception: its nation already exists in the frozen list.
+    if (this.stage === "started" && claimedSeat === null) {
       client.spectator = true;
     }
 
     // Spectators take no slot: they never spawn, so a full lobby is still
-    // watchable and a caster can never displace a player.
+    // watchable and a caster can never displace a player. A claimed seat is
+    // already counted in the frozen player list, so it is exempt.
     if (
+      claimedSeat === null &&
       !client.spectator &&
       this.gameConfig.maxPlayers &&
       this.playerCount() >= this.gameConfig.maxPlayers
@@ -548,7 +852,11 @@ export class GameServer {
     // In case a client joined the game late and missed the start message.
     if (this.stage === "started") {
       this.sendStartGameMsg(client.ws, 0);
+      // A restored game arms its turn loop only once someone is present, so an
+      // unvisited save does not accumulate empty turns.
+      this.ensureTurnLoop();
     }
+    this.scheduleSave();
 
     return "joined";
   }
@@ -568,8 +876,32 @@ export class GameServer {
     if (this.ended) return false;
     const clientID = this.getClientIdForPersistentId(persistentID);
     if (!clientID) return false;
-    const client = this.clients.get(clientID);
-    if (!client) return false;
+    let client = this.clients.get(clientID);
+    if (!client) {
+      // A restored seat no one has claimed yet. Materialise it for the
+      // original owner (their persistentID maps to it) so a refresh/reconnect
+      // lands straight back on their saved nation.
+      const seat = this.restoredSeats.get(clientID);
+      if (seat === undefined) return false;
+      client = new Client(
+        seat.clientID,
+        persistentID,
+        null,
+        null,
+        undefined,
+        "0.0.0.0",
+        seat.username,
+        seat.clanTag ?? null,
+        ws,
+        seat.cosmetics,
+        seat.publicId,
+        seat.friends ?? [],
+        false,
+        seat.trusted,
+      );
+      this.seatClaimants.set(clientID, persistentID);
+      this.clients.add(client);
+    }
 
     this.log.info("client rejoining", { clientID, lastTurn });
     // Also closes the old WebSocket, to prevent resource leaks.
@@ -595,7 +927,9 @@ export class GameServer {
 
     if (this.stage === "started") {
       this.sendStartGameMsg(client.ws, lastTurn);
+      this.ensureTurnLoop();
     }
+    this.scheduleSave();
     return true;
   }
 
@@ -929,27 +1263,12 @@ export class GameServer {
       },
       this.turns.length,
     );
-    const wireGameStartInfo = {
-      ...this.gameStartInfo,
-      listed: this.listing.isListed(),
-    };
-    this.wireGameStartInfo = this.gameConfig.disableClanTags
-      ? {
-          ...wireGameStartInfo,
-          players: this.gameStartInfo.players.map((p) => ({
-            ...p,
-            clanTag: null,
-          })),
-        }
-      : wireGameStartInfo;
+    this.buildWireGameStartInfo();
     // Seed the dictionary from the same players array, in the same order,
     // every client receives in the start message.
     this.zbinCtx = createGameWireContext(this.gameStartInfo.players);
 
-    this.endTurnIntervalID = setInterval(
-      () => this.endTurn(),
-      this.deps.turnIntervalMs(),
-    );
+    this.ensureTurnLoop();
     this.clients.active().forEach((c) => {
       this.log.info("sending start message", {
         clientID: c.clientID,
@@ -957,6 +1276,25 @@ export class GameServer {
       });
       this.sendStartGameMsg(c.ws, 0);
     });
+    this.scheduleSave();
+  }
+
+  // Arm the per-turn interval at most once. Restored games call this on the
+  // first reconnect rather than at restore time, so a save nobody visits does
+  // not run the simulation (and grow its turn log) in the background.
+  private ensureTurnLoop(): void {
+    if (
+      this.endTurnIntervalID !== undefined ||
+      this.stage !== "started" ||
+      this.ended
+    ) {
+      return;
+    }
+    this.lastPingUpdate = Date.now();
+    this.endTurnIntervalID = setInterval(
+      () => this.endTurn(),
+      this.deps.turnIntervalMs(),
+    );
   }
 
   // Connected clients who will actually play. Spectators are excluded
@@ -1119,6 +1457,12 @@ export class GameServer {
     };
     this.turns.push(pastTurn);
     this.intents = [];
+    // Autosave a resumable private game periodically. Forced because the turn
+    // spacing already rate limits it (the roster/config throttle does not
+    // apply to a checkpoint that must not be skipped).
+    if (this.turns.length % SAVE_EVERY_TURNS === 0) {
+      this.scheduleSave(true);
+    }
     const counts = this.telemetry.takeTickCounts(pastTurn.turnNumber);
     this.telemetry.emit(
       "turn_committed",
@@ -1241,7 +1585,10 @@ export class GameServer {
       return GamePhase.Finished;
     }
     const now = Date.now();
-    if (now > this.createdAt + this.maxGameDuration) {
+    // durationBase is createdAt normally, or the restore time for a resumed
+    // save — so an old save gets a fresh max-duration window instead of
+    // reporting Finished on the first tick (dossier §4 trap 1).
+    if (now > this.durationBase + this.maxGameDuration) {
       this.log.warn("game past max duration", {
         gameID: this.id,
       });

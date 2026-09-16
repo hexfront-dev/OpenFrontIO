@@ -11,7 +11,9 @@ export class Client {
   public reportedWinner: Winner | null = null;
 
   constructor(
-    public readonly clientID: ClientID,
+    // Mutable because a client joining a restored save may claim one of the
+    // saved nations' clientIDs rather than a freshly generated one.
+    public clientID: ClientID,
     public readonly persistentID: string,
     public readonly claims: TokenPayload | null,
     public readonly role: string | null,
