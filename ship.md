@@ -91,13 +91,15 @@ Tollhouse is reworked:
   `else if (u.unitType === UT_TOLLHOUSE ...)` branch in `Renderer.ts` and the
   `tollhouses` field/draw loop in `RangeCirclePass.ts` to drop it.
 - **Toll payout + notification.** A toll is paid the instant a ship is tolled in
-  `TradeShipExecution.applyTolls()`, not at arrival: the toller receives a
-  percentage of the ship's value at the moment it entered the range. The amount
-  already paid is recorded on the ship's toll ledger and subtracted from the
-  trade endpoints' payout in `deductTolls()` when it arrives. The toller is
-  notified with a private `MessageType.TOLL` event (`playerID = toller.id()`),
-  text `events_display.toll_earned` in `resources/lang/en.json`; its color is
-  set in `src/client/Utils.ts` (`getMessageTypeClasses`).
+  `TradeShipExecution.applyTolls()`, not at arrival. The amount is a percentage
+  of the value the ship will have on arrival: its value is a function of total
+  distance travelled, so the remaining route length is found with a one-shot
+  path query (`projectedArrivalValue`) and added to the distance covered so far.
+  The amount already paid is recorded on the ship's toll ledger and subtracted
+  from the trade endpoints' payout in `deductTolls()` when it arrives. The toller
+  is notified with a private `MessageType.TOLL` event (`playerID =
+toller.id()`), text `events_display.toll_earned` in `resources/lang/en.json`;
+  its color is set in `src/client/Utils.ts` (`getMessageTypeClasses`).
 
 ## 6. Other places that reference structure icons (optional polish)
 
@@ -126,9 +128,10 @@ would normally be added there too:
 - A ship bound for one of the toller's own ports is exempt (it passes free);
   only the ship's own owner is otherwise exempt, so allies/teammates still pay
   if a rate is set.
-- Gold is paid to the Tollhouse owner the moment the ship is tolled (a cut of
-  the ship's value so far), and that already-paid amount is subtracted from the
-  trade endpoints' payout at arrival (`src/core/execution/TradeShipExecution.ts`).
+- Gold is paid to the Tollhouse owner the moment the ship is tolled, as a
+  percentage of the value the ship will have at its destination (projected from
+  the remaining route); that already-paid amount is subtracted from the trade
+  endpoints' payout at arrival (`src/core/execution/TradeShipExecution.ts`).
   Registration happens as the ship traverses the range (`applyTolls`), and the
   endpoints' reduced payout is computed at `complete()` (`deductTolls`).
 - Config lives in `src/core/configuration/Config.ts`:

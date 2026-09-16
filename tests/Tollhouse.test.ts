@@ -117,6 +117,7 @@ describe("Tollhouse", () => {
       rebuilt: false,
       next: () => ({ status: PathStatus.NEXT, node: water }),
       pathForTraversal: () => [water],
+      findPath: () => [water],
     } as any;
     exec["tradeShip"] = ship;
 
@@ -189,12 +190,16 @@ describe("Tollhouse", () => {
       targetUnit: dstPort,
     });
 
+    // The remaining route is two moves long, so the toll is a cut of the value
+    // the ship will have after those two moves (distance 2), not its value now.
+    const projectedPath = [water, game.ref(1, 0), game.ref(0, 0)];
     const exec = new TradeShipExecution(trader, srcPort, dstPort);
     exec.init(game, 0);
     exec["pathFinder"] = {
       rebuilt: false,
       next: () => ({ status: PathStatus.NEXT, node: water }),
       pathForTraversal: () => [water],
+      findPath: () => projectedPath,
     } as any;
     exec["tradeShip"] = ship;
 
@@ -203,7 +208,7 @@ describe("Tollhouse", () => {
 
     exec.tick(1);
 
-    const value = game.config().tradeShipGold(0, trader);
+    const value = game.config().tradeShipGold(projectedPath.length - 1, trader);
     const taken = (value * 25n) / 100n;
 
     expect(taken).toBeGreaterThan(0n);

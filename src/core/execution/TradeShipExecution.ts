@@ -176,10 +176,10 @@ export class TradeShipExecution implements Execution {
 
   /**
    * Toll the ship the instant it enters a Tollhouse's range: the toller is paid
-   * immediately a percentage of the ship's current value. Only one toll per
-   * tolling nation is recorded, and each Tollhouse spends one unit of its
-   * per-window capacity. The gold paid here is subtracted from the trade's
-   * payout when the ship arrives.
+   * immediately a percentage of the value the ship will have at its destination.
+   * Only one toll per tolling nation is recorded, and each Tollhouse spends one
+   * unit of its per-window capacity. The gold paid here is subtracted from the
+   * trade's payout when the ship arrives.
    */
   private applyTolls(ticks: number): void {
     const ship = this.tradeShip!;
@@ -204,10 +204,11 @@ export class TradeShipExecution implements Execution {
       if (ship.hasTollFrom(tollOwner.smallID())) continue;
       if (!unit.canTollShip(ticks)) continue;
 
-      // A ship's worth grows with the distance it has travelled, so the toll is
-      // a cut of its value at the moment it entered the range. Pay the toller
-      // now and remember the amount so the trade endpoints are not taxed twice.
-      const value = this.mg.config().tradeShipGold(this.tilesTraveled, owner);
+      // A ship's worth grows with the distance it has travelled, so project the
+      // value it will have when it reaches its destination and tax that. Pay the
+      // toller now and remember the amount so the trade endpoints are not taxed
+      // twice.
+      const value = this.projectedArrivalValue(curTile);
       const taken = (value * BigInt(percent)) / 100n;
       ship.addToll(tollOwner.smallID(), percent, unit.tile(), taken);
       unit.recordToll(ticks);
@@ -224,6 +225,24 @@ export class TradeShipExecution implements Execution {
         tollOwner.id(),
       );
     }
+  }
+
+  /**
+   * The ship's gold value once it reaches its destination. Its value is a
+   * function of total distance travelled, so a one-shot path query gives the
+   * remaining route length, which is added to the distance covered so far.
+   */
+  private projectedArrivalValue(curTile: TileRef): Gold {
+    const dst = this._dstPort.tile();
+    const remaining = this.pathFinder.findPath(curTile, dst);
+    const remainingMoves =
+      remaining === null ? 0 : Math.max(0, remaining.length - 1);
+    return this.mg
+      .config()
+      .tradeShipGold(
+        this.tilesTraveled + remainingMoves,
+        this.tradeShip!.owner(),
+      );
   }
 
   /**
