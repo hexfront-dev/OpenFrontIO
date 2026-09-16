@@ -789,6 +789,11 @@ export interface Player {
   // nations' trade ships passing through this player's Tollhouses.
   tollRateFor(other: Player): number;
   setTollRate(other: Player, percent: number): void;
+  // Universal minimum toll percentage (0-100) charged to every other nation.
+  // The effective rate for a nation is the greater of this floor and its
+  // per-nation rate.
+  universalTollRate(): number;
+  setUniversalTollRate(percent: number): void;
 
   // Embargo
   hasEmbargoAgainst(other: Player): boolean;

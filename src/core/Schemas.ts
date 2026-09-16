@@ -47,6 +47,7 @@ export type Intent =
   | BuildUnitIntent
   | EmbargoIntent
   | SetTollRateIntent
+  | SetUniversalTollRateIntent
   | QuickChatIntent
   | MoveWarshipIntent
   | MarkDisconnectedIntent
@@ -77,6 +78,9 @@ export type DonateGoldIntent = z.infer<typeof DonateGoldIntentSchema>;
 export type DonateTroopsIntent = z.infer<typeof DonateTroopIntentSchema>;
 export type EmbargoIntent = z.infer<typeof EmbargoIntentSchema>;
 export type SetTollRateIntent = z.infer<typeof SetTollRateIntentSchema>;
+export type SetUniversalTollRateIntent = z.infer<
+  typeof SetUniversalTollRateIntentSchema
+>;
 export type BuildUnitIntent = z.infer<typeof BuildUnitIntentSchema>;
 export type UpgradeStructureIntent = z.infer<
   typeof UpgradeStructureIntentSchema
@@ -663,6 +667,12 @@ export const SetTollRateIntentSchema = z.object({
   percent: zb.uint({ max: 100 }),
 });
 
+export const SetUniversalTollRateIntentSchema = z.object({
+  type: z.literal("set_universal_toll_rate"),
+  // Minimum percentage (0-100) this player's Tollhouses charge every nation.
+  percent: zb.uint({ max: 100 }),
+});
+
 export const EmbargoAllIntentSchema = z.object({
   type: z.literal("embargo_all"),
   action: z.union([z.literal("start"), z.literal("stop")]),
@@ -802,6 +812,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   EmbargoIntentSchema,
   EmbargoAllIntentSchema,
   SetTollRateIntentSchema,
+  SetUniversalTollRateIntentSchema,
   MoveWarshipIntentSchema,
   QuickChatIntentSchema,
   AllianceExtensionIntentSchema,

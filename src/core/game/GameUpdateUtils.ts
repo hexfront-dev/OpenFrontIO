@@ -70,6 +70,7 @@ export function diffPlayerUpdate(
     ) &&
     stringSetEqual(prev.embargoes, next.embargoes) &&
     tollArrayEqual(prev.tolls, next.tolls) &&
+    prev.universalTollRate === next.universalTollRate &&
     emojiArrayEqual(prev.outgoingEmojis, next.outgoingEmojis) &&
     attackArrayMembershipEqual(prev.outgoingAttacks, next.outgoingAttacks) &&
     attackArrayMembershipEqual(prev.incomingAttacks, next.incomingAttacks) &&
@@ -141,6 +142,10 @@ export function diffPlayerUpdate(
   );
   setIfDifferent("embargoes", stringSetEqual(prev.embargoes, next.embargoes));
   setIfDifferent("tolls", tollArrayEqual(prev.tolls, next.tolls));
+  setIfDifferent(
+    "universalTollRate",
+    prev.universalTollRate === next.universalTollRate,
+  );
   setIfDifferent(
     "outgoingEmojis",
     emojiArrayEqual(prev.outgoingEmojis, next.outgoingEmojis),
@@ -218,6 +223,8 @@ export function applyStateUpdate(target: PlayerState, pu: PlayerUpdate): void {
   if (pu.alliances !== undefined) target.alliances = pu.alliances;
   if (pu.outgoingEmojis !== undefined)
     target.outgoingEmojis = pu.outgoingEmojis;
+  if (pu.universalTollRate !== undefined)
+    target.universalTollRate = pu.universalTollRate;
 }
 
 function numberArrayEqual(a?: number[], b?: number[]): boolean {

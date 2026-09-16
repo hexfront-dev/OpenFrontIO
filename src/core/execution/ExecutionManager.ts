@@ -27,6 +27,7 @@ import { PauseExecution } from "./PauseExecution";
 import { QuickChatExecution } from "./QuickChatExecution";
 import { RetreatExecution } from "./RetreatExecution";
 import { SetTollRateExecution } from "./SetTollRateExecution";
+import { SetUniversalTollRateExecution } from "./SetUniversalTollRateExecution";
 import { SpawnExecution } from "./SpawnExecution";
 import { TargetPlayerExecution } from "./TargetPlayerExecution";
 import { TransportShipExecution } from "./TransportShipExecution";
@@ -120,6 +121,8 @@ export class Executor {
           intent.targetID,
           intent.percent,
         );
+      case "set_universal_toll_rate":
+        return new SetUniversalTollRateExecution(player, intent.percent);
       case "embargo_all":
         return new EmbargoAllExecution(player, intent.action);
       case "build_unit":

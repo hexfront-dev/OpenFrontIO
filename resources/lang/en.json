@@ -1823,7 +1823,8 @@
     "title": "Logging in..."
   },
   "tollhouse": {
-    "rate_label": "Toll rate"
+    "rate_label": "Toll rate",
+    "universal_rate_label": "Minimum toll rate (all nations)"
   },
   "troubleshooting": {
     "battery": "Battery",

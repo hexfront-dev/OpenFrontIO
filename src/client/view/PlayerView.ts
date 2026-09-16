@@ -105,6 +105,7 @@ function stateFromUpdate(pu: PlayerUpdate): PlayerState {
     // Respect the client-side "Disable emojis" setting: when off, never surface
     // emoji data to any renderer/overlay that reads this shared state (#4430).
     outgoingEmojis: userSettings.emojis() ? pu.outgoingEmojis! : [],
+    universalTollRate: pu.universalTollRate ?? 0,
   };
 }
 
@@ -303,6 +304,14 @@ export class PlayerView {
   /** Toll percentage this player charges `otherSmallID` (0 = none). */
   tollRateForSmallID(otherSmallID: number): number {
     return this._tollRates.get(otherSmallID) ?? 0;
+  }
+
+  /**
+   * Universal minimum toll percentage (0-100) this player charges every other
+   * nation. A nation's effective rate is max(universal, per-nation).
+   */
+  universalTollRate(): number {
+    return this.state.universalTollRate ?? 0;
   }
 
   territoryColor(tile?: TileRef): Colord {

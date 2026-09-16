@@ -257,6 +257,8 @@ export interface PlayerUpdate {
   embargoes?: Set<PlayerID>;
   /** Per-nation toll percentages (0-100) this player's Tollhouses charge. */
   tolls?: TollRateUpdate[];
+  /** Universal minimum toll percentage (0-100) charged to every other nation. */
+  universalTollRate?: number;
   isTraitor?: boolean;
   traitorRemainingTicks?: number;
   inDoomsdayClock?: boolean;

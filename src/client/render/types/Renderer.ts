@@ -93,6 +93,8 @@ export interface PlayerState {
   outgoingAllianceRequests: string[];
   alliances: AllianceData[];
   outgoingEmojis: EmojiData[];
+  /** Universal minimum toll percentage (0-100) this player charges all nations. */
+  universalTollRate?: number;
 }
 
 export interface UnitState {

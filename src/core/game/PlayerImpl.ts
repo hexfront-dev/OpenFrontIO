@@ -141,6 +141,10 @@ export class PlayerImpl implements Player {
   // trade ships of the keyed nation. Absent key = 0 (no toll).
   private tollRates = new Map<PlayerID, number>();
 
+  // Universal minimum toll percentage (0-100) charged to every other nation.
+  // A nation's effective rate is max(universalTollRateValue, per-nation rate).
+  private universalTollRateValue = 0;
+
   public _borderTiles = new TileSet();
 
   // Tiles this player has excluded from their own conquest attempts
@@ -399,6 +403,7 @@ export class PlayerImpl implements Player {
       allies: allies,
       embargoes: embargoes,
       tolls: tolls,
+      universalTollRate: this.universalTollRateValue,
       isTraitor: this.isTraitor(),
       traitorRemainingTicks: this.getTraitorRemainingTicks(),
       inDoomsdayClock: this.inDoomsdayClock(),
@@ -1243,7 +1248,8 @@ export class PlayerImpl implements Player {
 
   tollRateFor(other: Player): number {
     if (other === this) return 0;
-    return this.tollRates.get(other.id()) ?? 0;
+    const perNation = this.tollRates.get(other.id()) ?? 0;
+    return Math.max(this.universalTollRateValue, perNation);
   }
 
   setTollRate(other: Player, percent: number): void {
@@ -1253,6 +1259,17 @@ export class PlayerImpl implements Player {
       return;
     }
     this.tollRates.set(other.id(), clamped);
+  }
+
+  universalTollRate(): number {
+    return this.universalTollRateValue;
+  }
+
+  setUniversalTollRate(percent: number): void {
+    this.universalTollRateValue = Math.max(
+      0,
+      Math.min(100, Math.floor(percent)),
+    );
   }
 
   getEmbargoes(): Embargo[] {

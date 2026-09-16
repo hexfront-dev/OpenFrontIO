@@ -553,7 +553,13 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
     const myPlayer = this.game.myPlayer();
     if (myPlayer === null || myPlayer === player) return html``;
     if (myPlayer.totalUnitLevels(UnitType.Tollhouse) <= 0) return html``;
-    const rate = myPlayer.tollRateForSmallID(player.smallID());
+    // The universal floor applies to every nation, so a per-nation rate can
+    // never sit below it.
+    const universalRate = myPlayer.universalTollRate();
+    const rate = Math.max(
+      universalRate,
+      myPlayer.tollRateForSmallID(player.smallID()),
+    );
     return html`
       <div
         class="flex items-center gap-2 mt-1"
@@ -565,7 +571,7 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
         >
         <input
           type="range"
-          min="0"
+          min=${String(universalRate)}
           max="100"
           step="1"
           .value=${String(rate)}

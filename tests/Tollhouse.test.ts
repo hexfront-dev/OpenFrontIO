@@ -1,4 +1,5 @@
 import { SetTollRateExecution } from "../src/core/execution/SetTollRateExecution";
+import { SetUniversalTollRateExecution } from "../src/core/execution/SetUniversalTollRateExecution";
 import { TradeShipExecution } from "../src/core/execution/TradeShipExecution";
 import {
   Game,
@@ -84,6 +85,75 @@ describe("Tollhouse", () => {
     clear.init(game, 0);
     clear.tick(0);
     expect(toller.tollRateFor(trader)).toBe(0);
+  });
+
+  test("universal toll rate acts as a floor for every nation", () => {
+    const exec = new SetUniversalTollRateExecution(toller, 30);
+    exec.init(game, 0);
+    exec.tick(0);
+    expect(toller.universalTollRate()).toBe(30);
+
+    // No per-nation rate set: the floor applies to every other nation.
+    expect(toller.tollRateFor(trader)).toBe(30);
+    expect(toller.tollRateFor(other)).toBe(30);
+    // A player never tolls themselves.
+    expect(toller.tollRateFor(toller)).toBe(0);
+
+    // A per-nation rate above the floor wins; below the floor is raised.
+    toller.setTollRate(trader, 50);
+    expect(toller.tollRateFor(trader)).toBe(50);
+    toller.setTollRate(other, 10);
+    expect(toller.tollRateFor(other)).toBe(30);
+
+    // The floor clamps to 0-100 like the per-nation rate.
+    const over = new SetUniversalTollRateExecution(toller, 500);
+    over.init(game, 0);
+    over.tick(0);
+    expect(toller.universalTollRate()).toBe(100);
+    const under = new SetUniversalTollRateExecution(toller, -10);
+    under.init(game, 0);
+    under.tick(0);
+    expect(toller.universalTollRate()).toBe(0);
+  });
+
+  test("a ship is tolled by the universal rate with no per-nation rate", () => {
+    const { land, water } = findLandWaterPair(game);
+    const tollhouse = toller.buildUnit(UnitType.Tollhouse, land, {});
+    toller.setUniversalTollRate(40);
+
+    const srcPort = {
+      id: () => 9001,
+      tile: () => water,
+      owner: () => trader,
+      isActive: () => true,
+    } as unknown as Unit;
+    const dstPort = {
+      id: () => 9002,
+      tile: () => game.ref(0, 0),
+      owner: () => other,
+      isActive: () => true,
+    } as unknown as Unit;
+
+    const ship = trader.buildUnit(UnitType.TradeShip, water, {
+      targetUnit: dstPort,
+    });
+
+    const exec = new TradeShipExecution(trader, srcPort, dstPort);
+    exec.init(game, 0);
+    exec["pathFinder"] = {
+      rebuilt: false,
+      next: () => ({ status: PathStatus.NEXT, node: water }),
+      pathForTraversal: () => [water],
+      findPath: () => [water],
+    } as any;
+    exec["tradeShip"] = ship;
+
+    exec.tick(1);
+
+    expect(ship.hasTollFrom(toller.smallID())).toBe(true);
+    expect(ship.tolls()).toHaveLength(1);
+    expect(ship.tolls()[0].percent).toBe(40);
+    expect(tollhouse.canTollShip(1)).toBe(false);
   });
 
   test("a ship passing a tolling nation's range is taxed once", () => {

@@ -10,6 +10,7 @@ import {
   PlayerProfile,
   PlayerType,
   Relation,
+  UnitType,
 } from "../../../core/game/Game";
 import { TileRef } from "../../../core/game/GameMap";
 import { Emoji, flattenedEmojiTable } from "../../../core/Util";
@@ -29,6 +30,8 @@ import {
   SendEmbargoAllIntentEvent,
   SendEmbargoIntentEvent,
   SendEmojiIntentEvent,
+  SendSetTollRateIntentEvent,
+  SendSetUniversalTollRateIntentEvent,
   SendTargetPlayerIntentEvent,
 } from "../../Transport";
 import { UIState } from "../../UIState";
@@ -673,6 +676,83 @@ export class PlayerPanel extends LitElement implements Controller {
     `;
   }
 
+  private renderUniversalTollRate(my: PlayerView) {
+    const rate = my.universalTollRate();
+    return html`
+      <ui-divider></ui-divider>
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-sm font-semibold tracking-tight">
+            ${translateText("tollhouse.universal_rate_label")}
+          </span>
+          <span class="text-sm font-semibold tabular-nums" translate="no"
+            >${rate}%</span
+          >
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          .value=${String(rate)}
+          class="w-full accent-yellow-400"
+          @click=${(e: Event) => e.stopPropagation()}
+          @input=${(e: Event) => this.onUniversalTollRateInput(e)}
+        />
+      </div>
+    `;
+  }
+
+  private onUniversalTollRateInput(e: Event) {
+    const value = Number((e.target as HTMLInputElement).value);
+    if (Number.isNaN(value)) return;
+    this.eventBus.emit(new SendSetUniversalTollRateIntentEvent(value));
+  }
+
+  /**
+   * Per-nation toll slider shown in the info panel when inspecting another
+   * nation. The universal floor is applied as the slider minimum, so the rate
+   * can never sit below it.
+   */
+  private renderPersonalTollRate(my: PlayerView, other: PlayerView) {
+    if (other === my) return html``;
+    if (my.totalUnitLevels(UnitType.Tollhouse) <= 0) return html``;
+    const universalRate = my.universalTollRate();
+    const rate = Math.max(
+      universalRate,
+      my.tollRateForSmallID(other.smallID()),
+    );
+    return html`
+      <ui-divider></ui-divider>
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-sm font-semibold tracking-tight">
+            ${translateText("tollhouse.rate_label")}
+          </span>
+          <span class="text-sm font-semibold tabular-nums" translate="no"
+            >${rate}%</span
+          >
+        </div>
+        <input
+          type="range"
+          min=${String(universalRate)}
+          max="100"
+          step="1"
+          .value=${String(rate)}
+          class="w-full accent-yellow-400"
+          @click=${(e: Event) => e.stopPropagation()}
+          @input=${(e: Event) => this.onPersonalTollRateInput(other, e)}
+        />
+      </div>
+    `;
+  }
+
+  private onPersonalTollRateInput(other: PlayerView, e: Event) {
+    const value = Number((e.target as HTMLInputElement).value);
+    if (Number.isNaN(value)) return;
+    this.eventBus.emit(new SendSetTollRateIntentEvent(other, value));
+  }
+
   private renderStats(other: PlayerView, my: PlayerView) {
     return html`
       <!-- Betrayals -->
@@ -1106,6 +1186,14 @@ export class PlayerPanel extends LitElement implements Controller {
                     ${other === viewer && !isSpectator
                       ? this.renderRocketDirectionToggle()
                       : ""}
+
+                    <!-- Universal minimum toll rate (own nation only) -->
+                    ${other === viewer && !isSpectator
+                      ? this.renderUniversalTollRate(viewer)
+                      : ""}
+
+                    <!-- Per-nation toll rate (other nations) -->
+                    ${this.renderPersonalTollRate(viewer, other)}
 
                     <ui-divider></ui-divider>
 

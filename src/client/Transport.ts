@@ -155,6 +155,10 @@ export class SendSetTollRateIntentEvent implements GameEvent {
   ) {}
 }
 
+export class SendSetUniversalTollRateIntentEvent implements GameEvent {
+  constructor(public readonly percent: number) {}
+}
+
 export class SendDeleteUnitIntentEvent implements GameEvent {
   constructor(public readonly unitId: number) {}
 }
@@ -310,6 +314,9 @@ export class Transport {
     );
     this.eventBus.on(SendSetTollRateIntentEvent, (e) =>
       this.onSendSetTollRateIntent(e),
+    );
+    this.eventBus.on(SendSetUniversalTollRateIntentEvent, (e) =>
+      this.onSendSetUniversalTollRateIntent(e),
     );
     this.eventBus.on(BuildUnitIntentEvent, (e) => this.onBuildUnitIntent(e));
 
@@ -674,6 +681,15 @@ export class Transport {
     this.sendIntent({
       type: "set_toll_rate",
       targetID: event.target.id(),
+      percent: event.percent,
+    });
+  }
+
+  private onSendSetUniversalTollRateIntent(
+    event: SendSetUniversalTollRateIntentEvent,
+  ) {
+    this.sendIntent({
+      type: "set_universal_toll_rate",
       percent: event.percent,
     });
   }
