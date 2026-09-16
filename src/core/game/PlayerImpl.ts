@@ -53,6 +53,7 @@ import {
   AttackUpdate,
   GameUpdateType,
   PlayerUpdate,
+  TollRateUpdate,
 } from "./GameUpdates";
 import { ReadonlyTileSet, TileSet } from "./TileSet";
 import {
@@ -93,6 +94,7 @@ const EMPTY_ATTACK_UPDATES: AttackUpdate[] = [];
 const EMPTY_ALLIANCE_VIEWS: AllianceView[] = [];
 const EMPTY_EMOJIS: EmojiMessage[] = [];
 const EMPTY_EMBARGOES = new Set<string>();
+const EMPTY_TOLLS: TollRateUpdate[] = [];
 // Reusable buffers for hot loops. The simulation is single-threaded and these
 // are fully consumed before any re-entrant call, so sharing is safe.
 const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
@@ -106,6 +108,7 @@ Object.freeze(EMPTY_STRING_ARRAY);
 Object.freeze(EMPTY_ATTACK_UPDATES);
 Object.freeze(EMPTY_ALLIANCE_VIEWS);
 Object.freeze(EMPTY_EMOJIS);
+Object.freeze(EMPTY_TOLLS);
 
 export class PlayerImpl implements Player {
   public _lastTileChange: number = 0;
@@ -133,6 +136,10 @@ export class PlayerImpl implements Player {
   private _betrayalCount: number = 0;
 
   private embargoes = new Map<PlayerID, Embargo>();
+
+  // Per-nation toll percentage (0-100) this player's Tollhouses charge the
+  // trade ships of the keyed nation. Absent key = 0 (no toll).
+  private tollRates = new Map<PlayerID, number>();
 
   public _borderTiles = new TileSet();
 
@@ -309,6 +316,14 @@ export class PlayerImpl implements Player {
       }
     }
 
+    let tolls = EMPTY_TOLLS;
+    if (this.tollRates.size > 0) {
+      tolls = [];
+      for (const [id, rate] of this.tollRates) {
+        tolls.push({ target: id, rate });
+      }
+    }
+
     let targets = EMPTY_NUMBER_ARRAY;
     if (this.targets_.length > 0) {
       const t = this.targets();
@@ -383,6 +398,7 @@ export class PlayerImpl implements Player {
       troops: this.troops(),
       allies: allies,
       embargoes: embargoes,
+      tolls: tolls,
       isTraitor: this.isTraitor(),
       traitorRemainingTicks: this.getTraitorRemainingTicks(),
       inDoomsdayClock: this.inDoomsdayClock(),
@@ -1225,6 +1241,20 @@ export class PlayerImpl implements Player {
     return !embargo && other.id() !== this.id();
   }
 
+  tollRateFor(other: Player): number {
+    if (other === this) return 0;
+    return this.tollRates.get(other.id()) ?? 0;
+  }
+
+  setTollRate(other: Player, percent: number): void {
+    const clamped = Math.max(0, Math.min(100, Math.floor(percent)));
+    if (clamped <= 0) {
+      this.tollRates.delete(other.id());
+      return;
+    }
+    this.tollRates.set(other.id(), clamped);
+  }
+
   getEmbargoes(): Embargo[] {
     return [...this.embargoes.values()];
   }
@@ -1612,6 +1642,7 @@ export class PlayerImpl implements Player {
       case UnitType.SAMLauncher:
       case UnitType.City:
       case UnitType.Factory:
+      case UnitType.Tollhouse:
         return this.landBasedStructureSpawn(targetTile, validTiles);
       default:
         assertNever(unitType);

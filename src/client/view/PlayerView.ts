@@ -286,6 +286,25 @@ export class PlayerView {
     this.state.embargoes = smallIDs;
   }
 
+  /**
+   * Per-nation Tollhouse percentages this player charges, keyed by the target
+   * player's smallID. Kept off PlayerState: it is overlay-only data and never
+   * read by the renderer hot path.
+   */
+  private _tollRates = new Map<number, number>();
+
+  setTollRates(entries: Array<{ smallID: number; rate: number }>): void {
+    this._tollRates.clear();
+    for (const e of entries) {
+      this._tollRates.set(e.smallID, e.rate);
+    }
+  }
+
+  /** Toll percentage this player charges `otherSmallID` (0 = none). */
+  tollRateForSmallID(otherSmallID: number): number {
+    return this._tollRates.get(otherSmallID) ?? 0;
+  }
+
   territoryColor(tile?: TileRef): Colord {
     if (tile === undefined || this.decoder === undefined) {
       return this._territoryColor;

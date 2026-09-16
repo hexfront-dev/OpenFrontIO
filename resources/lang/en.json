@@ -132,6 +132,7 @@
       "missile_silo": "Used to launch nukes",
       "port": "Sends trade ships to generate gold",
       "sam_launcher": "Defends against incoming nukes",
+      "tollhouse": "Takes a cut of trade ships passing nearby",
       "warship": "Captures trade ships, destroys ships and boats"
     },
     "not_enough_money": "Not enough money",
@@ -1820,6 +1821,9 @@
     "success": "Successfully logged in as {email}!",
     "title": "Logging in..."
   },
+  "tollhouse": {
+    "rate_label": "Toll rate"
+  },
   "troubleshooting": {
     "battery": "Battery",
     "battery_level": "Battery Level",
@@ -1861,6 +1865,7 @@
     "missile_silo": "Missile Silo",
     "port": "Port",
     "sam_launcher": "SAM Launcher",
+    "tollhouse": "Tollhouse",
     "warship": "Warship"
   },
   "user_setting": {

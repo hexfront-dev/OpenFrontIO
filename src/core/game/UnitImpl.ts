@@ -51,6 +51,16 @@ export class UnitImpl implements Unit {
   private _samLauncherState: SamLauncherState | undefined;
   // Tick at which a defense post's upgrade construction completes (null = none).
   private _defensePostUpgradeFinishTick: number | null = null;
+  // Tollhouse only: ticks at which this tollhouse last tolled a ship (rolling
+  // window, oldest first). Pruned against tollhouseTollCooldown().
+  private _tollTicks: number[] = [];
+  // Trade ship only: nations that have already tolled this ship, with the
+  // percentage they charged and the Tollhouse tile the toll is paid at.
+  private _tolls: Array<{
+    tollerSmallID: number;
+    percent: number;
+    tile: TileRef;
+  }> = [];
 
   constructor(
     private _type: UnitType,
@@ -112,6 +122,7 @@ export class UnitImpl implements Unit {
       case UnitType.SAMLauncher:
       case UnitType.City:
       case UnitType.Factory:
+      case UnitType.Tollhouse:
       case UnitType.MissileShip:
       case UnitType.MissileDefenseShip:
         this.mg.stats().unitBuild(_owner, this._type);
@@ -249,6 +260,7 @@ export class UnitImpl implements Unit {
       case UnitType.SAMLauncher:
       case UnitType.City:
       case UnitType.Factory:
+      case UnitType.Tollhouse:
         this.mg.stats().unitCapture(newOwner, this._type);
         this.mg.stats().unitLose(this._owner, this._type);
         break;
@@ -371,6 +383,7 @@ export class UnitImpl implements Unit {
         case UnitType.SAMLauncher:
         case UnitType.Warship:
         case UnitType.Factory:
+        case UnitType.Tollhouse:
           this.mg.stats().unitDestroy(destroyer, this._type);
           this.mg.stats().unitLose(this.owner(), this._type);
           break;
@@ -643,6 +656,41 @@ export class UnitImpl implements Unit {
       this.mg.ticks() - this._lastSetSafeFromPirates <
       this.mg.config().safeFromPiratesCooldownMax()
     );
+  }
+
+  canTollShip(nowTick: number): boolean {
+    const cooldown = this.mg.config().tollhouseTollCooldown();
+    while (
+      this._tollTicks.length > 0 &&
+      nowTick - this._tollTicks[0] >= cooldown
+    ) {
+      this._tollTicks.shift();
+    }
+    const capacity = this.mg.config().tollhouseMaxTollsPerWindow(this._level);
+    return this._tollTicks.length < capacity;
+  }
+
+  recordToll(nowTick: number): void {
+    this._tollTicks.push(nowTick);
+  }
+
+  hasTollFrom(tollerSmallID: number): boolean {
+    for (const t of this._tolls) {
+      if (t.tollerSmallID === tollerSmallID) return true;
+    }
+    return false;
+  }
+
+  addToll(tollerSmallID: number, percent: number, tile: TileRef): void {
+    this._tolls.push({ tollerSmallID, percent, tile });
+  }
+
+  tolls(): ReadonlyArray<{
+    tollerSmallID: number;
+    percent: number;
+    tile: TileRef;
+  }> {
+    return this._tolls;
   }
 
   level(): number {

@@ -3,9 +3,9 @@ import { TileRef } from "../game/GameMap";
 import { CityExecution } from "./CityExecution";
 import { DefensePostExecution } from "./DefensePostExecution";
 import { FactoryExecution } from "./FactoryExecution";
+import { MirvExecution } from "./MIRVExecution";
 import { MissileDefenseShipExecution } from "./MissileDefenseShipExecution";
 import { MissileShipExecution } from "./MissileShipExecution";
-import { MirvExecution } from "./MIRVExecution";
 import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NukeExecution } from "./NukeExecution";
 import { PortExecution } from "./PortExecution";
@@ -139,7 +139,10 @@ export class ConstructionExecution implements Execution {
         break;
       case UnitType.MissileDefenseShip:
         this.mg.addExecution(
-          new MissileDefenseShipExecution({ owner: player, patrolTile: this.tile }),
+          new MissileDefenseShipExecution({
+            owner: player,
+            patrolTile: this.tile,
+          }),
         );
         break;
       case UnitType.Port:
@@ -162,6 +165,9 @@ export class ConstructionExecution implements Execution {
       case UnitType.Factory:
         this.mg.addExecution(new FactoryExecution(this.structure!));
         break;
+      case UnitType.Tollhouse:
+        // Tollhouses are passive; trade ships apply the toll themselves.
+        break;
       default:
         console.warn(
           `unit type ${this.constructionType} cannot be constructed`,
@@ -178,6 +184,7 @@ export class ConstructionExecution implements Execution {
       case UnitType.SAMLauncher:
       case UnitType.City:
       case UnitType.Factory:
+      case UnitType.Tollhouse:
         return true;
       default:
         return false;

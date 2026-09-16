@@ -5,6 +5,7 @@ import {
   AttackUpdate,
   GameUpdateType,
   PlayerUpdate,
+  TollRateUpdate,
 } from "./GameUpdates";
 
 /**
@@ -68,6 +69,7 @@ export function diffPlayerUpdate(
       next.outgoingAllianceRequests,
     ) &&
     stringSetEqual(prev.embargoes, next.embargoes) &&
+    tollArrayEqual(prev.tolls, next.tolls) &&
     emojiArrayEqual(prev.outgoingEmojis, next.outgoingEmojis) &&
     attackArrayMembershipEqual(prev.outgoingAttacks, next.outgoingAttacks) &&
     attackArrayMembershipEqual(prev.incomingAttacks, next.incomingAttacks) &&
@@ -138,6 +140,7 @@ export function diffPlayerUpdate(
     ),
   );
   setIfDifferent("embargoes", stringSetEqual(prev.embargoes, next.embargoes));
+  setIfDifferent("tolls", tollArrayEqual(prev.tolls, next.tolls));
   setIfDifferent(
     "outgoingEmojis",
     emojiArrayEqual(prev.outgoingEmojis, next.outgoingEmojis),
@@ -230,6 +233,16 @@ function stringArrayEqual(a?: string[], b?: string[]): boolean {
   if (!a || !b) return false;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function tollArrayEqual(a?: TollRateUpdate[], b?: TollRateUpdate[]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].target !== b[i].target || a[i].rate !== b[i].rate) return false;
+  }
   return true;
 }
 

@@ -23,6 +23,7 @@ import {
   UT_MISSILE_SILO,
   UT_PORT,
   UT_SAM_LAUNCHER,
+  UT_TOLLHOUSE,
 } from "../../types";
 import { DynamicInstanceBuffer } from "../DynamicBuffer";
 import type { RenderSettings } from "../RenderSettings";
@@ -174,6 +175,11 @@ export class StructureLevelPass {
     // Mobile ships also show level numbers; use columns past the structures.
     this.typeToAtlasCol.set(UT_MISSILE_SHIP, 6);
     this.typeToAtlasCol.set(UT_MISSILE_DEFENSE_SHIP, 7);
+    // Tollhouse borrows the City sprite column (see StructurePass / ship.md).
+    const cityCol = this.typeToAtlasCol.get(UT_CITY);
+    if (cityCol !== undefined) {
+      this.typeToAtlasCol.set(UT_TOLLHOUSE, cityCol);
+    }
 
     this.kernTable = new Int8Array(CHAR_RANGE * CHAR_RANGE); // digits don't kern
 

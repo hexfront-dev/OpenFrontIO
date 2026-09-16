@@ -478,6 +478,11 @@ export class BuildPreviewController implements Controller {
       case UnitType.Factory:
         rangeRadius = this.game.config().trainStationMaxRange();
         break;
+      case UnitType.Tollhouse: {
+        const level = this.resolveGhostRangeLevel(u) ?? 1;
+        rangeRadius = this.game.config().tollhouseRange(level);
+        break;
+      }
       case UnitType.DefensePost:
         rangeRadius = this.game.config().defensePostRange();
         break;

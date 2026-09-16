@@ -2,6 +2,7 @@ import { renderNumber } from "../../client/Utils";
 import {
   Execution,
   Game,
+  Gold,
   MessageType,
   Player,
   Unit,
@@ -123,6 +124,11 @@ export class TradeShipExecution implements Execution {
       }
     }
 
+    // A ship may pass through several tolling nations on one trip. Each nation
+    // can tax it at most once, and each Tollhouse only so many ships per
+    // cooldown window. The gold is actually deducted at completion.
+    this.applyTolls(ticks);
+
     if (curTile === this.dstPort()) {
       this.complete();
       return;
@@ -168,12 +174,63 @@ export class TradeShipExecution implements Execution {
     }
   }
 
+  /**
+   * Register every Tollhouse whose range currently covers the ship. Only one
+   * toll per tolling nation is recorded; each Tollhouse spends one unit of its
+   * per-window capacity. Gold is not moved here — the ship's value is only
+   * known once it arrives, so the toll is settled in complete().
+   */
+  private applyTolls(ticks: number): void {
+    const ship = this.tradeShip!;
+    const owner = ship.owner();
+    const curTile = ship.tile();
+    const tollhouses = this.mg.nearbyUnits(
+      curTile,
+      this.mg.config().tollhouseMaxRange(),
+      UnitType.Tollhouse,
+    );
+
+    for (const { unit, distSquared } of tollhouses) {
+      const tollOwner = unit.owner();
+      if (tollOwner === owner) continue;
+      const range = this.mg.config().tollhouseRange(unit.level());
+      if (distSquared > range * range) continue;
+      const percent = tollOwner.tollRateFor(owner);
+      if (percent <= 0) continue;
+      if (ship.hasTollFrom(tollOwner.smallID())) continue;
+      if (!unit.canTollShip(ticks)) continue;
+      ship.addToll(tollOwner.smallID(), percent, unit.tile());
+      unit.recordToll(ticks);
+    }
+  }
+
+  /**
+   * Pay each registered toller a percentage of the ship's gross value and
+   * return what is left for the trade's normal split. Each toll is computed
+   * from the gross value (so stacking tolls don't compound), clamped so the
+   * total never exceeds the ship's worth.
+   */
+  private deductTolls(gross: Gold): Gold {
+    let remaining = gross;
+    for (const toll of this.tradeShip!.tolls()) {
+      const toller = this.mg.playerBySmallID(toll.tollerSmallID);
+      if (!toller.isPlayer()) continue;
+      const share = (gross * BigInt(toll.percent)) / 100n;
+      const taken = share > remaining ? remaining : share;
+      if (taken <= 0n) continue;
+      remaining -= taken;
+      toller.addGold(taken, toll.tile);
+    }
+    return remaining;
+  }
+
   private complete() {
     this.active = false;
     this.tradeShip!.delete(false);
-    const gold = this.mg
+    const gross = this.mg
       .config()
       .tradeShipGold(this.tilesTraveled, this.tradeShip!.owner());
+    const gold = this.deductTolls(gross);
 
     if (this.wasCaptured) {
       this.tradeShip!.owner().addGold(gold, this._dstPort.tile());

@@ -459,6 +459,35 @@ export class Config {
     return 120;
   }
 
+  /** Base Tollhouse interception radius: matches the Factory's train range. */
+  tollhouseBaseRange(): number {
+    return this.trainStationMaxRange();
+  }
+
+  /**
+   * Tollhouse radius grows linearly by 5% per level above 1, capped at 1.5x
+   * the base range (reached at level 11).
+   */
+  tollhouseRange(level: number): number {
+    const multiplier = Math.min(1.5, 1 + 0.05 * (level - 1));
+    return Math.floor(this.tollhouseBaseRange() * multiplier);
+  }
+
+  /** Largest possible Tollhouse range (level 11+), for broad-phase searches. */
+  tollhouseMaxRange(): number {
+    return Math.floor(this.tollhouseBaseRange() * 1.5);
+  }
+
+  /** A Tollhouse may toll this many ships per cooldown window. */
+  tollhouseMaxTollsPerWindow(level: number): number {
+    return level;
+  }
+
+  /** Length of the Tollhouse tolling cooldown window, in ticks. */
+  tollhouseTollCooldown(): number {
+    return 30;
+  }
+
   tradeShipGold(dist: number, player: Player | PlayerView): Gold {
     // Sigmoid: concave start, sharp S-curve middle, linear end - heavily punishes trades under range debuff.
     const debuff = this.tradeShipShortRangeDebuff();
@@ -601,6 +630,16 @@ export class Config {
             (numUnits: number) => Math.min(1_000_000, pow2(numUnits) * 125_000),
             UnitType.Factory,
             UnitType.Port,
+          ),
+          constructionDuration: this.instantBuild() ? 0 : 2 * 10,
+          upgradable: true,
+        };
+        break;
+      case UnitType.Tollhouse:
+        info = {
+          cost: this.costWrapper(
+            (numUnits: number) => Math.min(1_000_000, pow2(numUnits) * 125_000),
+            UnitType.Tollhouse,
           ),
           constructionDuration: this.instantBuild() ? 0 : 2 * 10,
           upgradable: true,

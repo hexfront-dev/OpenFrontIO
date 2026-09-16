@@ -209,6 +209,7 @@ export enum UnitType {
   MIRVWarhead = "MIRV Warhead",
   Train = "Train",
   Factory = "Factory",
+  Tollhouse = "Tollhouse",
   MissileShip = "Missile Ship",
   MissileDefenseShip = "Missile Defense Ship",
 }
@@ -251,6 +252,7 @@ export const Structures = unitTypeGroup([
   UnitType.MissileSilo,
   UnitType.Port,
   UnitType.Factory,
+  UnitType.Tollhouse,
 ] as const);
 
 export const BuildMenus = unitTypeGroup([
@@ -323,6 +325,8 @@ export interface UnitParamsMap {
   };
 
   [UnitType.Factory]: Record<string, never>;
+
+  [UnitType.Tollhouse]: Record<string, never>;
 
   [UnitType.MissileSilo]: Record<string, never>;
 
@@ -578,6 +582,21 @@ export interface Unit {
   setSafeFromPirates(): void; // Only for trade ships
   isSafeFromPirates(): boolean; // Only for trade ships
 
+  // Tollhouses
+  /** Whether this tollhouse may toll another ship right now (capacity/cooldown). */
+  canTollShip(nowTick: number): boolean;
+  /** Record that this tollhouse tolled a ship this tick. */
+  recordToll(nowTick: number): void;
+
+  // Trade-ship toll ledger: which tollers have already taxed this ship.
+  hasTollFrom(tollerSmallID: number): boolean;
+  addToll(tollerSmallID: number, percent: number, tile: TileRef): void;
+  tolls(): ReadonlyArray<{
+    tollerSmallID: number;
+    percent: number;
+    tile: TileRef;
+  }>;
+
   // Construction phase on structures
   isUnderConstruction(): boolean;
   setUnderConstruction(underConstruction: boolean): void;
@@ -758,6 +777,11 @@ export interface Player {
   recordDeleteUnit(): void;
   canEmbargoAll(): boolean;
   recordEmbargoAll(): void;
+
+  // Tollhouses: per-nation toll percentage (0-100) this player charges other
+  // nations' trade ships passing through this player's Tollhouses.
+  tollRateFor(other: Player): number;
+  setTollRate(other: Player, percent: number): void;
 
   // Embargo
   hasEmbargoAgainst(other: Player): boolean;

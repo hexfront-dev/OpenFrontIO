@@ -1,0 +1,177 @@
+import { SetTollRateExecution } from "../src/core/execution/SetTollRateExecution";
+import { TradeShipExecution } from "../src/core/execution/TradeShipExecution";
+import {
+  Game,
+  Player,
+  PlayerInfo,
+  PlayerType,
+  Unit,
+  UnitType,
+} from "../src/core/game/Game";
+import { TileRef } from "../src/core/game/GameMap";
+import { PathStatus } from "../src/core/pathfinding/types";
+import { setup } from "./util/Setup";
+
+// Find a land tile that is cardinally adjacent to water, plus that water tile.
+// The two are one tile apart, so any Tollhouse range easily covers both.
+function findLandWaterPair(game: Game): { land: TileRef; water: TileRef } {
+  for (let x = 0; x < game.width(); x++) {
+    for (let y = 0; y < game.height(); y++) {
+      const land = game.ref(x, y);
+      if (!game.isLand(land)) continue;
+      for (const neighbor of game.neighbors(land)) {
+        if (game.isWater(neighbor)) {
+          return { land, water: neighbor };
+        }
+      }
+    }
+  }
+  throw new Error("map has no land/water border");
+}
+
+describe("Tollhouse", () => {
+  let game: Game;
+  let toller: Player;
+  let trader: Player;
+  let other: Player;
+
+  beforeEach(async () => {
+    game = await setup("half_land_half_ocean", { instantBuild: true }, [
+      new PlayerInfo("toller", PlayerType.Human, null, "toller_id"),
+      new PlayerInfo("trader", PlayerType.Human, null, "trader_id"),
+      new PlayerInfo("other", PlayerType.Human, null, "other_id"),
+    ]);
+    toller = game.player("toller_id");
+    trader = game.player("trader_id");
+    other = game.player("other_id");
+    toller.addGold(10_000_000n);
+  });
+
+  test("range scales 5% per level and caps at 1.5x", () => {
+    const base = game.config().tollhouseBaseRange();
+    expect(game.config().tollhouseRange(1)).toBe(base);
+    expect(game.config().tollhouseRange(2)).toBe(Math.floor(base * 1.05));
+    expect(game.config().tollhouseRange(11)).toBe(Math.floor(base * 1.5));
+    expect(game.config().tollhouseRange(50)).toBe(Math.floor(base * 1.5));
+  });
+
+  test("toll capacity is 1 ship per level per cooldown window", () => {
+    const { land } = findLandWaterPair(game);
+    const tollhouse = toller.buildUnit(UnitType.Tollhouse, land, {});
+
+    expect(tollhouse.canTollShip(0)).toBe(true);
+    tollhouse.recordToll(0);
+    expect(tollhouse.canTollShip(29)).toBe(false);
+    // Outside the 30-tick window the slot frees up again.
+    expect(tollhouse.canTollShip(30)).toBe(true);
+
+    // One extra slot per level.
+    tollhouse.increaseLevel();
+    tollhouse.recordToll(100);
+    tollhouse.recordToll(100);
+    expect(tollhouse.canTollShip(100)).toBe(false);
+    expect(tollhouse.canTollShip(130)).toBe(true);
+  });
+
+  test("setTollRate clamps to 0-100 and clears at 0", () => {
+    const exec = new SetTollRateExecution(toller, trader.id(), 40);
+    exec.init(game, 0);
+    exec.tick(0);
+    expect(toller.tollRateFor(trader)).toBe(40);
+
+    const clear = new SetTollRateExecution(toller, trader.id(), 0);
+    clear.init(game, 0);
+    clear.tick(0);
+    expect(toller.tollRateFor(trader)).toBe(0);
+  });
+
+  test("a ship passing a tolling nation's range is taxed once", () => {
+    const { land, water } = findLandWaterPair(game);
+    const tollhouse = toller.buildUnit(UnitType.Tollhouse, land, {});
+    // Second tollhouse from the same nation must not tax the same ship again.
+    toller.buildUnit(UnitType.Tollhouse, land, {});
+    toller.setTollRate(trader, 25);
+
+    const dstOwner = other;
+    const srcPort = {
+      id: () => 9001,
+      tile: () => water,
+      owner: () => trader,
+      isActive: () => true,
+    } as unknown as Unit;
+    const dstPort = {
+      id: () => 9002,
+      tile: () => game.ref(0, 0),
+      owner: () => dstOwner,
+      isActive: () => true,
+    } as unknown as Unit;
+
+    const ship = trader.buildUnit(UnitType.TradeShip, water, {
+      targetUnit: dstPort,
+    });
+
+    const exec = new TradeShipExecution(trader, srcPort, dstPort);
+    exec.init(game, 0);
+    exec["pathFinder"] = {
+      rebuilt: false,
+      next: () => ({ status: PathStatus.NEXT, node: water }),
+      pathForTraversal: () => [water],
+    } as any;
+    exec["tradeShip"] = ship;
+
+    exec.tick(1);
+
+    expect(ship.hasTollFrom(toller.smallID())).toBe(true);
+    expect(ship.tolls()).toHaveLength(1);
+    expect(ship.tolls()[0].percent).toBe(25);
+    expect(tollhouse.canTollShip(1)).toBe(false);
+  });
+
+  test("registered tolls are deducted from the ship's payout", () => {
+    const { land, water } = findLandWaterPair(game);
+    const dstOwner = other;
+    toller.setTollRate(trader, 50);
+
+    const srcPort = {
+      id: () => 9001,
+      tile: () => water,
+      owner: () => trader,
+      isActive: () => true,
+    } as unknown as Unit;
+    const dstPort = {
+      id: () => 9002,
+      tile: () => game.ref(0, 0),
+      owner: () => dstOwner,
+      isActive: () => true,
+    } as unknown as Unit;
+
+    const ship = trader.buildUnit(UnitType.TradeShip, water, {
+      targetUnit: dstPort,
+    });
+    // Simulate the ship having already passed toller's Tollhouse.
+    ship.addToll(toller.smallID(), 50, land);
+
+    const exec = new TradeShipExecution(trader, srcPort, dstPort);
+    exec.init(game, 0);
+    exec["pathFinder"] = {
+      rebuilt: false,
+      next: () => ({ status: PathStatus.COMPLETE, node: water }),
+      pathForTraversal: () => [water],
+    } as any;
+    exec["tradeShip"] = ship;
+
+    const tollerBefore = toller.gold();
+    const traderBefore = trader.gold();
+    const otherBefore = dstOwner.gold();
+
+    exec.tick(1);
+
+    const gross = game.config().tradeShipGold(0, trader);
+    const toll = gross / 2n;
+    const remaining = gross - toll;
+
+    expect(toller.gold() - tollerBefore).toBe(toll);
+    expect(trader.gold() - traderBefore).toBe(remaining);
+    expect(dstOwner.gold() - otherBefore).toBe(remaining);
+  });
+});

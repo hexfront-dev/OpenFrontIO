@@ -255,6 +255,8 @@ export interface PlayerUpdate {
   troops?: number;
   allies?: number[];
   embargoes?: Set<PlayerID>;
+  /** Per-nation toll percentages (0-100) this player's Tollhouses charge. */
+  tolls?: TollRateUpdate[];
   isTraitor?: boolean;
   traitorRemainingTicks?: number;
   inDoomsdayClock?: boolean;
@@ -271,6 +273,12 @@ export interface PlayerUpdate {
   betrayals?: number;
   lastDeleteUnitTick?: Tick;
   isLobbyCreator?: boolean;
+}
+
+/** One entry of a player's per-nation Tollhouse rate map. */
+export interface TollRateUpdate {
+  target: PlayerID;
+  rate: number;
 }
 
 export interface AllianceView {

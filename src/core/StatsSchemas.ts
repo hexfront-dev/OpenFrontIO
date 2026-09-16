@@ -36,6 +36,7 @@ export const otherUnits = [
   "silo",
   "saml",
   "fact",
+  "toll",
   "mshp",
   "mdsh",
 ] as const;
@@ -49,6 +50,7 @@ export type OtherUnitType =
   | UnitType.SAMLauncher
   | UnitType.Warship
   | UnitType.Factory
+  | UnitType.Tollhouse
   | UnitType.MissileShip
   | UnitType.MissileDefenseShip;
 
@@ -60,6 +62,7 @@ export const unitTypeToOtherUnit = {
   [UnitType.SAMLauncher]: "saml",
   [UnitType.Warship]: "wshp",
   [UnitType.Factory]: "fact",
+  [UnitType.Tollhouse]: "toll",
   [UnitType.MissileShip]: "mshp",
   [UnitType.MissileDefenseShip]: "mdsh",
 } as const satisfies Record<OtherUnitType, OtherUnit>;

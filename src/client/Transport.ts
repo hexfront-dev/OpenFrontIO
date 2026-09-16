@@ -148,6 +148,13 @@ export class SendEmbargoAllIntentEvent implements GameEvent {
   constructor(public readonly action: "start" | "stop") {}
 }
 
+export class SendSetTollRateIntentEvent implements GameEvent {
+  constructor(
+    public readonly target: PlayerView,
+    public readonly percent: number,
+  ) {}
+}
+
 export class SendDeleteUnitIntentEvent implements GameEvent {
   constructor(public readonly unitId: number) {}
 }
@@ -300,6 +307,9 @@ export class Transport {
     );
     this.eventBus.on(SendEmbargoAllIntentEvent, (e) =>
       this.onSendEmbargoAllIntent(e),
+    );
+    this.eventBus.on(SendSetTollRateIntentEvent, (e) =>
+      this.onSendSetTollRateIntent(e),
     );
     this.eventBus.on(BuildUnitIntentEvent, (e) => this.onBuildUnitIntent(e));
 
@@ -657,6 +667,14 @@ export class Transport {
     this.sendIntent({
       type: "embargo_all",
       action: event.action,
+    });
+  }
+
+  private onSendSetTollRateIntent(event: SendSetTollRateIntentEvent) {
+    this.sendIntent({
+      type: "set_toll_rate",
+      targetID: event.target.id(),
+      percent: event.percent,
     });
   }
 

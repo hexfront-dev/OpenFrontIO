@@ -132,6 +132,15 @@ export const buildTable: BuildItemDisplay[][] = [
       key: "unit_type.factory",
       countable: true,
     },
+    {
+      // Placeholder art: uses the City sprite until a dedicated one exists.
+      // See ship.md for how to swap the sprite + HUD icon.
+      unitType: UnitType.Tollhouse,
+      icon: cityIcon,
+      description: "build_menu.desc.tollhouse",
+      key: "unit_type.tollhouse",
+      countable: true,
+    },
   ],
 ];
 

@@ -107,6 +107,10 @@ describe("TradeShipExecution", () => {
       touch: vi.fn(),
       delete: vi.fn(),
       tile: vi.fn(() => 32),
+      // Tollhouse ledger – empty by default in these tests.
+      tolls: vi.fn(() => []),
+      hasTollFrom: vi.fn(() => false),
+      addToll: vi.fn(),
     } as any;
 
     tradeShipExecution = new TradeShipExecution(origOwner, srcPort, dstPort);

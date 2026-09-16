@@ -419,6 +419,22 @@ export class GameView implements GameMap {
       player.setEmbargoSmallIDs(smallIDs);
     });
 
+    // Per-nation Tollhouse rates: translate engine PlayerIDs → smallIDs, the
+    // same way embargoes are handled above.
+    gu.updates[GameUpdateType.Player].forEach((pu) => {
+      if (pu.tolls === undefined) return;
+      const player = this._players.get(pu.id);
+      if (player === undefined) return;
+      const entries: Array<{ smallID: number; rate: number }> = [];
+      for (const t of pu.tolls) {
+        const otherPV = this._players.get(t.target);
+        if (otherPV !== undefined) {
+          entries.push({ smallID: otherPV.smallID(), rate: t.rate });
+        }
+      }
+      player.setTollRates(entries);
+    });
+
     // Packed per-player stats: [smallID, tilesOwned, gold, troops, goldEarned]
     // quints for every player whose stats changed this tick (the per-tick
     // churn that no longer travels in PlayerUpdate objects). Applied after

@@ -19,6 +19,7 @@ import {
 } from "../../InputHandler";
 import { themeProvider } from "../../theme/ThemeProvider";
 import { TransformHandler } from "../../TransformHandler";
+import { SendSetTollRateIntentEvent } from "../../Transport";
 import {
   getTranslatedPlayerTeamLabel,
   renderDuration,
@@ -535,10 +536,53 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
               samLauncherIcon,
             )}
             ${this.displayUnitCount(player, UnitType.Warship, warshipIcon)}
+            ${this.displayUnitCount(player, UnitType.Tollhouse, cityIcon)}
           </div>
+          ${this.renderTollRate(player)}
         </div>
       </div>
     `;
+  }
+
+  /**
+   * Slider (0-100%) setting how much this player's Tollhouses charge the
+   * clicked nation's trade ships. Only shown for another player while the
+   * viewer owns at least one Tollhouse.
+   */
+  private renderTollRate(player: PlayerView) {
+    const myPlayer = this.game.myPlayer();
+    if (myPlayer === null || myPlayer === player) return html``;
+    if (myPlayer.totalUnitLevels(UnitType.Tollhouse) <= 0) return html``;
+    const rate = myPlayer.tollRateForSmallID(player.smallID());
+    return html`
+      <div
+        class="flex items-center gap-2 mt-1"
+        @click=${(e: Event) => e.stopPropagation()}
+        @contextmenu=${(e: MouseEvent) => e.preventDefault()}
+      >
+        <span class="text-xs text-gray-300 shrink-0"
+          >${translateText("tollhouse.rate_label")}</span
+        >
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          .value=${String(rate)}
+          class="flex-1 min-w-0 accent-yellow-400"
+          @input=${(e: Event) => this.onTollRateInput(player, e)}
+        />
+        <span class="text-xs w-10 text-right tabular-nums" translate="no"
+          >${rate}%</span
+        >
+      </div>
+    `;
+  }
+
+  private onTollRateInput(player: PlayerView, e: Event) {
+    const value = Number((e.target as HTMLInputElement).value);
+    if (Number.isNaN(value)) return;
+    this.eventBus.emit(new SendSetTollRateIntentEvent(player, value));
   }
 
   private renderTroopBar(

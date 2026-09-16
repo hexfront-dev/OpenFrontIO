@@ -26,6 +26,7 @@ import { NoOpExecution } from "./NoOpExecution";
 import { PauseExecution } from "./PauseExecution";
 import { QuickChatExecution } from "./QuickChatExecution";
 import { RetreatExecution } from "./RetreatExecution";
+import { SetTollRateExecution } from "./SetTollRateExecution";
 import { SpawnExecution } from "./SpawnExecution";
 import { TargetPlayerExecution } from "./TargetPlayerExecution";
 import { TransportShipExecution } from "./TransportShipExecution";
@@ -113,6 +114,12 @@ export class Executor {
         return new DonateGoldExecution(player, intent.recipient, intent.gold);
       case "embargo":
         return new EmbargoExecution(player, intent.targetID, intent.action);
+      case "set_toll_rate":
+        return new SetTollRateExecution(
+          player,
+          intent.targetID,
+          intent.percent,
+        );
       case "embargo_all":
         return new EmbargoAllExecution(player, intent.action);
       case "build_unit":
