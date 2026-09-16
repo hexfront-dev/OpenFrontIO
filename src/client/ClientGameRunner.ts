@@ -1025,10 +1025,13 @@ export class ClientGameRunner {
         this.saveGame(gu.updates[GameUpdateType.Win][0]);
       }
 
-      // While a resumed save is catching up, apply the simulation to the view
-      // but draw nothing: the overlay hides the run-up and the single frame
-      // drawn by finishCatchUp shows the saved state.
+      // While a resumed save is catching up, the GPU view must still be kept in
+      // step with the simulation: the renderer consumes cumulative per-tick
+      // deltas (territory, terrain, units, railroads), so dropping them would
+      // leave the map mostly empty once revealed. Only the UI tick is skipped —
+      // the overlay hides the canvas, so the player never sees the run-up.
       if (this.catchingUp) {
+        this.webglBuilder?.update(this.gameView);
         this.onCatchUpTick(gu);
         return;
       }
@@ -1250,9 +1253,9 @@ export class ClientGameRunner {
     }
     this.catchingUp = false;
     this.teardownCatchUp();
-    // First visible frame: upload the fully caught-up simulation state and
-    // paint once, then normal per-tick rendering resumes.
-    this.webglBuilder?.update(this.gameView);
+    // The GPU view is already current (updated on every catch-up tick above);
+    // just paint the UI once now that the game is live. Normal per-tick
+    // rendering resumes on the next update.
     this.renderer.tick();
   }
 
