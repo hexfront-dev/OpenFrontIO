@@ -459,9 +459,9 @@ export class Config {
     return 120;
   }
 
-  /** Base Tollhouse interception radius: matches the Factory's train range. */
+  /** Base Tollhouse interception radius: half the Factory's train range. */
   tollhouseBaseRange(): number {
-    return this.trainStationMaxRange();
+    return Math.floor(this.trainStationMaxRange() / 2);
   }
 
   /**

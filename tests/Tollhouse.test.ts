@@ -51,6 +51,7 @@ describe("Tollhouse", () => {
 
   test("range scales 5% per level and caps at 1.5x", () => {
     const base = game.config().tollhouseBaseRange();
+    expect(base).toBe(Math.floor(game.config().trainStationMaxRange() / 2));
     expect(game.config().tollhouseRange(1)).toBe(base);
     expect(game.config().tollhouseRange(2)).toBe(Math.floor(base * 1.05));
     expect(game.config().tollhouseRange(11)).toBe(Math.floor(base * 1.5));
