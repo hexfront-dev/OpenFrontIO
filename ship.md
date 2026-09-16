@@ -76,7 +76,27 @@ Only `resources/lang/en.json` is edited by hand (Crowdin owns the rest):
 
 Keys must stay alphabetically sorted (`tests/EnJsonSorted.test.ts`).
 
-## 5. Other places that reference structure icons (optional polish)
+## 5. Persistent range overlay & toll notifications
+
+Two behaviours are wired outside the icon system and may need touching if the
+Tollhouse is reworked:
+
+- **Range overlay (all players).** `RangeCirclePass`
+  (`src/client/render/gl/passes/RangeCirclePass.ts`) draws a persistent
+  translucent circle per Tollhouse via `updateTollhouseRanges(...)`. The list
+  is built in `Renderer.updateStructures()` from the unit map using
+  `config.tollhouseRange(level)`, so it always reflects the current level.
+  Colors: amber for self/allies/teammates, red for everyone else. Remove the
+  `else if (u.unitType === UT_TOLLHOUSE ...)` branch in `Renderer.ts` and the
+  `tollhouses` field/draw loop in `RangeCirclePass.ts` to drop it.
+- **Toll broadcast.** When a toll is settled in
+  `TradeShipExecution.deductTolls()`, a `MessageType.TOLL` event is emitted
+  with `playerID = null`, which `EventsDisplay` shows to every player (see
+  `onDisplayMessageEvent`). The text is `events_display.toll_collected` in
+  `resources/lang/en.json` and its color is set in
+  `src/client/Utils.ts` (`getMessageTypeClasses`).
+
+## 6. Other places that reference structure icons (optional polish)
 
 These are not required for the City placeholder to work, but a dedicated icon
 would normally be added there too:

@@ -20,6 +20,18 @@ import vertSrc from "../shaders/range-circle/range-circle.vert.glsl?raw";
 /** Marker radius for a frontline tile excluded from conquest (in tiles). */
 const AVOIDED_TILE_RADIUS = 0.5;
 
+/** One Tollhouse interception range, drawn persistently for every player. */
+export interface TollhouseRangeCircle {
+  x: number;
+  y: number;
+  radius: number;
+  friendly: boolean;
+}
+
+// Tollhouse range colors: amber for self/allies, red for everyone else.
+const TOLLHOUSE_FRIENDLY_COLOR: [number, number, number] = [1.0, 0.85, 0.2];
+const TOLLHOUSE_ENEMY_COLOR: [number, number, number] = [1.0, 0.25, 0.25];
+
 export class RangeCirclePass {
   private gl: WebGL2RenderingContext;
   private program: WebGLProgram;
@@ -40,6 +52,9 @@ export class RangeCirclePass {
 
   // Avoided (excluded-from-conquest) frontline tile markers.
   private avoided: AvoidedTilesData | null = null;
+
+  // Persistent Tollhouse interception ranges (all players' Tollhouses).
+  private tollhouses: readonly TollhouseRangeCircle[] = [];
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -87,11 +102,31 @@ export class RangeCirclePass {
     this.avoided = data;
   }
 
+  /**
+   * Set the persistent Tollhouse ranges. Every player's Tollhouses are shown
+   * so a passing trade ship can see where it will be taxed.
+   */
+  updateTollhouseRanges(data: readonly TollhouseRangeCircle[] | null): void {
+    this.tollhouses = data ?? [];
+  }
+
   draw(cameraMatrix: Float32Array): void {
     const gl = this.gl;
     gl.useProgram(this.program);
     gl.uniformMatrix3fv(this.uCamera, false, cameraMatrix);
     gl.bindVertexArray(this.vao);
+
+    // Persistent Tollhouse ranges (drawn under the transient ghost overlays).
+    for (const t of this.tollhouses) {
+      if (t.radius <= 0) continue;
+      gl.uniform2f(this.uCenter, t.x, t.y);
+      gl.uniform1f(this.uRadius, t.radius);
+      const color = t.friendly
+        ? TOLLHOUSE_FRIENDLY_COLOR
+        : TOLLHOUSE_ENEMY_COLOR;
+      gl.uniform3f(this.uColor, color[0], color[1], color[2]);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
 
     // Defense-post line preview takes priority over the single ghost circle.
     if (this.line !== null) {

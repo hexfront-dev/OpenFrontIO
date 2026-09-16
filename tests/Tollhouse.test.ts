@@ -2,6 +2,7 @@ import { SetTollRateExecution } from "../src/core/execution/SetTollRateExecution
 import { TradeShipExecution } from "../src/core/execution/TradeShipExecution";
 import {
   Game,
+  MessageType,
   Player,
   PlayerInfo,
   PlayerType,
@@ -163,6 +164,7 @@ describe("Tollhouse", () => {
     const tollerBefore = toller.gold();
     const traderBefore = trader.gold();
     const otherBefore = dstOwner.gold();
+    const displaySpy = vi.spyOn(game, "displayMessage");
 
     exec.tick(1);
 
@@ -173,5 +175,16 @@ describe("Tollhouse", () => {
     expect(toller.gold() - tollerBefore).toBe(toll);
     expect(trader.gold() - traderBefore).toBe(remaining);
     expect(dstOwner.gold() - otherBefore).toBe(remaining);
+
+    // The toll is broadcast to every player (playerID null).
+    expect(displaySpy).toHaveBeenCalledWith(
+      "events_display.toll_collected",
+      MessageType.TOLL,
+      null,
+      toll,
+      { name: toller.displayName(), gold: expect.any(String) },
+      undefined,
+      toller.id(),
+    );
   });
 });

@@ -31,6 +31,7 @@ import type {
   TerrainRect,
   UnitState,
 } from "../types";
+import { UT_TOLLHOUSE } from "../types";
 import { Camera } from "./Camera";
 import { GLUnavailableError, initGL } from "./initGL";
 import { BarPass } from "./passes/BarPass";
@@ -51,7 +52,10 @@ import { NukeTelegraphPass } from "./passes/NukeTelegraphPass";
 import { NukeTrajectoryPass } from "./passes/NukeTrajectoryPass";
 import { PointLightPass } from "./passes/PointLightPass";
 import { RailroadPass } from "./passes/RailroadPass";
-import { RangeCirclePass } from "./passes/RangeCirclePass";
+import {
+  RangeCirclePass,
+  type TollhouseRangeCircle,
+} from "./passes/RangeCirclePass";
 import { SAMRadiusPass } from "./passes/SamRadiusPass";
 import { SelectionBoxPass } from "./passes/SelectionBoxPass";
 import { SkinAtlasArray } from "./passes/SkinAtlasArray";
@@ -194,9 +198,14 @@ export class GPURenderer {
   private lastUnits: Map<number, UnitState> = new Map();
   private lastStructures: Map<number, UnitState> = new Map();
 
+  // Client config, used to resolve level-scaled structure ranges (Tollhouse).
+  private config: Config;
+
   // Local player relationship data (for SAM radius coloring)
   private localPlayerID = 0;
   private playerTeams = new Map<number, string>(); // smallID → team
+  // Friendly smallIDs (self + allies + teammates), for Tollhouse ring colors.
+  private friendlySmallIDs = new Set<number>();
 
   // Alt-view: affiliation recoloring (space hold)
   private altView = false;
@@ -228,6 +237,7 @@ export class GPURenderer {
     // passed in, so every pass — including texture-baking ones like terrain —
     // is built with the final values. Live changes mutate this object in place.
     this.settings = settings;
+    this.config = config;
     this.raf = raf;
     this.caf = caf;
 
@@ -912,6 +922,7 @@ export class GPURenderer {
       }
       this.samRadiusPass.setAllies(friendly);
       this.unitPass.setAllies(friendly);
+      this.friendlySmallIDs = friendly;
     }
   }
 
@@ -933,6 +944,7 @@ export class GPURenderer {
     this.unitPass.setStructures(units);
     const posts: { x: number; y: number; ownerID: number }[] = [];
     const w = this.mapW;
+    const tollhouseRanges: TollhouseRangeCircle[] = [];
     for (const u of units.values()) {
       if (u.unitType === "Defense Post" && !u.underConstruction) {
         posts.push({
@@ -940,9 +952,24 @@ export class GPURenderer {
           y: (u.pos - (u.pos % w)) / w,
           ownerID: u.ownerID,
         });
+      } else if (
+        u.unitType === UT_TOLLHOUSE &&
+        u.isActive &&
+        !u.underConstruction
+      ) {
+        const x = u.pos % w;
+        tollhouseRanges.push({
+          x,
+          y: (u.pos - x) / w,
+          radius: this.config.tollhouseRange(u.level),
+          friendly:
+            u.ownerID === this.localPlayerID ||
+            this.friendlySmallIDs.has(u.ownerID),
+        });
       }
     }
     this.defenseCoveragePass.updateDefensePosts(posts);
+    this.rangeCirclePass.updateTollhouseRanges(tollhouseRanges);
   }
 
   applyDeadUnits(deadUnits: DeadUnitFx[]): void {

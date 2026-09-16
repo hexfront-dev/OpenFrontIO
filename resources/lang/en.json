@@ -645,6 +645,7 @@
     "sent_emoji": "Sent {name}: {emoji}",
     "sent_gold_to_player": "Sent {gold} gold to {name}",
     "sent_troops_to_player": "Sent {troops} troops to {name}",
+    "toll_collected": "A trade ship paid {gold} gold in tolls to {name}",
     "trade_broken": "{name} has stopped trading with you",
     "trade_ship_captured": "Your trade ship was captured by {name}",
     "unit_destroyed": "Your {unit} was destroyed",

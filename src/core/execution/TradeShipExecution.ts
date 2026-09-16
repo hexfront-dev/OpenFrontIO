@@ -220,6 +220,17 @@ export class TradeShipExecution implements Execution {
       if (taken <= 0n) continue;
       remaining -= taken;
       toller.addGold(taken, toll.tile);
+      // Broadcast to every player (playerID null) so a toll is common
+      // knowledge: the tolling nation took gold from a passing trade ship.
+      this.mg.displayMessage(
+        "events_display.toll_collected",
+        MessageType.TOLL,
+        null,
+        taken,
+        { name: toller.displayName(), gold: renderNumber(taken) },
+        undefined,
+        toller.id(),
+      );
     }
     return remaining;
   }
