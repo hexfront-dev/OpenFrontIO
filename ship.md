@@ -106,7 +106,8 @@ would normally be added there too:
   `otherUnitIcons` (game-end summary rows). The stats wire key is `"toll"`
   (see `src/core/StatsSchemas.ts`).
 - `src/client/hud/layers/lib/StatsColumns.ts` — leaderboard column registry.
-- `src/client/hud/layers/UnitDisplay.ts` — the persistent hotbar counters.
+- `src/client/hud/layers/UnitDisplay.ts` — the persistent hotbar counter
+  (already lists the Tollhouse with the City icon).
 - `src/client/HelpModal.ts` — help/units reference panel.
 - `src/client/components/GameConfigSettings.ts` — already lists the Tollhouse
   for the "disabled units" toggle (label only, no icon).

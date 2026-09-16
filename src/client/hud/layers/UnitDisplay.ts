@@ -44,6 +44,7 @@ export class UnitDisplay extends LitElement implements Controller {
   private _samLauncher = 0;
   private _missileShips = 0;
   private _missileDefenseShips = 0;
+  private _tollhouses = 0;
   private allDisabled = false;
   private _hoveredUnit: PlayerBuildableUnitType | null = null;
 
@@ -108,7 +109,10 @@ export class UnitDisplay extends LitElement implements Controller {
     this._factories = player.totalUnitLevels(UnitType.Factory);
     this._warships = player.totalUnitLevels(UnitType.Warship);
     this._missileShips = player.totalUnitLevels(UnitType.MissileShip);
-    this._missileDefenseShips = player.totalUnitLevels(UnitType.MissileDefenseShip);
+    this._missileDefenseShips = player.totalUnitLevels(
+      UnitType.MissileDefenseShip,
+    );
+    this._tollhouses = player.totalUnitLevels(UnitType.Tollhouse);
     this.requestUpdate();
   }
 
@@ -142,6 +146,13 @@ export class UnitDisplay extends LitElement implements Controller {
             UnitType.Factory,
             "factory",
             this.keybinds["buildFactory"]?.key ?? "2",
+          )}
+          ${this.renderUnitItem(
+            cityIcon,
+            this._tollhouses,
+            UnitType.Tollhouse,
+            "tollhouse",
+            this.keybinds["buildTollhouse"]?.key ?? "",
           )}
           ${this.renderUnitItem(
             portIcon,
