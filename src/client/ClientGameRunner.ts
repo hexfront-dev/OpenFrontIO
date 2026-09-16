@@ -54,6 +54,7 @@ import {
   ToggleRenderDebugGuiEvent,
 } from "./InputHandler";
 import { endGame, startGame, startTime } from "./LocalPersistantStats";
+import "./ResumeLoadingOverlay";
 import { SaveManager } from "./SaveManager";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
 import { GoToPlayerEvent } from "./TransformHandler";
@@ -260,6 +261,12 @@ export function joinLobby(
         `lobby: game prestarting: ${JSON.stringify(message, replacer)}`,
       );
       requestTerrainLoad(message.gameMap, message.gameMapSize);
+      // A resumed save carries its start-countdown deadline here; show it on
+      // the loading modal while players pick their nation.
+      const startingModal = document.querySelector(
+        "game-starting-modal",
+      ) as GameStartingModalElement | null;
+      startingModal?.setCountdown(message.startsAt, message.serverTime);
       resolvePrestart();
     }
     if (message.type === "start") {
@@ -844,6 +851,17 @@ async function createClientGame(
   }
 }
 
+// Minimal surface of the `resume-loading-overlay` custom element; avoids a
+// value import cycle while still letting us drive it from here.
+interface ResumeLoadingOverlayElement extends HTMLElement {
+  setProgress(percent: number): void;
+}
+
+// Minimal surface of `game-starting-modal` for the resume start countdown.
+interface GameStartingModalElement extends HTMLElement {
+  setCountdown(startsAt?: number, serverTime?: number): void;
+}
+
 export class ClientGameRunner {
   private myPlayer: PlayerView | null = null;
   private isActive = false;
@@ -851,6 +869,15 @@ export class ClientGameRunner {
   private turnsSeen = 0;
   private lastMousePosition: { x: number; y: number } | null = null;
   private readonly saveManager = new SaveManager();
+
+  // A resumed save (local IndexedDB or a server-restored lobby) replays its
+  // saved history. We catch that history up off-screen and only reveal the
+  // game once the worker has drained it at the saved turn.
+  private readonly isResume: boolean;
+  private catchingUp = false;
+  private catchUpTotal = 0;
+  private catchUpDone = 0;
+  private catchUpOverlay: ResumeLoadingOverlayElement | null = null;
 
   private lastMessageTime: number = 0;
   private connectionCheckInterval: NodeJS.Timeout | null = null;
@@ -875,6 +902,8 @@ export class ClientGameRunner {
     private disposeRenderer: (() => void) | null = null,
   ) {
     this.lastMessageTime = Date.now();
+    this.isResume =
+      lobby.resume !== undefined || lobby.claimClientID !== undefined;
   }
 
   /**
@@ -991,6 +1020,19 @@ export class ClientGameRunner {
         this.eventBus.emit(new SendHashEvent(hu.tick, hu.hash));
       });
       this.gameView.update(gu);
+
+      if (gu.updates[GameUpdateType.Win].length > 0) {
+        this.saveGame(gu.updates[GameUpdateType.Win][0]);
+      }
+
+      // While a resumed save is catching up, apply the simulation to the view
+      // but draw nothing: the overlay hides the run-up and the single frame
+      // drawn by finishCatchUp shows the saved state.
+      if (this.catchingUp) {
+        this.onCatchUpTick(gu);
+        return;
+      }
+
       this.webglBuilder?.update(this.gameView);
       this.renderer.tick();
 
@@ -1001,10 +1043,6 @@ export class ClientGameRunner {
 
       // Reset tick delay for next measurement
       this.currentTickDelay = undefined;
-
-      if (gu.updates[GameUpdateType.Win].length > 0) {
-        this.saveGame(gu.updates[GameUpdateType.Win][0]);
-      }
     });
 
     const onconnect = () => {
@@ -1048,6 +1086,12 @@ export class ClientGameRunner {
           };
 
           goToPlayer();
+        }
+
+        // A resumed save replays its whole history here; hide that run-up and
+        // let the worker drain the backlog as fast as it can before revealing.
+        if (this.isResume && message.turns.length > 0) {
+          this.beginCatchUp(message.turns.length);
         }
 
         for (const turn of message.turns) {
@@ -1163,6 +1207,58 @@ export class ClientGameRunner {
       clearTimeout(this.goToPlayerTimeout);
       this.goToPlayerTimeout = null;
     }
+    this.teardownCatchUp();
+  }
+
+  // Start hiding a resumed save's history replay. `total` is the number of
+  // saved turns the start message handed to the worker.
+  private beginCatchUp(total: number): void {
+    if (this.catchingUp || total <= 0) {
+      return;
+    }
+    this.catchingUp = true;
+    this.catchUpTotal = total;
+    this.catchUpDone = 0;
+    const overlay = document.createElement(
+      "resume-loading-overlay",
+    ) as ResumeLoadingOverlayElement;
+    overlay.setProgress(0);
+    document.body.appendChild(overlay);
+    this.catchUpOverlay = overlay;
+  }
+
+  private onCatchUpTick(gu: GameUpdateViewData): void {
+    // Reset tick delay here too: ticks are being consumed off-screen, so the
+    // next live tick's measured delay must not include catch-up time.
+    this.currentTickDelay = undefined;
+    this.catchUpDone++;
+    this.catchUpOverlay?.setProgress(
+      this.catchUpTotal > 0
+        ? (this.catchUpDone / this.catchUpTotal) * 100
+        : 100,
+    );
+    // pendingTurns is the worker's queue *including* the tick just executed, so
+    // <= 1 means this was the last saved turn (or a live tick after it).
+    if ((gu.pendingTurns ?? 0) <= 1 && this.turnsSeen >= this.catchUpTotal) {
+      this.finishCatchUp();
+    }
+  }
+
+  private finishCatchUp(): void {
+    if (!this.catchingUp) {
+      return;
+    }
+    this.catchingUp = false;
+    this.teardownCatchUp();
+    // First visible frame: upload the fully caught-up simulation state and
+    // paint once, then normal per-tick rendering resumes.
+    this.webglBuilder?.update(this.gameView);
+    this.renderer.tick();
+  }
+
+  private teardownCatchUp(): void {
+    this.catchUpOverlay?.remove();
+    this.catchUpOverlay = null;
   }
 
   private inputEvent(event: MouseUpEvent) {

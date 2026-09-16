@@ -969,6 +969,11 @@ export const ServerPrestartMessageSchema = z.object({
   type: z.literal("prestart"),
   gameMap: z.enum(GameMapType),
   gameMapSize: z.enum(GameMapSize),
+  // A resumed save waits out a short start countdown so players can pick their
+  // nation. Clients render it from the server wall-clock deadline plus the
+  // server's clock, so client/server clock skew is corrected.
+  startsAt: zb.uint().optional(),
+  serverTime: zb.uint().optional(),
 });
 
 export const ServerStartGameMessageSchema = z.object({

@@ -1624,6 +1624,7 @@
     "title": "Rewards"
   },
   "save_game": {
+    "catching_up": "Loading saved game\u2026",
     "choose_nation": "Choose which nation to play as:",
     "claimed": "Taken",
     "delete": "Delete",

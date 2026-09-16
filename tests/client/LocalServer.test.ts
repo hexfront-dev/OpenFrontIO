@@ -1,7 +1,12 @@
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventBus } from "../../src/core/EventBus";
-import type { ClientMessage, GameStartInfo } from "../../src/core/Schemas";
+import type {
+  ClientMessage,
+  GameStartInfo,
+  ServerMessage,
+  Turn,
+} from "../../src/core/Schemas";
 
 vi.mock("../../src/client/Auth", () => ({
   getAuthHeader: vi.fn(async () => "Bearer test-jwt"),
@@ -181,5 +186,60 @@ describe("LocalServer archiving", () => {
     server.endGame();
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("LocalServer resume", () => {
+  function makeTurns(count: number): Turn[] {
+    return Array.from({ length: count }, (_, i) => ({
+      turnNumber: i,
+      intents: [],
+    }));
+  }
+
+  it("hands the whole saved history to the client up front instead of trickling it", () => {
+    const turns = makeTurns(250);
+    const messages: ServerMessage[] = [];
+    const server = new LocalServer(
+      {
+        gameStartInfo: makeGameStartInfo(),
+        playerName: "TestUser",
+        playerClanTag: null,
+        resume: {
+          startInfo: makeGameStartInfo(),
+          turns,
+          myClientID: CLIENT_ID,
+        },
+      } as any,
+      true,
+      new EventBus(),
+    );
+    server.updateCallback(
+      () => {},
+      (m) => messages.push(m),
+    );
+    server.start();
+
+    // The rejoin reply is the start message the running client consumes.
+    server.onMessage({
+      type: "rejoin",
+      gameID: "gameID12",
+      lastTurn: 0,
+      token: "x",
+    } as any);
+
+    // The first "start" (empty) is emitted before the client attaches; the
+    // rejoin reply is the last one and carries the saved history.
+    const starts = messages.filter(
+      (m): m is Extract<ServerMessage, { type: "start" }> => m.type === "start",
+    );
+    const start = starts[starts.length - 1];
+    expect(start).toBeDefined();
+    expect(start!.turns).toHaveLength(250);
+    expect(start!.turns[start!.turns.length - 1].turnNumber).toBe(249);
+    // The resumed seat is preserved so live input controls the saved nation.
+    expect(start!.myClientID).toBe(CLIENT_ID);
+
+    server.endGame();
   });
 });

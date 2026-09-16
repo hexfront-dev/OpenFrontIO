@@ -135,6 +135,12 @@ export function defaultGameServerDeps(): GameServerDeps {
 }
 
 export class GameServer {
+  // How long a resumed save waits on its first join before it begins
+  // simulating again. This is the "start timer" for a stored multiplayer game:
+  // it gives the original players time to open the link and claim a nation
+  // before play continues. Static so tests can shorten it.
+  public static RESUME_START_DELAY_MS = 15_000;
+
   // Compares the per-turn state hashes clients report; a disagreeing client
   // is told once and its votes are ignored from then on.
   private readonly desync = new DesyncDetector();
@@ -176,6 +182,13 @@ export class GameServer {
   // Seat -> the persistentID currently holding it. Used to stop two players
   // claiming the same nation. Persists across a holder's disconnect.
   private readonly seatClaimants = new Map<ClientID, string>();
+  // Countdown armed on the first join of a restored game; until it elapses (or
+  // if nobody ever joins) the saved turn loop stays unarmed so players can
+  // pick a nation.
+  private resumeCountdownTimer?: NodeJS.Timeout;
+  // Set once the countdown has elapsed and the resumed game has actually
+  // started; subsequent joins go straight into the running game.
+  private resumeStarted = false;
   private saveInFlight = false;
   private saveQueued = false;
   private lastSaveAt = 0;
@@ -851,10 +864,16 @@ export class GameServer {
 
     // In case a client joined the game late and missed the start message.
     if (this.stage === "started") {
-      this.sendStartGameMsg(client.ws, 0);
-      // A restored game arms its turn loop only once someone is present, so an
-      // unvisited save does not accumulate empty turns.
-      this.ensureTurnLoop();
+      if (this.restored && !this.resumeStarted) {
+        // A restored save holds a short start countdown so the original
+        // players get a chance to open the link and pick a nation.
+        this.beginResumeCountdown();
+      } else {
+        this.sendStartGameMsg(client.ws, 0);
+        // A restored game arms its turn loop only once someone is present, so
+        // an unvisited save does not accumulate empty turns.
+        this.ensureTurnLoop();
+      }
     }
     this.scheduleSave();
 
@@ -926,8 +945,12 @@ export class GameServer {
     this.startLobbyInfoBroadcast();
 
     if (this.stage === "started") {
-      this.sendStartGameMsg(client.ws, lastTurn);
-      this.ensureTurnLoop();
+      if (this.restored && !this.resumeStarted) {
+        this.beginResumeCountdown();
+      } else {
+        this.sendStartGameMsg(client.ws, lastTurn);
+        this.ensureTurnLoop();
+      }
     }
     this.scheduleSave();
     return true;
@@ -1075,11 +1098,22 @@ export class GameServer {
     }
     this.stage = "prestart";
     this.fetchTribes();
+    this.sendPrestartMessages();
+  }
 
+  // Tell every connected client that the map is about to load. Shared by the
+  // normal lobby transition and by a resumed save's start countdown (which
+  // keeps stage "started" and only needs the map + countdown deadline).
+  private sendPrestartMessages(includeCountdown = false) {
     const prestartMsg = ServerPrestartMessageSchema.safeParse({
       type: "prestart",
       gameMap: this.gameConfig.gameMap,
       gameMapSize: this.gameConfig.gameMapSize,
+      // Only the resume countdown carries the deadline; a normal lobby already
+      // shows its countdown in the lobby and keeps the wire frame unchanged.
+      ...(includeCountdown
+        ? { startsAt: this.startsAt, serverTime: Date.now() }
+        : {}),
     });
 
     if (!prestartMsg.success) {
@@ -1132,8 +1166,11 @@ export class GameServer {
       });
   }
 
-  private startLobbyInfoBroadcast() {
-    if (this.stage === "started" || this.ended) {
+  // `allowStarted` keeps the broadcast running during a restored save's start
+  // countdown, where stage is already "started" but players are still choosing
+  // a nation. The caller stops it explicitly once the game resumes.
+  private startLobbyInfoBroadcast(allowStarted = false) {
+    if ((!allowStarted && this.stage === "started") || this.ended) {
       return;
     }
     if (this.lobbyInfoIntervalId !== null) {
@@ -1142,7 +1179,7 @@ export class GameServer {
     this.broadcastLobbyInfo();
     this.lobbyInfoIntervalId = setInterval(() => {
       if (
-        this.stage === "started" ||
+        (!allowStarted && this.stage === "started") ||
         this.ended ||
         this.clients.active().length === 0
       ) {
@@ -1297,6 +1334,53 @@ export class GameServer {
     );
   }
 
+  // A restored save does not resume the instant somebody joins: it first runs a
+  // short start countdown (the same "start timer" as a new lobby) so the
+  // original players can open the link and claim their nation. Armed on the
+  // first join; idempotent while it runs, and re-armed by a later join if
+  // everybody left before it elapsed.
+  private beginResumeCountdown(): void {
+    if (this.resumeStarted || this.ended) {
+      return;
+    }
+    if (this.resumeCountdownTimer === undefined) {
+      this.setStartsAt(Date.now() + GameServer.RESUME_START_DELAY_MS);
+      // stage is already "started", which the normal broadcast helper bails on;
+      // allow it for this window and stop it when the countdown ends.
+      this.startLobbyInfoBroadcast(true);
+      this.resumeCountdownTimer = setTimeout(
+        () => this.startResumedGame(),
+        GameServer.RESUME_START_DELAY_MS,
+      );
+    }
+    this.sendPrestartMessages(true);
+  }
+
+  // The countdown elapsed: hand everyone the saved history and arm the turn
+  // loop. A normal game never reaches this (it starts through GameManager).
+  private startResumedGame(): void {
+    this.resumeCountdownTimer = undefined;
+    if (this.resumeStarted || this.ended) {
+      return;
+    }
+    // Everybody left during the countdown: stay idle and let phase() finish it
+    // (or a later join re-arm). Starting with no clients only spawns empty
+    // turns.
+    if (this.clients.active().length === 0) {
+      return;
+    }
+    this.resumeStarted = true;
+    this.startsAt = undefined;
+    this.stopLobbyInfoBroadcast();
+    this.clients.active().forEach((c) => this.sendStartGameMsg(c.ws, 0));
+    this.ensureTurnLoop();
+  }
+
+  // True while a restored save is still waiting out its start countdown.
+  public isResumeCountingDown(): boolean {
+    return this.restored && !this.resumeStarted;
+  }
+
   // Connected clients who will actually play. Spectators are excluded
   // everywhere a "player" is meant: the lobby cap, and gameStartInfo.
   private playerCount(): number {
@@ -1448,6 +1532,12 @@ export class GameServer {
   private endTurn() {
     // Skip turn execution if game is paused
     if (this.paused) {
+      return;
+    }
+    // A restored game waiting out its start countdown must not advance: the
+    // loop is not armed yet, but a stray toggle_pause would otherwise commit a
+    // turn before the saved history has even been delivered.
+    if (this.restored && !this.resumeStarted) {
       return;
     }
 

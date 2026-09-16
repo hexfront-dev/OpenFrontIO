@@ -143,7 +143,15 @@ export class LocalServer {
     this.startedAt = Date.now();
     this.clientConnect();
     if (this.lobbyConfig.resume) {
-      this.replayTurns = this.lobbyConfig.resume.turns;
+      const savedTurns = this.lobbyConfig.resume.turns;
+      this.replayTurns = savedTurns;
+      // A resume skips the live replay phase entirely: the entire saved
+      // history is handed to the client in one shot (at rejoin) and its worker
+      // catches up off-screen, then live play continues from the saved turn.
+      // The old path trickled one turn per turn interval, so a long save took
+      // minutes to reach the point the player actually wanted.
+      this.turns = savedTurns.slice();
+      this.live = true;
     } else if (this.lobbyConfig.gameRecord) {
       this.replayTurns = decompressGameRecord(
         this.lobbyConfig.gameRecord,

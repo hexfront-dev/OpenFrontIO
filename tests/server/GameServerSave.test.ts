@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GameType } from "../../src/core/game/Game";
 import { SavedLobbySchema } from "../../src/core/Schemas";
 import { createGameWireContext } from "../../src/core/ZbinWire";
-import { GamePhase } from "../../src/server/GameServer";
+import { GamePhase, GameServer } from "../../src/server/GameServer";
 import { MemorySaveStore } from "../../src/server/SaveStore";
 import {
   cid,
@@ -113,7 +113,7 @@ describe("GameServer restore", () => {
     expect(restored.numClients()).toBe(1);
   });
 
-  it("lets a new player claim an original human nation", () => {
+  it("lets a new player claim an original human nation after a start countdown", () => {
     const snap = startedSnapshot();
     const restored = makeGame({ restore: snap });
     const joiner = makeClient({
@@ -126,10 +126,24 @@ describe("GameServer restore", () => {
     expect(joiner.spectator).toBe(false);
 
     const ctx = createGameWireContext(snap.gameStartInfo!.players);
+    // The resumed game does not start instantly: it holds a start countdown so
+    // late players still have time to pick a nation.
+    const beforeStart = mockWsOf(joiner).sent(ctx);
+    expect(beforeStart.some((m) => m.type === "start")).toBe(false);
+    const prestart = beforeStart.find((m) => m.type === "prestart");
+    expect(prestart?.type === "prestart" && prestart.startsAt).toBeGreaterThan(
+      Date.now(),
+    );
+    expect(restored.isResumeCountingDown()).toBe(true);
+
+    // Once the countdown elapses the saved history is delivered and play
+    // resumes with the claimed nation.
+    vi.advanceTimersByTime(GameServer.RESUME_START_DELAY_MS + 10);
     const start = mockWsOf(joiner)
       .sent(ctx)
       .find((m) => m.type === "start");
     expect(start?.type === "start" && start.myClientID).toBe(cid("p2"));
+    expect(restored.isResumeCountingDown()).toBe(false);
 
     // The claimed seat is no longer offered to anyone else.
     expect(restored.claimableSeats("other-pid")).toContainEqual({
@@ -137,6 +151,25 @@ describe("GameServer restore", () => {
       username: expect.any(String),
       claimed: true,
     });
+  });
+
+  it("starts a restored game immediately once its countdown has elapsed", () => {
+    const snap = startedSnapshot();
+    const restored = makeGame({ restore: snap });
+    const ctx = createGameWireContext(snap.gameStartInfo!.players);
+
+    const first = makeClient({ clientID: cid("first"), persistentID: "f-pid" });
+    expect(restored.joinClient(first, cid("p2"))).toBe("joined");
+    vi.advanceTimersByTime(GameServer.RESUME_START_DELAY_MS + 10);
+    expect(restored.isResumeCountingDown()).toBe(false);
+
+    // A late joiner after the countdown goes straight into the running game.
+    const late = makeClient({ clientID: cid("late"), persistentID: "l-pid" });
+    expect(restored.joinClient(late, cid("host"))).toBe("joined");
+    const start = mockWsOf(late)
+      .sent(ctx)
+      .find((m) => m.type === "start");
+    expect(start?.type === "start" && start.myClientID).toBe(cid("host"));
   });
 
   it("cannot claim an AI nation or a seat someone already holds", () => {
