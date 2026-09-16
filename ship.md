@@ -83,23 +83,15 @@ Tollhouse is reworked:
 
 - **Range overlay (all players).** `RangeCirclePass`
   (`src/client/render/gl/passes/RangeCirclePass.ts`) draws a persistent
-  translucent circle per Tollhouse via `updateTollhouseRanges(...)`. The list
-  is built in `Renderer.updateStructures()` from the unit map using
-  `config.tollhouseRange(level)`, so it always reflects the current level.
-  Every Tollhouse range is amber (`TOLLHOUSE_COLOR`), regardless of owner, so
-  every player sees the same overlay. Remove the
+  translucent amber circle per Tollhouse via `updateTollhouseRanges(...)`; the
+  list is built in `Renderer.updateStructures()` using
+  `config.tollhouseRange(level)`. Remove the
   `else if (u.unitType === UT_TOLLHOUSE ...)` branch in `Renderer.ts` and the
   `tollhouses` field/draw loop in `RangeCirclePass.ts` to drop it.
-- **Toll payout + notification.** A toll is paid the instant a ship is tolled in
-  `TradeShipExecution.applyTolls()`, not at arrival. The amount is a percentage
-  of the value the ship will have on arrival: its value is a function of total
-  distance travelled, so the remaining route length is found with a one-shot
-  path query (`projectedArrivalValue`) and added to the distance covered so far.
-  The amount already paid is recorded on the ship's toll ledger and subtracted
-  from the trade endpoints' payout in `deductTolls()` when it arrives. The toller
-  is notified with a private `MessageType.TOLL` event (`playerID =
-toller.id()`), text `events_display.toll_earned` in `resources/lang/en.json`;
-  its color is set in `src/client/Utils.ts` (`getMessageTypeClasses`).
+- **Toll notification.** Collecting a toll emits a private `MessageType.TOLL`
+  event to the toller (`playerID = toller.id()`); text
+  `events_display.toll_earned`, colored in `src/client/Utils.ts`
+  (`getMessageTypeClasses`).
 
 ## 6. Other places that reference structure icons (optional polish)
 
@@ -132,8 +124,6 @@ would normally be added there too:
   percentage of the value the ship will have at its destination (projected from
   the remaining route); that already-paid amount is subtracted from the trade
   endpoints' payout at arrival (`src/core/execution/TradeShipExecution.ts`).
-  Registration happens as the ship traverses the range (`applyTolls`), and the
-  endpoints' reduced payout is computed at `complete()` (`deductTolls`).
 - Config lives in `src/core/configuration/Config.ts`:
   `tollhouseBaseRange`, `tollhouseRange`, `tollhouseMaxRange`,
   `tollhouseMaxTollsPerWindow`, `tollhouseTollCooldown`.
