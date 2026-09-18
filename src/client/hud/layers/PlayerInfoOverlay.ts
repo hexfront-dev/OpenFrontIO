@@ -572,7 +572,7 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
         <input
           type="range"
           min=${String(universalRate)}
-          max="100"
+          max="40"
           step="1"
           .value=${String(rate)}
           class="flex-1 min-w-0 accent-yellow-400"

@@ -76,10 +76,15 @@ describe("Tollhouse", () => {
     expect(tollhouse.canTollShip(130)).toBe(true);
   });
 
-  test("setTollRate clamps to 0-100 and clears at 0", () => {
+  test("setTollRate clamps to 0-40 and clears at 0", () => {
     const exec = new SetTollRateExecution(toller, trader.id(), 40);
     exec.init(game, 0);
     exec.tick(0);
+    expect(toller.tollRateFor(trader)).toBe(40);
+
+    const over = new SetTollRateExecution(toller, trader.id(), 80);
+    over.init(game, 0);
+    over.tick(0);
     expect(toller.tollRateFor(trader)).toBe(40);
 
     const clear = new SetTollRateExecution(toller, trader.id(), 0);
@@ -102,26 +107,26 @@ describe("Tollhouse", () => {
 
     // A per-nation rate above the floor wins; below the floor is raised.
     toller.setTollRate(trader, 50);
-    expect(toller.tollRateFor(trader)).toBe(50);
+    expect(toller.tollRateFor(trader)).toBe(40);
     toller.setTollRate(other, 10);
     expect(toller.tollRateFor(other)).toBe(30);
 
-    // The floor clamps to 0-100 like the per-nation rate.
+    // The floor clamps to 0-40 like the per-nation rate.
     const over = new SetUniversalTollRateExecution(toller, 500);
     over.init(game, 0);
     over.tick(0);
-    expect(toller.universalTollRate()).toBe(100);
+    expect(toller.universalTollRate()).toBe(40);
 
     // Raising the floor also raises stored per-nation rates to match...
-    expect(toller.tollRateFor(trader)).toBe(100);
-    expect(toller.tollRateFor(other)).toBe(100);
+    expect(toller.tollRateFor(trader)).toBe(40);
+    expect(toller.tollRateFor(other)).toBe(40);
     // ...and lowering it later leaves them raised.
     const under = new SetUniversalTollRateExecution(toller, -10);
     under.init(game, 0);
     under.tick(0);
     expect(toller.universalTollRate()).toBe(0);
-    expect(toller.tollRateFor(trader)).toBe(100);
-    expect(toller.tollRateFor(other)).toBe(100);
+    expect(toller.tollRateFor(trader)).toBe(40);
+    expect(toller.tollRateFor(other)).toBe(40);
   });
 
   test("a ship is tolled by the universal rate with no per-nation rate", () => {

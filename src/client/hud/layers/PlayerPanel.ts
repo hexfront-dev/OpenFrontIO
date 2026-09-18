@@ -692,7 +692,7 @@ export class PlayerPanel extends LitElement implements Controller {
         <input
           type="range"
           min="0"
-          max="100"
+          max="40"
           step="1"
           .value=${String(rate)}
           class="w-full accent-yellow-400"
@@ -736,7 +736,7 @@ export class PlayerPanel extends LitElement implements Controller {
         <input
           type="range"
           min=${String(universalRate)}
-          max="100"
+          max="40"
           step="1"
           .value=${String(rate)}
           class="w-full accent-yellow-400"

@@ -663,14 +663,14 @@ export const EmbargoIntentSchema = z.object({
 export const SetTollRateIntentSchema = z.object({
   type: z.literal("set_toll_rate"),
   targetID: MappedID,
-  // Percentage (0-100) this player's Tollhouses charge the target's ships.
-  percent: zb.uint({ max: 100 }),
+  // Percentage (0-40) this player's Tollhouses charge the target's ships.
+  percent: zb.uint({ max: 40 }),
 });
 
 export const SetUniversalTollRateIntentSchema = z.object({
   type: z.literal("set_universal_toll_rate"),
-  // Minimum percentage (0-100) this player's Tollhouses charge every nation.
-  percent: zb.uint({ max: 100 }),
+  // Minimum percentage (0-40) this player's Tollhouses charge every nation.
+  percent: zb.uint({ max: 40 }),
 });
 
 export const EmbargoAllIntentSchema = z.object({

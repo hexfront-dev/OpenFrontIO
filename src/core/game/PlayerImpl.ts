@@ -95,6 +95,9 @@ const EMPTY_ALLIANCE_VIEWS: AllianceView[] = [];
 const EMPTY_EMOJIS: EmojiMessage[] = [];
 const EMPTY_EMBARGOES = new Set<string>();
 const EMPTY_TOLLS: TollRateUpdate[] = [];
+// Highest toll percentage a nation may charge. The HUD sliders use the same
+// cap, so an intent from an unmodified client never exceeds it.
+const MAX_TOLL_RATE = 40;
 // Reusable buffers for hot loops. The simulation is single-threaded and these
 // are fully consumed before any re-entrant call, so sharing is safe.
 const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
@@ -137,11 +140,11 @@ export class PlayerImpl implements Player {
 
   private embargoes = new Map<PlayerID, Embargo>();
 
-  // Per-nation toll percentage (0-100) this player's Tollhouses charge the
+  // Per-nation toll percentage (0-40) this player's Tollhouses charge the
   // trade ships of the keyed nation. Absent key = 0 (no toll).
   private tollRates = new Map<PlayerID, number>();
 
-  // Universal minimum toll percentage (0-100) charged to every other nation.
+  // Universal minimum toll percentage (0-40) charged to every other nation.
   // A nation's effective rate is max(universalTollRateValue, per-nation rate).
   private universalTollRateValue = 0;
 
@@ -1253,7 +1256,7 @@ export class PlayerImpl implements Player {
   }
 
   setTollRate(other: Player, percent: number): void {
-    const clamped = Math.max(0, Math.min(100, Math.floor(percent)));
+    const clamped = Math.max(0, Math.min(MAX_TOLL_RATE, Math.floor(percent)));
     if (clamped <= 0) {
       this.tollRates.delete(other.id());
       return;
@@ -1266,7 +1269,7 @@ export class PlayerImpl implements Player {
   }
 
   setUniversalTollRate(percent: number): void {
-    const clamped = Math.max(0, Math.min(100, Math.floor(percent)));
+    const clamped = Math.max(0, Math.min(MAX_TOLL_RATE, Math.floor(percent)));
     this.universalTollRateValue = clamped;
     // Raising the floor also raises every stored per-nation rate that sits
     // below it, so the per-nation sliders track the global minimum and stay
