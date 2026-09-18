@@ -6,6 +6,7 @@ import {
   MemorySaveBackend,
   setSaveBackend,
 } from "../src/client/SaveStore";
+import { decodeRenderSnapshot } from "../src/client/view/RenderSnapshot";
 import {
   Difficulty,
   GameMapSize,
@@ -78,6 +79,31 @@ describe("SaveManager append-only autosave", () => {
     expect(loaded?.turns.map((t) => t.turnNumber)).toEqual([
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
     ]);
+
+    manager.dispose();
+  });
+
+  it("attaches a render preview to the autosave", async () => {
+    const manager = new SaveManager();
+    manager.begin(startInfo(), "CLIENT01");
+    manager.setSnapshotProvider(() => ({
+      tick: 3,
+      startTick: null,
+      width: 1,
+      height: 1,
+      tileState: new Uint16Array([7]),
+      terrain: new Uint8Array([0]),
+      players: [],
+      units: [],
+      names: [],
+    }));
+    manager.recordTurn({ turnNumber: 0, intents: [] });
+    await manager.persist();
+
+    const loaded = await loadSave("GAME0001");
+    expect(loaded?.renderSnapshot).toBeDefined();
+    const decoded = decodeRenderSnapshot(loaded!.renderSnapshot!);
+    expect(decoded?.tileState[0]).toBe(7);
 
     manager.dispose();
   });

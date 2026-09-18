@@ -7,8 +7,9 @@ import {
 } from "../core/Schemas";
 import { ClientEnv } from "./ClientEnv";
 import { saveGameProgress } from "./SaveStore";
+import { encodeRenderSnapshot, RenderSnapshot } from "./view/RenderSnapshot";
 
-const SAVE_EVERY_TURNS = 25;
+const SAVE_EVERY_TURNS = 100;
 
 export class SaveManager {
   private startInfo: GameStartInfo | null = null;
@@ -19,6 +20,8 @@ export class SaveManager {
   private dirty = false;
   private disposed = false;
   private listening = false;
+  // B1: optional provider for a render preview captured on each autosave.
+  private snapshotProvider: (() => RenderSnapshot | undefined) | null = null;
 
   private readonly onPageHide = () => {
     void this.persist();
@@ -29,6 +32,14 @@ export class SaveManager {
       void this.persist();
     }
   };
+
+  // B1: install a provider that returns the current render preview. Called on
+  // every autosave; return undefined to skip snapshotting this save.
+  public setSnapshotProvider(
+    provider: (() => RenderSnapshot | undefined) | null,
+  ) {
+    this.snapshotProvider = provider;
+  }
 
   public begin(startInfo: GameStartInfo, myClientID: ClientID | undefined) {
     this.startInfo = startInfo;
@@ -70,6 +81,17 @@ export class SaveManager {
     const newTurns = this.turnsSince(this.lastPersistedTurn + 1);
     const persistedThrough = this.turns.length - 1;
     const startInfo = this.startInfo;
+    // B1: capture the render preview on the same cadence as the autosave. It is
+    // a preview only; if the provider throws or is absent the save still lands.
+    let renderSnapshot: string | undefined;
+    try {
+      const snapshot = this.snapshotProvider?.();
+      if (snapshot !== undefined) {
+        renderSnapshot = encodeRenderSnapshot(snapshot);
+      }
+    } catch (error) {
+      console.error("Failed to capture render snapshot", error);
+    }
     const head: SavedGameHead = {
       version: SAVED_GAME_VERSION,
       saveId: startInfo.gameID,
@@ -80,6 +102,7 @@ export class SaveManager {
       myClientID: this.myClientID,
       startInfo,
       numTurns: this.turns.length,
+      renderSnapshot,
     };
     try {
       await saveGameProgress(head, newTurns, firstWrite);

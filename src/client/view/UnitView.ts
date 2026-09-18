@@ -7,11 +7,12 @@ import {
   WarshipState,
 } from "../../core/game/Game";
 import { TileRef } from "../../core/game/GameMap";
-import { UnitUpdate } from "../../core/game/GameUpdates";
+import { GameUpdateType, UnitUpdate } from "../../core/game/GameUpdates";
 import type { UnitState } from "../render/types";
 import { TrainType as RendererTrainType } from "../render/types";
 import { GameView } from "./GameView";
 import { PlayerView } from "./PlayerView";
+import { SnapshotUnit } from "./RenderSnapshot";
 
 /**
  * Convert engine TrainType (string enum) to renderer's numeric encoding.
@@ -80,6 +81,49 @@ function unitStateFromUpdate(u: UnitUpdate): UnitState {
   };
 }
 
+// B1: invert unitStateFromUpdate() so a render snapshot can rebuild UnitView.
+// Sub-states (warship/transport/nuke) are stored verbatim so exotic units
+// round-trip exactly.
+function snapshotToUnitUpdate(snap: SnapshotUnit): UnitUpdate {
+  const s = snap.state;
+  return {
+    type: GameUpdateType.Unit,
+    unitType: s.unitType as UnitType,
+    troops: s.troops,
+    id: s.id,
+    ownerID: s.ownerID,
+    lastOwnerID: s.lastOwnerID ?? undefined,
+    pos: s.pos,
+    lastPos: s.lastPos,
+    isActive: s.isActive,
+    reachedTarget: s.reachedTarget,
+    targetable: s.targetable,
+    markedForDeletion: s.markedForDeletion,
+    targetUnitId: s.targetUnitId ?? undefined,
+    targetTile: s.targetTile ?? undefined,
+    health: s.health ?? undefined,
+    underConstruction: s.underConstruction,
+    missileTimerQueue: s.missileTimerQueue.slice(),
+    level: s.level,
+    hasTrainStation: s.hasTrainStation,
+    fleetId: s.fleetId,
+    trainType: numToTrainType(s.trainType),
+    loaded: s.loaded ?? undefined,
+    warshipState: snap.warshipState,
+    transportShipState: snap.transportShipState,
+    nukeState: snap.nukeState,
+    samUpgrade:
+      s.samUpgradeStartTick === null
+        ? undefined
+        : {
+            upgradeStartTick: s.samUpgradeStartTick ?? undefined,
+            startRange: s.samUpgradeStartRange ?? 0,
+            targetLevel: s.samUpgradeTargetLevel ?? s.level,
+            duration: s.samUpgradeDuration ?? 0,
+          },
+  };
+}
+
 /** Mutate `target` in place from a UnitUpdate, avoiding any allocation. */
 function applyUpdateInPlace(target: UnitState, u: UnitUpdate): void {
   target.ownerID = u.ownerID;
@@ -141,6 +185,35 @@ export class UnitView {
 
   createdAt(): Tick {
     return this._createdAt;
+  }
+
+  /** B1: deep-copy everything needed to rebuild this unit on another GameView. */
+  toSnapshot(): SnapshotUnit {
+    return {
+      state: structuredClone(this.state),
+      warshipState:
+        this._warshipState === undefined
+          ? undefined
+          : structuredClone(this._warshipState),
+      transportShipState:
+        this._transportShipState === undefined
+          ? undefined
+          : structuredClone(this._transportShipState),
+      nukeState:
+        this._nukeState === undefined
+          ? undefined
+          : structuredClone(this._nukeState),
+      createdAt: this._createdAt,
+    };
+  }
+
+  /** B1: rebuild a UnitView from a snapshot. */
+  static fromSnapshot(gameView: GameView, snap: SnapshotUnit): UnitView {
+    const view = new UnitView(gameView, snapshotToUnitUpdate(snap));
+    view._createdAt = snap.createdAt;
+    view.lastPos = [snap.state.lastPos, snap.state.pos];
+    view.state.constructionStartTick = snap.state.constructionStartTick;
+    return view;
   }
 
   wasUpdated(): boolean {

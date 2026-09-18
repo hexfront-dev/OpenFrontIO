@@ -40,6 +40,7 @@ import { TrailManager } from "../render/frame/TrailManager";
 import type { FrameData, NameEntry } from "../render/types";
 import { STRUCTURE_TYPES } from "../render/types";
 import { PlayerView } from "./PlayerView";
+import { RenderSnapshot, SnapshotPlayer, SnapshotUnit } from "./RenderSnapshot";
 import { UnitView } from "./UnitView";
 
 const TRAIL_TYPES: ReadonlySet<UnitType> = new Set<UnitType>([
@@ -775,6 +776,126 @@ export class GameView implements GameMap {
   /** Public accessor: the renderer reads this and uploads to the GPU. */
   frameData(): FrameData {
     return this._frame;
+  }
+
+  /**
+   * B1: capture a render-only snapshot of the current view. This is a preview
+   * (territory, terrain, players, units, name placements) — not core sim state —
+   * so a resumed save can paint immediately while the worker catches up.
+   */
+  exportRenderSnapshot(): RenderSnapshot {
+    const width = this._map.width();
+    const height = this._map.height();
+    const tileState = new Uint16Array(this._map.tileStateBuffer());
+    const terrain = new Uint8Array(width * height);
+    for (let i = 0; i < terrain.length; i++) {
+      terrain[i] = this._map.terrainByte(i);
+    }
+    const players: SnapshotPlayer[] = [];
+    for (const p of this._players.values()) {
+      players.push(p.toSnapshot());
+    }
+    const units: SnapshotUnit[] = [];
+    for (const u of this._units.values()) {
+      if (u.isActive()) units.push(u.toSnapshot());
+    }
+    const names = [...this._names.values()].map((n) => ({ ...n }));
+    return {
+      tick: this._frame.tick,
+      startTick: this.startTick,
+      width,
+      height,
+      tileState,
+      terrain,
+      players,
+      units,
+      names,
+    };
+  }
+
+  /**
+   * B1: seed this view from a render snapshot so it can be painted without a
+   * history replay. Replaces all current view state; the next worker update
+   * continues from here.
+   */
+  applyRenderSnapshot(snapshot: RenderSnapshot): void {
+    if (
+      snapshot.width !== this._map.width() ||
+      snapshot.height !== this._map.height() ||
+      snapshot.tileState.length !== snapshot.width * snapshot.height
+    ) {
+      return;
+    }
+
+    // Territory/terrain. Nuke-driven terrain changes ride the packed high bits;
+    // when the snapshot has no terrain we copy the state buffer directly.
+    const stateBuffer = this._map.tileStateBuffer();
+    if (snapshot.terrain !== null) {
+      for (let i = 0; i < stateBuffer.length; i++) {
+        this._map.updateTile(
+          i,
+          snapshot.tileState[i] | (snapshot.terrain[i] << 16),
+        );
+      }
+    } else {
+      stateBuffer.set(snapshot.tileState.subarray(0, stateBuffer.length));
+    }
+
+    // Reset all view collections before re-seeding.
+    this._players.clear();
+    this._playerStates.clear();
+    this._teams.clear();
+    this.smallIDToID.clear();
+    this._units.clear();
+    this._unitStates.clear();
+    this._names.clear();
+    this.unitMotionPlans.clear();
+    this.trainMotionPlans.clear();
+    this.trainUnitToEngine.clear();
+    this.toDelete.clear();
+    this.unitGrid = new UnitGrid(this._map);
+
+    for (const snap of snapshot.players) {
+      const player = PlayerView.fromSnapshot(this, snap);
+      this._players.set(player.id(), player);
+      this._playerStates.set(player.smallID(), player.state);
+      this.smallIDToID.set(player.smallID(), player.id());
+      const team = player.team();
+      if (team !== null) {
+        this._teams.set(player.smallID(), team);
+      }
+    }
+
+    for (const snap of snapshot.units) {
+      const unit = UnitView.fromSnapshot(this, snap);
+      this._units.set(unit.id(), unit);
+      this._unitStates.set(unit.id(), unit.state);
+      this.unitGrid.addUnit(unit);
+    }
+
+    for (const name of snapshot.names) {
+      this._names.set(name.playerID, { ...name });
+    }
+
+    this.startTick = snapshot.startTick;
+    this._myPlayer = this._myClientID
+      ? this.playerByClientID(this._myClientID)
+      : null;
+
+    // Force a full GPU upload and rebuild the deferred derived frame data.
+    this._firstPopulate = true;
+    this._namesDirty = true;
+    this._relationsDirty = true;
+    this._clustersDirty = true;
+    this._structuresDirty = true;
+    this.markMotionPlannedUnitIdsDirty();
+    this.refreshFrame();
+    // refreshFrame() derives the tick from lastUpdate (null here); restore the
+    // snapshot's tick so interpolation starts from the saved point.
+    const frame = this._frame as {
+      -readonly [K in keyof FrameData]: FrameData[K];
+    };
+    frame.tick = snapshot.tick;
   }
 
   /**

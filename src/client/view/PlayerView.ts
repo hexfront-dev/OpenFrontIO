@@ -25,12 +25,14 @@ import { applyStateUpdate } from "../../core/game/GameUpdateUtils";
 import {
   AllianceView,
   AttackUpdate,
+  GameUpdateType,
   PlayerUpdate,
 } from "../../core/game/GameUpdates";
 import { UserSettings } from "../../core/game/UserSettings";
 import { PlayerState, PlayerStatic, PlayerTypeEnum } from "../render/types";
 import { themeProvider } from "../theme/ThemeProvider";
 import { GameView } from "./GameView";
+import { SnapshotPlayer } from "./RenderSnapshot";
 import { UnitView } from "./UnitView";
 
 const userSettings: UserSettings = new UserSettings();
@@ -50,6 +52,64 @@ function gamePlayerTypeToEnum(t: PlayerType): PlayerTypeEnum {
     default:
       return PlayerTypeEnum.Bot;
   }
+}
+
+function playerTypeEnumToGame(t: PlayerTypeEnum): PlayerType {
+  switch (t) {
+    case PlayerTypeEnum.Human:
+      return PlayerType.Human;
+    case PlayerTypeEnum.Nation:
+      return PlayerType.Nation;
+    default:
+      return PlayerType.Bot;
+  }
+}
+
+// B1: invert stateFromUpdate() so a render snapshot can rebuild the same
+// PlayerView without a history replay. PlayerUpdate is the sole constructor
+// input, so the full snapshot is expanded back into a full update.
+function snapshotToPlayerUpdate(snap: SnapshotPlayer): PlayerUpdate {
+  const s = snap.static;
+  const st = snap.state;
+  return {
+    type: GameUpdateType.Player,
+    id: s.id,
+    name: s.name,
+    displayName: s.displayName,
+    clanTag: s.clanTag,
+    clientID: s.clientID,
+    smallID: s.smallID,
+    playerType: playerTypeEnumToGame(s.playerType),
+    team: s.team ?? undefined,
+    isLobbyCreator: s.isLobbyCreator,
+    isAlive: st.isAlive,
+    isDisconnected: st.isDisconnected,
+    killedBy: st.killedBy,
+    deathPosition: st.deathPosition,
+    tilesOwned: st.tilesOwned,
+    gold: BigInt(Math.trunc(st.gold)),
+    tradeGold: BigInt(Math.trunc(st.tradeGold)),
+    trainGold: BigInt(Math.trunc(st.trainGold)),
+    piracyGold: BigInt(Math.trunc(st.piracyGold)),
+    goldEarned: BigInt(Math.trunc(st.goldEarned)),
+    troops: st.troops,
+    isTraitor: st.isTraitor,
+    traitorRemainingTicks: st.traitorRemainingTicks,
+    inDoomsdayClock: st.inDoomsdayClock,
+    isDecaying: st.isDecaying,
+    markedDoomsdayClockTick: st.markedDoomsdayClockTick,
+    betrayals: st.betrayals,
+    hasSpawned: st.hasSpawned,
+    spawnTile: st.spawnTile,
+    lastDeleteUnitTick: st.lastDeleteUnitTick,
+    allies: st.allies.slice(),
+    targets: st.targets.slice(),
+    outgoingAttacks: st.outgoingAttacks.map((a) => ({ ...a })),
+    incomingAttacks: st.incomingAttacks.map((a) => ({ ...a })),
+    outgoingAllianceRequests: st.outgoingAllianceRequests.slice(),
+    alliances: st.alliances.map((a) => ({ ...a })),
+    universalTollRate: st.universalTollRate,
+  };
 }
 
 // First-emission updates from the engine always include every field; these
@@ -285,6 +345,34 @@ export class PlayerView {
   /** Set the renderer-format embargoes (smallIDs). */
   setEmbargoSmallIDs(smallIDs: number[]): void {
     this.state.embargoes = smallIDs;
+  }
+
+  /** B1: deep-copy everything needed to rebuild this view on another GameView. */
+  toSnapshot(): SnapshotPlayer {
+    return {
+      static: structuredClone(this.static),
+      state: structuredClone(this.state),
+      nameData:
+        this.nameData === undefined
+          ? undefined
+          : structuredClone(this.nameData),
+      cosmetics: structuredClone(this.cosmetics),
+    };
+  }
+
+  /** B1: rebuild a PlayerView from a snapshot (colors recomputed on construct). */
+  static fromSnapshot(game: GameView, snap: SnapshotPlayer): PlayerView {
+    const view = new PlayerView(
+      game,
+      snapshotToPlayerUpdate(snap),
+      snap.nameData,
+      snap.cosmetics,
+    );
+    // Embargoes ride the wire as engine PlayerIDs; the snapshot already holds
+    // renderer-format smallIDs, so restore them directly (past the translation
+    // passes in GameView.update()).
+    view.state.embargoes = snap.state.embargoes.slice();
+    return view;
   }
 
   /**

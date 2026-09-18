@@ -1294,6 +1294,10 @@ export const SavedGameSchema = z.object({
   myClientID: ID.optional(),
   startInfo: GameStartInfoSchema,
   turns: TurnSchema.array(),
+  // B1: an optional render-only preview (base64 JSON, see
+  // client/view/RenderSnapshot.ts) so a resume can paint before replay. Opaque
+  // here on purpose: the core schema stays free of client render types.
+  renderSnapshot: z.string().optional(),
 });
 export type SavedGame = z.infer<typeof SavedGameSchema>;
 

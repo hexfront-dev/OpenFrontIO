@@ -83,7 +83,7 @@ const KICK_REASON_MATCH_CANCELLED = "kick_reason.match_cancelled";
 
 // Autosave cadence for resumable private games (turns). The store write is
 // throttled further by SAVE_MIN_INTERVAL_MS, so a fast game saves less often.
-const SAVE_EVERY_TURNS = 25;
+const SAVE_EVERY_TURNS = 100;
 const SAVE_MIN_INTERVAL_MS = 3000;
 
 export interface GameServerOptions {

@@ -252,11 +252,11 @@ describe("GameServer autosave", () => {
     );
     startGame(game);
 
-    // 25 turns triggers the first checkpoint; async writes settle between ticks.
-    await vi.advanceTimersByTimeAsync(25 * TURN_MS);
+    // 100 turns triggers the first checkpoint; async writes settle between ticks.
+    await vi.advanceTimersByTimeAsync(100 * TURN_MS);
 
     const loaded = await saveStore.load(game.id);
     expect(loaded).not.toBeNull();
-    expect(loaded!.turns.length).toBeGreaterThanOrEqual(25);
+    expect(loaded!.turns.length).toBeGreaterThanOrEqual(100);
   });
 });

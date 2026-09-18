@@ -152,6 +152,7 @@ export class SavesModal extends BaseModal {
             startInfo: save.startInfo,
             turns: save.turns,
             myClientID: clientID,
+            renderSnapshot: save.renderSnapshot,
           },
           source: "private",
         } satisfies JoinLobbyEvent,

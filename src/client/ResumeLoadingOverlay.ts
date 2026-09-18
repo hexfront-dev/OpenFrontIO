@@ -11,6 +11,12 @@ export class ResumeLoadingOverlay extends LitElement {
   @state()
   private progress = 0;
 
+  // B1: when a render preview has already painted the saved map, the overlay
+  // stops hiding the canvas and shrinks to a progress pill. It still covers the
+  // screen invisibly so input cannot reach the not-yet-live game.
+  @state()
+  private preview = false;
+
   createRenderRoot() {
     return this;
   }
@@ -22,8 +28,29 @@ export class ResumeLoadingOverlay extends LitElement {
     this.requestUpdate();
   }
 
+  public setPreviewMode(on: boolean): void {
+    if (this.preview === on) return;
+    this.preview = on;
+    this.requestUpdate();
+  }
+
   render() {
     const progress = this.progress;
+    if (this.preview) {
+      return html`
+        <div class="fixed inset-0 z-[10000] flex items-end justify-center">
+          <div
+            class="mb-6 flex items-center gap-3 rounded-full bg-black/70 px-4 py-2 text-white text-sm backdrop-blur-sm"
+          >
+            <div
+              class="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"
+            ></div>
+            <span>${translateText("save_game.catching_up")}</span>
+            <span class="text-white/60">${progress}%</span>
+          </div>
+        </div>
+      `;
+    }
     return html`
       <div
         class="fixed inset-0 z-[10000] flex flex-col items-center justify-center gap-5 bg-black/80 backdrop-blur-sm text-white"

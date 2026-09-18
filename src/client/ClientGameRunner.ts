@@ -94,11 +94,14 @@ import { ALL_UNIT_TYPES } from "./render/types";
 import { SoundManager } from "./sound/SoundManager";
 import { themeProvider } from "./theme/ThemeProvider";
 import { GameView, PlayerView } from "./view";
+import { decodeRenderSnapshot, RenderSnapshot } from "./view/RenderSnapshot";
 
 export interface ResumeInfo {
   startInfo: GameStartInfo;
   turns: Turn[];
   myClientID: ClientID;
+  // B1: encoded render preview for an instant first paint (see RenderSnapshot).
+  renderSnapshot?: string;
 }
 
 export interface LobbyConfig {
@@ -833,6 +836,7 @@ async function createClientGame(
 // value import cycle while still letting us drive it from here.
 interface ResumeLoadingOverlayElement extends HTMLElement {
   setProgress(percent: number): void;
+  setPreviewMode(on: boolean): void;
 }
 
 // Minimal surface of `game-starting-modal` for the resume start countdown.
@@ -856,6 +860,8 @@ export class ClientGameRunner {
   private catchUpTotal = 0;
   private catchUpDone = 0;
   private catchUpOverlay: ResumeLoadingOverlayElement | null = null;
+  // B1: decoded render preview for the first paint of a resumed save.
+  private readonly resumeSnapshot: RenderSnapshot | undefined;
 
   private lastMessageTime: number = 0;
   private connectionCheckInterval: NodeJS.Timeout | null = null;
@@ -882,6 +888,10 @@ export class ClientGameRunner {
     this.lastMessageTime = Date.now();
     this.isResume =
       lobby.resume !== undefined || lobby.claimClientID !== undefined;
+    this.resumeSnapshot =
+      lobby.resume?.renderSnapshot === undefined
+        ? undefined
+        : decodeRenderSnapshot(lobby.resume.renderSnapshot);
   }
 
   /**
@@ -943,6 +953,10 @@ export class ClientGameRunner {
       this.lobby.gameStartInfo.config.gameType !== GameType.Public
     ) {
       this.saveManager.begin(this.lobby.gameStartInfo, this.clientID);
+      // B1: expose the live view so each autosave can attach a render preview.
+      this.saveManager.setSnapshotProvider(() =>
+        this.gameView.exportRenderSnapshot(),
+      );
     }
     setTimeout(() => {
       this.connectionCheckInterval = setInterval(
@@ -1211,6 +1225,22 @@ export class ClientGameRunner {
     overlay.setProgress(0);
     document.body.appendChild(overlay);
     this.catchUpOverlay = overlay;
+
+    // B1: if the save carried a render preview, seed the view with it and paint
+    // immediately, then shrink the overlay to a non-blocking progress pill. The
+    // worker still replays off-screen; finishCatchUp rehydrates the final state.
+    if (this.resumeSnapshot !== undefined) {
+      try {
+        this.gameView.applyRenderSnapshot(this.resumeSnapshot);
+        this.webglBuilder?.rehydrate(this.gameView);
+        this.renderer.tick();
+        overlay.setPreviewMode(true);
+      } catch (error) {
+        // A bad preview must never block resume; fall back to the blocking
+        // overlay and the normal replay reveal.
+        console.error("Failed to apply render snapshot", error);
+      }
+    }
   }
 
   private onCatchUpTick(gu: GameUpdateViewData): void {
