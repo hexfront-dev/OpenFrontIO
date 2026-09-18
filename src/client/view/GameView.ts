@@ -110,6 +110,11 @@ export class GameView implements GameMap {
   private _structuresDirty = false;
   /** True until first populateFrame() — controls full-vs-delta tile upload. */
   private _firstPopulate = true;
+  /**
+   * True while a resumed save is replaying its history off-screen. Derived
+   * FrameData is deferred (see populateFrame) until refreshFrame().
+   */
+  private _catchUpMode = false;
 
   private _myPlayer: PlayerView | null = null;
 
@@ -553,7 +558,8 @@ export class GameView implements GameMap {
     this.trailManager.clearDirtyRows();
 
     // Railroad events accumulate into the cache; revealedRailTiles is cleared
-    // at the start of apply().
+    // at the start of apply(). This must run every tick so the cache's
+    // internal state stays correct even while the derived frame is deferred.
     this.railroadCache.apply(gu);
 
     // Trail update: walk active trail-type units and stamp/decay.
@@ -574,6 +580,40 @@ export class GameView implements GameMap {
       this._trailIdsScratch,
     );
 
+    if (this._catchUpMode) {
+      // A resumed save replays thousands of historical ticks behind a loading
+      // overlay. The renderer-facing derived data (names, player status,
+      // relations, nuke telegraphs, attack rings, event FX) is only ever read
+      // once at reveal, so skip recomputing it per historical tick. Flags are
+      // left dirty so refreshFrame() rebuilds everything from current state in
+      // a single pass.
+      this.railroadCache.clearDirty();
+      this._namesDirty = true;
+      this._relationsDirty = true;
+      this._clustersDirty = true;
+      this._structuresDirty = true;
+      return;
+    }
+
+    // FrameEvents — clear arrays, then re-populate from this tick's updates.
+    this.buildFrameEvents(gu);
+    this.recomputeDerived(gu.tick);
+
+    // Reset transient flags for next tick.
+    this.railroadCache.clearDirty();
+    this._structuresDirty = false;
+  }
+
+  /**
+   * Recompute the renderer-facing derived FrameData (names, player status,
+   * relations, alliance clusters, nuke telegraphs, attack rings) and the
+   * tile-upload hint from current GameView state.
+   *
+   * Extracted from populateFrame so a resumed save can defer all of it to a
+   * single reveal pass (see _catchUpMode) instead of paying for it on every
+   * historical tick.
+   */
+  private recomputeDerived(tick: number): void {
     // Names map — rebuilt only when a placement record arrived or a player
     // was added (nameData values cannot change between those ticks). Entry
     // order is irrelevant for the renderer.
@@ -590,9 +630,6 @@ export class GameView implements GameMap {
       }
     }
 
-    // FrameEvents — clear arrays, then re-populate from this tick's updates.
-    this.buildFrameEvents(gu);
-
     // Update FrameData fields. Derived data is computed once per tick and
     // stored directly on _frame (no intermediate copy). The renderer's
     // `readonly` modifier on FrameData is just an external API hint —
@@ -600,7 +637,7 @@ export class GameView implements GameMap {
     const f = this._frame as {
       -readonly [K in keyof FrameData]: FrameData[K];
     };
-    f.tick = gu.tick;
+    f.tick = tick;
     f.inSpawnPhase = this.startTick === null;
     f.railroadDirty = this.railroadCache.railroadDirty;
     f.trailDirtyRowMin = this.trailManager.dirtyRowMin;
@@ -610,7 +647,7 @@ export class GameView implements GameMap {
       localPlayerSmallID: this._myPlayer?.smallID() ?? 0,
       localPlayerID: this._myPlayer?.id() ?? "",
       tileState: this._map.tileStateBuffer(),
-      tick: gu.tick,
+      tick: tick,
       allianceDuration: this._config.allianceDuration(),
       isTransitiveTarget: (sid) =>
         this._myPlayer?.hasTransitiveTarget(sid) ?? false,
@@ -646,7 +683,7 @@ export class GameView implements GameMap {
       f.relationMatrix,
       f.relationSize,
       this.unitMotionPlans,
-      gu.tick,
+      tick,
     );
     f.attackRings = this._myPlayer
       ? extractAttackRings(
@@ -669,10 +706,28 @@ export class GameView implements GameMap {
       // they keep (TerritoryPass buckets them synchronously in the upload).
       f.changedTiles = this.updatedTiles;
     }
+  }
 
-    // Reset transient flags for next tick.
-    this.railroadCache.clearDirty();
-    this._structuresDirty = false;
+  /**
+   * Finish an off-screen catch-up: rebuild the deferred derived FrameData once
+   * from current state and clear stale event FX so the reveal shows no burst of
+   * historical explosions/conquests.
+   */
+  public refreshFrame(): void {
+    const events = this._frame.events;
+    events.deadUnits.length = 0;
+    events.conquestEvents.length = 0;
+    events.bonusEvents.length = 0;
+    this.recomputeDerived(this.lastUpdate?.tick ?? 0);
+  }
+
+  /**
+   * Enter/leave catch-up mode. While on, populateFrame tracks only the
+   * accumulated managers and defers all renderer-facing derived data to
+   * refreshFrame() (called once at reveal).
+   */
+  public setCatchUpMode(on: boolean): void {
+    this._catchUpMode = on;
   }
 
   /** Clear and repopulate _frame.events arrays from this tick's gu.updates. */

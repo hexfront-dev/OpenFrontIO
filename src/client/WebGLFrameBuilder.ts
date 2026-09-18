@@ -25,6 +25,7 @@ import {
   DEFAULT_NUKE_EXPLOSION_COLOR,
   MAX_NUKE_EXPLOSION_COLORS,
   type NukeExplosionRenderParams,
+  type UnitState,
 } from "./render/types";
 // Value import from the leaf module (not the ./render/gl barrel) so non-Vite
 // consumers don't pull in GPURenderer and its shaders — see note above.
@@ -305,6 +306,53 @@ export class WebGLFrameBuilder {
     this.syncNukeImpacts(gameView);
     this.resolveDeadUnitExplosions(gameView);
     uploadFrameData(this.view, gameView.frameData());
+  }
+
+  /**
+   * Force a full re-upload of the current GameView state to the GPU.
+   *
+   * The WebGL view is stateful and delta-driven: territory fills, terrain,
+   * units, railroads and relations normally ride per-tick deltas, so any path
+   * that skips update() for N ticks cannot simply resume — it would leave the
+   * map mostly empty (only borders survive, since they are recomputed from the
+   * full GameView). Such a path must repaint from the accumulated state once,
+   * exactly like a WebGL context restore.
+   *
+   * Used both by the context-restore handler and once when a resumed save
+   * finishes catching up its history off-screen. `clearCaches` drops the
+   * builder's change-detection mirrors so palettes, skins and spawns are
+   * re-pushed from scratch.
+   */
+  rehydrate(gameView: GameView): void {
+    this.clearCaches();
+
+    // Full terrain upload (water-nuke conversions mutate it after load).
+    const width = gameView.width();
+    const height = gameView.height();
+    const allTerrain = new Uint8Array(width * height);
+    for (let i = 0; i < allTerrain.length; i++) {
+      allTerrain[i] = gameView.terrainByte(i);
+    }
+    this.view.applyTerrainRects(
+      [{ x: 0, y: 0, w: width, h: height }],
+      allTerrain,
+    );
+
+    // Full tile + trail upload (supersedes any queued deltas).
+    const frameData = gameView.frameData();
+    this.view.uploadTileAndTrailState(
+      frameData.tileState,
+      frameData.trailState,
+    );
+
+    // Structures, railroads and relations normally skip GPU upload unless
+    // marked dirty; a rehydrate must push all of them.
+    this.view.updateStructures(frameData.units as Map<number, UnitState>);
+    this.view.uploadRailroadState(frameData.railroadState);
+    this.view.updateRelations(frameData.relationMatrix, frameData.relationSize);
+
+    // Re-sync players/effects/spawns and push the remaining per-tick state.
+    this.update(gameView);
   }
 
   /**

@@ -14,6 +14,7 @@ export type WorkerMessageType =
   | "init"
   | "initialized"
   | "turn"
+  | "turns"
   | "game_update"
   | "game_update_batch"
   | "game_error"
@@ -47,6 +48,14 @@ export interface InitMessage extends BaseWorkerMessage {
 export interface TurnMessage extends BaseWorkerMessage {
   type: "turn";
   turn: Turn;
+}
+
+// A whole backlog of turns in one message. A resumed save can hand over many
+// thousands of dense turns; a postMessage per turn costs a structured clone
+// each, so the resume path sends them batched instead.
+export interface TurnsMessage extends BaseWorkerMessage {
+  type: "turns";
+  turns: Turn[];
 }
 
 // Messages from worker to main thread
@@ -141,6 +150,7 @@ export interface TransportShipSpawnResultMessage extends BaseWorkerMessage {
 export type MainThreadMessage =
   | InitMessage
   | TurnMessage
+  | TurnsMessage
   | PlayerActionsMessage
   | PlayerBuildablesMessage
   | PlayerProfileMessage

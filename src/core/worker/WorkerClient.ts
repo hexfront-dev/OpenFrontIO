@@ -123,6 +123,22 @@ export class WorkerClient {
     });
   }
 
+  // A resumed save delivers its whole history at once rather than one
+  // postMessage (and structured clone) per turn.
+  sendTurns(turns: Turn[]) {
+    if (!this.isInitialized) {
+      throw new Error("Worker not initialized");
+    }
+    if (turns.length === 0) {
+      return;
+    }
+
+    this.worker!.postMessage({
+      type: "turns",
+      turns,
+    });
+  }
+
   playerProfile(playerID: number): Promise<PlayerProfile> {
     return new Promise((resolve, reject) => {
       if (!this.isInitialized) {

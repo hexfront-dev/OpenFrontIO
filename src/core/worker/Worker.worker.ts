@@ -19,12 +19,26 @@ globalThis.__ASSET_MANIFEST__ = __ASSET_MANIFEST__;
 let gameRunner: Promise<GameRunner> | null = null;
 const mapLoader = new FetchGameMapLoader((path) => assetUrl(`maps/${path}`));
 // Yield threshold; not a backlog cap. Used to avoid monopolizing the worker task
-// and flooding the main thread with messages during catch-up.
-const MAX_TICKS_BEFORE_YIELD = 4;
+// and flooding the main thread with messages during catch-up. A resumed save can
+// hand over thousands of turns at once, so a larger batch keeps the hop count
+// (and therefore per-message overhead) low while still yielding often enough
+// for player_* requests to interleave.
+const MAX_TICKS_BEFORE_YIELD = 32;
 
 let drainScheduled = false;
 let draining = false;
 let drainRequested = false;
+
+// Schedule a drain on a macrotask WITHOUT setTimeout's nesting clamp. Repeated
+// setTimeout(0) hops are clamped to ~4ms each once nested, so a long catch-up
+// (one hop per few ticks) would add tens of seconds of pure idle waiting.
+// A MessageChannel task yields to the event loop at full speed.
+const drainChannel = new MessageChannel();
+drainChannel.port1.onmessage = () => {
+  void drain().catch((e) => {
+    console.error("Worker drain failed:", e);
+  });
+};
 
 function scheduleDrain(): void {
   drainRequested = true;
@@ -32,11 +46,7 @@ function scheduleDrain(): void {
     return;
   }
   drainScheduled = true;
-  setTimeout(() => {
-    void drain().catch((e) => {
-      console.error("Worker drain failed:", e);
-    });
-  }, 0);
+  drainChannel.port2.postMessage(null);
 }
 
 async function drain(): Promise<void> {
@@ -175,6 +185,21 @@ ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
         scheduleDrain();
       } catch (error) {
         console.error("Failed to process turn:", error);
+        throw error;
+      }
+      break;
+
+    case "turns":
+      if (!gameRunner) {
+        throw new Error("Game runner not initialized");
+      }
+
+      try {
+        const gr = await gameRunner;
+        gr.addTurns(message.turns);
+        scheduleDrain();
+      } catch (error) {
+        console.error("Failed to process turns:", error);
         throw error;
       }
       break;

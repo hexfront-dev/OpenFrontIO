@@ -134,6 +134,12 @@ export class GameRunner {
     this.turns.push(turn);
   }
 
+  public addTurns(turns: Turn[]): void {
+    for (let i = 0; i < turns.length; i++) {
+      this.turns.push(turns[i]);
+    }
+  }
+
   public executeNextTick(pendingTurns?: number): boolean {
     if (this.isExecuting) {
       return false;

@@ -90,7 +90,7 @@ import {
   showGLGate,
   trackGLInit,
 } from "./render/gl";
-import { ALL_UNIT_TYPES, UnitState } from "./render/types";
+import { ALL_UNIT_TYPES } from "./render/types";
 import { SoundManager } from "./sound/SoundManager";
 import { themeProvider } from "./theme/ThemeProvider";
 import { GameView, PlayerView } from "./view";
@@ -596,29 +596,7 @@ function mountWebGLFrameLoop(
   // When context is lost and restored, WebGL loses all textures and geometry.
   // Force a full re-upload of the simulation state.
   view.onContextRestored = () => {
-    builder.clearCaches();
-
-    // Full upload of terrain, territory & trail state
-    const mapSize = mapWidth * mapHeight;
-    const allTerrain = new Uint8Array(mapSize);
-    for (let i = 0; i < mapSize; i++) {
-      allTerrain[i] = gameView.terrainByte(i);
-    }
-    view.applyTerrainRects(
-      [{ x: 0, y: 0, w: mapWidth, h: mapHeight }],
-      allTerrain,
-    );
-
-    const frameData = gameView.frameData();
-    view.uploadTileAndTrailState(frameData.tileState, frameData.trailState);
-
-    // Structures, railroads and relations normally skip GPU upload unless
-    // marked dirty, now force
-    view.updateStructures(frameData.units as Map<number, UnitState>);
-    view.uploadRailroadState(frameData.railroadState);
-    view.updateRelations(frameData.relationMatrix, frameData.relationSize);
-
-    builder.update(gameView);
+    builder.rehydrate(gameView);
   };
 
   return { builder, stopFrameLoop };
@@ -1025,13 +1003,12 @@ export class ClientGameRunner {
         this.saveGame(gu.updates[GameUpdateType.Win][0]);
       }
 
-      // While a resumed save is catching up, the GPU view must still be kept in
-      // step with the simulation: the renderer consumes cumulative per-tick
-      // deltas (territory, terrain, units, railroads), so dropping them would
-      // leave the map mostly empty once revealed. Only the UI tick is skipped —
-      // the overlay hides the canvas, so the player never sees the run-up.
+      // While a resumed save is catching up, keep only the CPU-side GameView
+      // in step with the simulation. The overlay hides the canvas, so there is
+      // no point paying for a per-tick GPU upload (territory/terrain deltas,
+      // unit buffers, dynamic name text) the player never sees. finishCatchUp
+      // repaints the accumulated final state in a single full rehydrate.
       if (this.catchingUp) {
-        this.webglBuilder?.update(this.gameView);
         this.onCatchUpTick(gu);
         return;
       }
@@ -1097,6 +1074,10 @@ export class ClientGameRunner {
           this.beginCatchUp(message.turns.length);
         }
 
+        // Hand the whole backlog to the worker in one message. A dense resumed
+        // history is thousands of turns; a postMessage per turn would pay a
+        // structured clone each and bloat this send loop.
+        const backlog: Turn[] = [];
         for (const turn of message.turns) {
           if (turn.turnNumber < this.turnsSeen) {
             continue;
@@ -1106,14 +1087,15 @@ export class ClientGameRunner {
               turnNumber: this.turnsSeen,
               intents: [],
             };
-            this.worker.sendTurn(emptyTurn);
+            backlog.push(emptyTurn);
             this.saveManager.recordTurn(emptyTurn);
             this.turnsSeen++;
           }
-          this.worker.sendTurn(turn);
+          backlog.push(turn);
           this.saveManager.recordTurn(turn);
           this.turnsSeen++;
         }
+        this.worker.sendTurns(backlog);
       }
       if (message.type === "desync") {
         if (this.lobby.gameStartInfo === undefined) {
@@ -1222,6 +1204,7 @@ export class ClientGameRunner {
     this.catchingUp = true;
     this.catchUpTotal = total;
     this.catchUpDone = 0;
+    this.gameView.setCatchUpMode(true);
     const overlay = document.createElement(
       "resume-loading-overlay",
     ) as ResumeLoadingOverlayElement;
@@ -1252,11 +1235,14 @@ export class ClientGameRunner {
       return;
     }
     this.catchingUp = false;
-    this.teardownCatchUp();
-    // The GPU view is already current (updated on every catch-up tick above);
-    // just paint the UI once now that the game is live. Normal per-tick
-    // rendering resumes on the next update.
+    // Rebuild the derived frame data that catch-up mode deferred, repaint the
+    // accumulated final state in one full GPU upload, then reveal by removing
+    // the overlay. Normal per-tick rendering resumes on the next update.
+    this.gameView.setCatchUpMode(false);
+    this.gameView.refreshFrame();
+    this.webglBuilder?.rehydrate(this.gameView);
     this.renderer.tick();
+    this.teardownCatchUp();
   }
 
   private teardownCatchUp(): void {
