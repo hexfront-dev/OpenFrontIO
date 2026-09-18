@@ -2,11 +2,11 @@ import {
   ClientID,
   GameStartInfo,
   SAVED_GAME_VERSION,
-  SavedGame,
+  SavedGameHead,
   Turn,
 } from "../core/Schemas";
 import { ClientEnv } from "./ClientEnv";
-import { saveGame } from "./SaveStore";
+import { saveGameProgress } from "./SaveStore";
 
 const SAVE_EVERY_TURNS = 25;
 
@@ -64,10 +64,13 @@ export class SaveManager {
     }
     this.saving = true;
     this.dirty = false;
-    const turns = this.denseTurns();
-    this.lastPersistedTurn = turns.length - 1;
+    // B0: append only the turns recorded since the last write, instead of
+    // rebuilding and re-validating the whole (dense) history every autosave.
+    const firstWrite = this.lastPersistedTurn === -1;
+    const newTurns = this.turnsSince(this.lastPersistedTurn + 1);
+    const persistedThrough = this.turns.length - 1;
     const startInfo = this.startInfo;
-    const save: SavedGame = {
+    const head: SavedGameHead = {
       version: SAVED_GAME_VERSION,
       saveId: startInfo.gameID,
       gameID: startInfo.gameID,
@@ -76,10 +79,14 @@ export class SaveManager {
       gitCommit: ClientEnv.gitCommit(),
       myClientID: this.myClientID,
       startInfo,
-      turns,
+      numTurns: this.turns.length,
     };
     try {
-      await saveGame(save);
+      await saveGameProgress(head, newTurns, firstWrite);
+      // Advance only on success so a failed write is retried in full.
+      if (persistedThrough > this.lastPersistedTurn) {
+        this.lastPersistedTurn = persistedThrough;
+      }
     } catch (error) {
       console.error("Failed to save game", error);
       this.dirty = true;
@@ -108,9 +115,11 @@ export class SaveManager {
       : startInfo.config.gameMap;
   }
 
-  private denseTurns(): Turn[] {
+  // Dense slice [from, turns.length): turns are numbered by index, so a gap is
+  // a turn with no intents. O(delta), never O(history).
+  private turnsSince(from: number): Turn[] {
     const turns: Turn[] = [];
-    for (let i = 0; i < this.turns.length; i++) {
+    for (let i = Math.max(0, from); i < this.turns.length; i++) {
       turns.push(this.turns[i] ?? { turnNumber: i, intents: [] });
     }
     return turns;

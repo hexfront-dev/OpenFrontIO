@@ -126,7 +126,77 @@ describe("FilesystemSaveStore", () => {
     dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
     const store = new FilesystemSaveStore(dir);
     await store.save(snapshot());
-    await writeFile(path.join(dir, "abcd1234.json.gz"), "not gzip");
+    await writeFile(path.join(dir, "abcd1234.head.json"), "not json");
     expect(await store.load("abcd1234")).toBeNull();
+  });
+
+  it("appends only the delta across saves and reloads the full history", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir);
+    const turn = (turnNumber: number) => ({
+      turnNumber,
+      intents: [],
+    });
+    // First save writes turns 0..2; second appends only turn 3.
+    await store.save(
+      snapshot({
+        turns: [turn(0), turn(1), turn(2)],
+      }),
+      0,
+    );
+    await store.save(
+      snapshot({
+        turns: [turn(0), turn(1), turn(2), turn(3)],
+        savedAt: 3000,
+      }),
+      3,
+    );
+
+    const loaded = await new FilesystemSaveStore(dir).load("abcd1234");
+    expect(loaded?.turns.map((t) => t.turnNumber)).toEqual([0, 1, 2, 3]);
+    expect(loaded?.turns.length).toBe(4);
+  });
+
+  it("clamps a head that claims more turns than were appended", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir);
+    // Save with turns 0..1 but a head (numTurns=2) ahead of a history that only
+    // got turn 0: load must still produce a dense, correctly-numbered history.
+    await store.save(
+      snapshot({
+        turns: [{ turnNumber: 0, intents: [] }],
+      }),
+    );
+    await writeFile(
+      path.join(dir, "abcd1234.head.json"),
+      JSON.stringify({
+        version: SAVED_LOBBY_VERSION,
+        gameID: "abcd1234",
+        createdAt: 1000,
+        creatorPersistentID: "creator-pid",
+        gameConfig: snapshot().gameConfig,
+        stage: "lobby",
+        seats: [],
+        savedAt: 2000,
+        gitCommit: "DEV",
+        numTurns: 2,
+      }),
+    );
+    const loaded = await store.load("abcd1234");
+    expect(loaded?.turns.map((t) => t.turnNumber)).toEqual([0, 1]);
+    expect(loaded?.turns[1].intents).toEqual([]);
+  });
+
+  it("still reads a legacy single-blob save", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir);
+    const legacy = snapshot({ stage: "lobby" });
+    const { gzipSync } = await import("node:zlib");
+    await writeFile(
+      path.join(dir, "abcd1234.json.gz"),
+      gzipSync(Buffer.from(JSON.stringify(legacy), "utf8")),
+    );
+    const loaded = await store.load("abcd1234");
+    expect(loaded?.gameID).toBe("abcd1234");
   });
 });

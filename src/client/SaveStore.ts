@@ -1,24 +1,48 @@
 import {
-  SavedGame,
-  SavedGameMeta,
+  type SavedGame,
+  type SavedGameHead,
+  savedGameHeadFrom,
+  SavedGameHeadSchema,
+  type SavedGameMeta,
+  savedGameMetaFromHead,
   SavedGameMetaSchema,
   SavedGameSchema,
-  savedGameMetaFrom,
+  type Turn,
+  TurnSchema,
 } from "../core/Schemas";
 
 const DB_NAME = "openfront-saves";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SAVE_STORE = "saves";
 const META_STORE = "meta";
+// B0: turns live in their own store keyed [saveId, turnNumber], so an autosave
+// appends only the turns since the last one instead of rewriting (and
+// re-validating) the whole history.
+const TURNS_STORE = "turns";
 
 // Keep disk usage bounded: old autosaves are dropped once this many exist.
 export const MAX_SAVES = 30;
 
 export interface SaveBackend {
-  put(save: SavedGame, meta: SavedGameMeta): Promise<void>;
+  putHead(head: SavedGameHead, meta: SavedGameMeta): Promise<void>;
+  appendTurns(saveId: string, turns: Turn[]): Promise<void>;
+  clearTurns(saveId: string): Promise<void>;
   get(saveId: string): Promise<SavedGame | undefined>;
   listMeta(): Promise<SavedGameMeta[]>;
   delete(saveId: string): Promise<void>;
+}
+
+// Rebuild a dense turn array (index == turnNumber) from the stored turn rows.
+function densifyTurns(turns: Turn[], numTurns: number): Turn[] {
+  const byNumber = new Map<number, Turn>();
+  for (const turn of turns) {
+    byNumber.set(turn.turnNumber, turn);
+  }
+  const dense: Turn[] = [];
+  for (let i = 0; i < numTurns; i++) {
+    dense.push(byNumber.get(i) ?? { turnNumber: i, intents: [] });
+  }
+  return dense;
 }
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
@@ -36,6 +60,10 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
+interface StoredTurn extends Turn {
+  saveId: string;
+}
+
 class IndexedDbSaveBackend implements SaveBackend {
   private dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -50,6 +78,12 @@ class IndexedDbSaveBackend implements SaveBackend {
         if (!db.objectStoreNames.contains(META_STORE)) {
           db.createObjectStore(META_STORE, { keyPath: "saveId" });
         }
+        if (!db.objectStoreNames.contains(TURNS_STORE)) {
+          const turns = db.createObjectStore(TURNS_STORE, {
+            keyPath: ["saveId", "turnNumber"],
+          });
+          turns.createIndex("bySave", "saveId");
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -57,21 +91,61 @@ class IndexedDbSaveBackend implements SaveBackend {
     return this.dbPromise;
   }
 
-  async put(save: SavedGame, meta: SavedGameMeta): Promise<void> {
+  async putHead(head: SavedGameHead, meta: SavedGameMeta): Promise<void> {
     const db = await this.open();
     const tx = db.transaction([SAVE_STORE, META_STORE], "readwrite");
-    tx.objectStore(SAVE_STORE).put(save);
+    tx.objectStore(SAVE_STORE).put(head);
     tx.objectStore(META_STORE).put(meta);
+    await transactionDone(tx);
+  }
+
+  async appendTurns(saveId: string, turns: Turn[]): Promise<void> {
+    if (turns.length === 0) {
+      return;
+    }
+    const db = await this.open();
+    const tx = db.transaction(TURNS_STORE, "readwrite");
+    const store = tx.objectStore(TURNS_STORE);
+    for (const turn of turns) {
+      store.put({ ...turn, saveId });
+    }
+    await transactionDone(tx);
+  }
+
+  async clearTurns(saveId: string): Promise<void> {
+    const db = await this.open();
+    const tx = db.transaction(TURNS_STORE, "readwrite");
+    const store = tx.objectStore(TURNS_STORE);
+    const range = IDBKeyRange.bound(
+      [saveId, Number.MIN_SAFE_INTEGER],
+      [saveId, Number.MAX_SAFE_INTEGER],
+    );
+    store.delete(range);
     await transactionDone(tx);
   }
 
   async get(saveId: string): Promise<SavedGame | undefined> {
     const db = await this.open();
-    const tx = db.transaction(SAVE_STORE, "readonly");
-    const result = await request<SavedGame | undefined>(
+    const tx = db.transaction([SAVE_STORE, TURNS_STORE], "readonly");
+    const raw = await request<SavedGame | SavedGameHead | undefined>(
       tx.objectStore(SAVE_STORE).get(saveId),
     );
-    return result;
+    if (raw === undefined) {
+      return undefined;
+    }
+    // Legacy v1 saves (and full writes) embed the turns inline.
+    if (Array.isArray((raw as SavedGame).turns)) {
+      return raw as SavedGame;
+    }
+    const head = raw as SavedGameHead;
+    const rows = await request<StoredTurn[]>(
+      tx
+        .objectStore(TURNS_STORE)
+        .index("bySave")
+        .getAll(IDBKeyRange.only(saveId)),
+    );
+    const { numTurns, ...rest } = head;
+    return { ...rest, turns: densifyTurns(rows, numTurns) } as SavedGame;
   }
 
   async listMeta(): Promise<SavedGameMeta[]> {
@@ -82,25 +156,53 @@ class IndexedDbSaveBackend implements SaveBackend {
 
   async delete(saveId: string): Promise<void> {
     const db = await this.open();
-    const tx = db.transaction([SAVE_STORE, META_STORE], "readwrite");
+    const tx = db.transaction(
+      [SAVE_STORE, META_STORE, TURNS_STORE],
+      "readwrite",
+    );
     tx.objectStore(SAVE_STORE).delete(saveId);
     tx.objectStore(META_STORE).delete(saveId);
+    tx.objectStore(TURNS_STORE).delete(
+      IDBKeyRange.bound(
+        [saveId, Number.MIN_SAFE_INTEGER],
+        [saveId, Number.MAX_SAFE_INTEGER],
+      ),
+    );
     await transactionDone(tx);
   }
 }
 
 export class MemorySaveBackend implements SaveBackend {
-  private saves = new Map<string, SavedGame>();
+  private heads = new Map<string, SavedGameHead>();
   private metas = new Map<string, SavedGameMeta>();
+  private turns = new Map<string, Map<number, Turn>>();
 
-  async put(save: SavedGame, meta: SavedGameMeta): Promise<void> {
-    this.saves.set(save.saveId, structuredClone(save));
+  async putHead(head: SavedGameHead, meta: SavedGameMeta): Promise<void> {
+    this.heads.set(head.saveId, structuredClone(head));
     this.metas.set(meta.saveId, structuredClone(meta));
   }
 
+  async appendTurns(saveId: string, turns: Turn[]): Promise<void> {
+    const stored = this.turns.get(saveId) ?? new Map<number, Turn>();
+    for (const turn of turns) {
+      stored.set(turn.turnNumber, structuredClone(turn));
+    }
+    this.turns.set(saveId, stored);
+  }
+
+  async clearTurns(saveId: string): Promise<void> {
+    this.turns.delete(saveId);
+  }
+
   async get(saveId: string): Promise<SavedGame | undefined> {
-    const save = this.saves.get(saveId);
-    return save === undefined ? undefined : structuredClone(save);
+    const head = this.heads.get(saveId);
+    if (head === undefined) {
+      return undefined;
+    }
+    const stored = this.turns.get(saveId);
+    const rows = stored === undefined ? [] : [...stored.values()];
+    const { numTurns, ...rest } = structuredClone(head);
+    return { ...rest, turns: densifyTurns(rows, numTurns) };
   }
 
   async listMeta(): Promise<SavedGameMeta[]> {
@@ -108,8 +210,9 @@ export class MemorySaveBackend implements SaveBackend {
   }
 
   async delete(saveId: string): Promise<void> {
-    this.saves.delete(saveId);
+    this.heads.delete(saveId);
     this.metas.delete(saveId);
+    this.turns.delete(saveId);
   }
 }
 
@@ -130,10 +233,26 @@ export function resetSaveBackend(): void {
   backend = createDefaultBackend();
 }
 
+// Full-save write (tests, one-shot callers): validates the whole save once and
+// stores it. Autosave loops should use saveGameProgress instead.
 export async function saveGame(save: SavedGame): Promise<void> {
-  const parsed = SavedGameSchema.parse(save);
-  const meta = savedGameMetaFrom(parsed);
-  await backend.put(parsed, meta);
+  await saveGameProgress(savedGameHeadFrom(save), save.turns, true);
+}
+
+// B0 append-only progress write. Only the small head and `newTurns` are
+// validated; `reset` clears any previously stored turns (start of a save).
+export async function saveGameProgress(
+  head: SavedGameHead,
+  newTurns: Turn[],
+  reset = false,
+): Promise<void> {
+  const parsedHead = SavedGameHeadSchema.parse(head);
+  if (reset) {
+    await backend.clearTurns(parsedHead.saveId);
+  }
+  const parsedTurns = TurnSchema.array().parse(newTurns);
+  await backend.putHead(parsedHead, savedGameMetaFromHead(parsedHead));
+  await backend.appendTurns(parsedHead.saveId, parsedTurns);
   await enforceCap();
 }
 

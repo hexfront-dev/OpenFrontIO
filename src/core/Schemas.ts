@@ -1312,17 +1312,36 @@ export const SavedGameMetaSchema = z.object({
 export type SavedGameMeta = z.infer<typeof SavedGameMetaSchema>;
 
 export function savedGameMetaFrom(save: SavedGame): SavedGameMeta {
+  return savedGameMetaFromHead(savedGameHeadFrom(save));
+}
+
+// B0: the mutable part of a SavedGame, everything except the (potentially huge)
+// turn log. SavedGameSchema stays the load-time validation boundary; the head is
+// what an autosave re-encodes, so it is deliberately O(players) not O(turns).
+export const SavedGameHeadSchema = SavedGameSchema.omit({ turns: true }).extend(
+  {
+    numTurns: z.number().int().nonnegative(),
+  },
+);
+export type SavedGameHead = z.infer<typeof SavedGameHeadSchema>;
+
+export function savedGameHeadFrom(save: SavedGame): SavedGameHead {
+  const { turns, ...head } = save;
+  return { ...head, numTurns: turns.length };
+}
+
+export function savedGameMetaFromHead(head: SavedGameHead): SavedGameMeta {
   return {
-    saveId: save.saveId,
-    gameID: save.gameID,
-    label: save.label,
-    savedAt: save.savedAt,
-    gitCommit: save.gitCommit,
-    numTurns: save.turns.length,
-    playerCount: save.startInfo.players.length,
-    gameMap: save.startInfo.config.gameMap,
-    gameType: save.startInfo.config.gameType,
-    playerNames: save.startInfo.players.map((p) => p.username),
+    saveId: head.saveId,
+    gameID: head.gameID,
+    label: head.label,
+    savedAt: head.savedAt,
+    gitCommit: head.gitCommit,
+    numTurns: head.numTurns,
+    playerCount: head.startInfo.players.length,
+    gameMap: head.startInfo.config.gameMap,
+    gameType: head.startInfo.config.gameType,
+    playerNames: head.startInfo.players.map((p) => p.username),
   };
 }
 
@@ -1389,20 +1408,39 @@ export const SavedLobbyMetaSchema = z.object({
 export type SavedLobbyMeta = z.infer<typeof SavedLobbyMetaSchema>;
 
 export function savedLobbyMetaFrom(save: SavedLobby): SavedLobbyMeta {
-  const players = save.gameStartInfo?.players ?? save.seats;
+  return savedLobbyMetaFromHead(savedLobbyHeadFrom(save));
+}
+
+// B0: the mutable part of a SavedLobby, everything except the turn log. The
+// server store rewrites this small head on every autosave and appends only new
+// turns to an append-only history file, so an autosave costs O(delta).
+export const SavedLobbyHeadSchema = SavedLobbySchema.omit({
+  turns: true,
+}).extend({
+  numTurns: z.number().int().nonnegative(),
+});
+export type SavedLobbyHead = z.infer<typeof SavedLobbyHeadSchema>;
+
+export function savedLobbyHeadFrom(save: SavedLobby): SavedLobbyHead {
+  const { turns, ...head } = save;
+  return { ...head, numTurns: turns.length };
+}
+
+export function savedLobbyMetaFromHead(head: SavedLobbyHead): SavedLobbyMeta {
+  const players = head.gameStartInfo?.players ?? head.seats;
   const first = players[0]?.username;
   return {
-    gameID: save.gameID,
+    gameID: head.gameID,
     label: first
-      ? `${save.gameConfig.gameMap} · ${first}`
-      : save.gameConfig.gameMap,
-    createdAt: save.createdAt,
-    savedAt: save.savedAt,
-    stage: save.stage,
-    numTurns: save.turns.length,
+      ? `${head.gameConfig.gameMap} · ${first}`
+      : head.gameConfig.gameMap,
+    createdAt: head.createdAt,
+    savedAt: head.savedAt,
+    stage: head.stage,
+    numTurns: head.numTurns,
     playerCount: players.length,
-    gameMap: save.gameConfig.gameMap,
-    creatorPersistentID: save.creatorPersistentID,
-    gitCommit: save.gitCommit,
+    gameMap: head.gameConfig.gameMap,
+    creatorPersistentID: head.creatorPersistentID,
+    gitCommit: head.gitCommit,
   };
 }

@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteSave,
   listSaves,
   loadSave,
   MemorySaveBackend,
   saveGame,
+  saveGameProgress,
   setSaveBackend,
 } from "../src/client/SaveStore";
 import {
@@ -17,6 +18,7 @@ import {
 import {
   SAVED_GAME_VERSION,
   SavedGame,
+  savedGameHeadFrom,
   savedGameMetaFrom,
   SavedGameSchema,
 } from "../src/core/Schemas";
@@ -143,5 +145,69 @@ describe("SaveStore", () => {
     expect(meta.label).toBe("Asia · Alice");
     expect(meta.numTurns).toBe(2);
     expect(meta.playerCount).toBe(2);
+  });
+
+  it("round-trips a save written incrementally", async () => {
+    const head = savedGameHeadFrom(makeSave({ turns: [] }));
+    await saveGameProgress(
+      { ...head, numTurns: 1 },
+      [{ turnNumber: 0, intents: [] }],
+      true,
+    );
+    await saveGameProgress(
+      { ...head, numTurns: 2, savedAt: 1_700_000_001_000 },
+      [{ turnNumber: 1, intents: [] }],
+      false,
+    );
+
+    const loaded = await loadSave("SAVE0001");
+    expect(loaded?.turns.map((t) => t.turnNumber)).toEqual([0, 1]);
+    const metas = await listSaves();
+    expect(metas[0].numTurns).toBe(2);
+    expect(metas[0].savedAt).toBe(1_700_000_001_000);
+  });
+
+  it("appends only the delta on each progress write", async () => {
+    const backend = new MemorySaveBackend();
+    setSaveBackend(backend);
+    const append = vi.spyOn(backend, "appendTurns");
+    const head = savedGameHeadFrom(makeSave({ turns: [] }));
+
+    await saveGameProgress(
+      { ...head, numTurns: 25 },
+      Array.from({ length: 25 }, (_, i) => ({ turnNumber: i, intents: [] })),
+      true,
+    );
+    await saveGameProgress(
+      { ...head, numTurns: 30, savedAt: 1_700_000_002_000 },
+      Array.from({ length: 5 }, (_, i) => ({
+        turnNumber: 25 + i,
+        intents: [],
+      })),
+      false,
+    );
+
+    expect(append.mock.calls[0][1]).toHaveLength(25);
+    expect(append.mock.calls[1][1]).toHaveLength(5);
+    expect((await loadSave("SAVE0001"))?.turns).toHaveLength(30);
+  });
+
+  it("clears stale turns when a progress write resets the save", async () => {
+    const backend = new MemorySaveBackend();
+    setSaveBackend(backend);
+    const head = savedGameHeadFrom(makeSave({ turns: [] }));
+
+    await saveGameProgress(
+      { ...head, numTurns: 3 },
+      Array.from({ length: 3 }, (_, i) => ({ turnNumber: i, intents: [] })),
+      true,
+    );
+    await saveGameProgress(
+      { ...head, numTurns: 1, savedAt: 1_700_000_003_000 },
+      [{ turnNumber: 0, intents: [] }],
+      true,
+    );
+
+    expect((await loadSave("SAVE0001"))?.turns).toHaveLength(1);
   });
 });

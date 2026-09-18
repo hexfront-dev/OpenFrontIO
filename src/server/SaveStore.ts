@@ -1,14 +1,26 @@
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { gunzip as gunzipCb, gzip as gzipCb } from "node:zlib";
 import {
   GAME_ID_REGEX,
-  type SavedLobby,
-  type SavedLobbyMeta,
+  SavedLobbyHeadSchema,
   SavedLobbyMetaSchema,
   SavedLobbySchema,
-  savedLobbyMetaFrom,
+  TurnSchema,
+  savedLobbyHeadFrom,
+  savedLobbyMetaFromHead,
+  type SavedLobby,
+  type SavedLobbyHead,
+  type SavedLobbyMeta,
+  type Turn,
 } from "../core/Schemas";
 
 const gzip = promisify(gzipCb);
@@ -19,8 +31,13 @@ const gunzip = promisify(gunzipCb);
 // same placement rule that routes a gameID to its worker — see
 // ServerEnv.workerIndex). Implementations must never leak a SavedLobby to a
 // browser: it carries account persistentIDs.
+//
+// B0: a save is split into a small mutable "head" (config/seats/stage, rewritten
+// every autosave) and an append-only turn history. `save(snapshot, fromTurn)`
+// only validates/encodes the head and the turns at index >= fromTurn, so an
+// autosave is O(delta) instead of re-parsing + re-stringifying O(history).
 export interface ServerSaveStore {
-  save(snapshot: SavedLobby): Promise<void>;
+  save(snapshot: SavedLobby, fromTurn?: number): Promise<void>;
   load(gameID: string): Promise<SavedLobby | null>;
   // Newest first, for the host's resume list. Filtered by creator server-side.
   list(creatorPersistentID: string): Promise<SavedLobbyMeta[]>;
@@ -46,42 +63,76 @@ function assertGameID(gameID: string): void {
   }
 }
 
-export class MemorySaveStore implements ServerSaveStore {
-  private saves = new Map<string, SavedLobby>();
+// Rebuild a dense turn array (index == turnNumber) from a sparse/numbered list.
+function densifyTurns(turns: Turn[], numTurns: number): Turn[] {
+  const byNumber = new Map<number, Turn>();
+  for (const turn of turns) {
+    byNumber.set(turn.turnNumber, turn);
+  }
+  const dense: Turn[] = [];
+  for (let i = 0; i < numTurns; i++) {
+    dense.push(byNumber.get(i) ?? { turnNumber: i, intents: [] });
+  }
+  return dense;
+}
 
-  async save(snapshot: SavedLobby): Promise<void> {
-    // Round-trip through the schema so a memory store enforces the same
-    // invariants a filesystem store would on read.
-    this.saves.set(snapshot.gameID, SavedLobbySchema.parse(snapshot));
+export class MemorySaveStore implements ServerSaveStore {
+  private heads = new Map<string, SavedLobbyHead>();
+  private turns = new Map<string, Turn[]>();
+
+  async save(snapshot: SavedLobby, fromTurn = 0): Promise<void> {
+    // Round-trip only the head + delta through the schema so a memory store
+    // enforces the same invariants a filesystem store would on read.
+    const head = SavedLobbyHeadSchema.parse(savedLobbyHeadFrom(snapshot));
+    const delta = TurnSchema.array().parse(snapshot.turns.slice(fromTurn));
+    this.heads.set(head.gameID, head);
+    const stored = this.turns.get(head.gameID) ?? [];
+    for (const turn of delta) {
+      stored[turn.turnNumber] = turn;
+    }
+    this.turns.set(head.gameID, stored);
   }
 
   async load(gameID: string): Promise<SavedLobby | null> {
-    const save = this.saves.get(gameID);
-    return save === undefined ? null : SavedLobbySchema.parse(save);
+    const head = this.heads.get(gameID);
+    if (head === undefined) {
+      return null;
+    }
+    const turns = densifyTurns(this.turns.get(gameID) ?? [], head.numTurns);
+    return SavedLobbySchema.parse({ ...head, turns });
   }
 
   async list(creatorPersistentID: string): Promise<SavedLobbyMeta[]> {
-    return [...this.saves.values()]
-      .filter((s) => s.creatorPersistentID === creatorPersistentID)
-      .map((s) => savedLobbyMetaFrom(s))
+    return [...this.heads.values()]
+      .filter((h) => h.creatorPersistentID === creatorPersistentID)
+      .map((h) => savedLobbyMetaFromHead(h))
       .sort((a, b) => b.savedAt - a.savedAt);
   }
 
   async delete(gameID: string): Promise<void> {
-    this.saves.delete(gameID);
+    this.heads.delete(gameID);
+    this.turns.delete(gameID);
   }
 }
 
-// One gzipped JSON blob per game, plus a small uncompressed meta file so a
-// listing never has to decompress full histories. Files live under a
-// per-worker directory so NUM_WORKERS can change without cross-reading another
-// shard's saves by accident (a mismatched shard simply sees none).
+// Split layout under a per-worker directory:
+//   <gameID>.head.json   small, uncompressed mutable head (rewritten per save)
+//   <gameID>.history.gz  append-only history; one JSON turn per line, each
+//                        autosave appends a fresh gzip member (gunzip decodes
+//                        concatenated members transparently)
+//   <gameID>.meta.json   small uncompressed listing row (never decompressed)
+// Legacy single-blob saves (<gameID>.json.gz) are still read as a fallback.
 export class FilesystemSaveStore implements ServerSaveStore {
   constructor(private readonly dir: string) {}
 
-  private savePath(gameID: string): string {
+  private headPath(gameID: string): string {
     assertGameID(gameID);
-    return path.join(this.dir, `${gameID}.json.gz`);
+    return path.join(this.dir, `${gameID}.head.json`);
+  }
+
+  private historyPath(gameID: string): string {
+    assertGameID(gameID);
+    return path.join(this.dir, `${gameID}.history.gz`);
   }
 
   private metaPath(gameID: string): string {
@@ -89,17 +140,29 @@ export class FilesystemSaveStore implements ServerSaveStore {
     return path.join(this.dir, `${gameID}.meta.json`);
   }
 
-  async save(snapshot: SavedLobby): Promise<void> {
-    const parsed = SavedLobbySchema.parse(snapshot);
+  private legacyPath(gameID: string): string {
+    assertGameID(gameID);
+    return path.join(this.dir, `${gameID}.json.gz`);
+  }
+
+  async save(snapshot: SavedLobby, fromTurn = 0): Promise<void> {
+    const head = SavedLobbyHeadSchema.parse(savedLobbyHeadFrom(snapshot));
+    // Slice before the first await: snapshot.turns aliases the live server array,
+    // which keeps growing while this write is in flight.
+    const delta = TurnSchema.array().parse(snapshot.turns.slice(fromTurn));
     await mkdir(this.dir, { recursive: true });
-    const meta = savedLobbyMetaFrom(parsed);
-    const json = JSON.stringify(parsed);
-    const compressed = await gzip(Buffer.from(json, "utf8"));
-    // Meta first, then the payload: a crash between the two leaves a stale meta
-    // pointing at a missing payload, which load() reports as not-found rather
-    // than a half-written save.
-    await writeFile(this.metaPath(parsed.gameID), JSON.stringify(meta));
-    await writeFile(this.savePath(parsed.gameID), compressed);
+    if (delta.length > 0) {
+      const lines = delta.map((t) => JSON.stringify(t)).join("\n") + "\n";
+      const compressed = await gzip(Buffer.from(lines, "utf8"));
+      await appendFile(this.historyPath(snapshot.gameID), compressed);
+    }
+    // History first, then head, then meta: a crash before the head lands leaves
+    // the old head (a consistent, older save) since load clamps to numTurns.
+    await writeFile(this.headPath(snapshot.gameID), JSON.stringify(head));
+    await writeFile(
+      this.metaPath(snapshot.gameID),
+      JSON.stringify(savedLobbyMetaFromHead(head)),
+    );
   }
 
   async load(gameID: string): Promise<SavedLobby | null> {
@@ -107,18 +170,59 @@ export class FilesystemSaveStore implements ServerSaveStore {
     // file, and must not be swallowed as "not found".
     assertGameID(gameID);
     try {
-      const compressed = await readFile(this.savePath(gameID));
+      const headRaw = await readFile(this.headPath(gameID), "utf8");
+      const head = SavedLobbyHeadSchema.parse(JSON.parse(headRaw));
+      const turns = await this.readHistory(gameID, head.numTurns);
+      return SavedLobbySchema.parse({ ...head, turns });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        // No split save here; fall back to a legacy single-blob save.
+        return this.loadLegacy(gameID);
+      }
+      // A corrupt/unreadable save must not crash the caller; it is treated
+      // like a missing one.
+      console.error(`failed to load save ${gameID}:`, error);
+      return null;
+    }
+  }
+
+  private async loadLegacy(gameID: string): Promise<SavedLobby | null> {
+    try {
+      const compressed = await readFile(this.legacyPath(gameID));
       const json = (await gunzip(compressed)).toString("utf8");
       return SavedLobbySchema.parse(JSON.parse(json));
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") {
-        // A corrupt/unreadable save must not crash the caller; it is treated
-        // like a missing one.
         console.error(`failed to load save ${gameID}:`, error);
       }
       return null;
     }
+  }
+
+  private async readHistory(gameID: string, numTurns: number): Promise<Turn[]> {
+    let text: string;
+    try {
+      const compressed = await readFile(this.historyPath(gameID));
+      text = (await gunzip(compressed)).toString("utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+    const turns: Turn[] = [];
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      turns.push(TurnSchema.parse(JSON.parse(trimmed)));
+    }
+    // numTurns is the authoritative length: if the last append half-landed or
+    // the head is slightly ahead, clamp/ignore extras rather than serve a save
+    // whose turn numbers drift past the recorded count.
+    return densifyTurns(turns, numTurns);
   }
 
   async list(creatorPersistentID: string): Promise<SavedLobbyMeta[]> {
@@ -145,7 +249,9 @@ export class FilesystemSaveStore implements ServerSaveStore {
   }
 
   async delete(gameID: string): Promise<void> {
-    await rm(this.savePath(gameID), { force: true });
+    await rm(this.headPath(gameID), { force: true });
+    await rm(this.historyPath(gameID), { force: true });
     await rm(this.metaPath(gameID), { force: true });
+    await rm(this.legacyPath(gameID), { force: true });
   }
 }

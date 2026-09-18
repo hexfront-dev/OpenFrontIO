@@ -192,6 +192,11 @@ export class GameServer {
   private saveInFlight = false;
   private saveQueued = false;
   private lastSaveAt = 0;
+  // Index of the last turn already written to the save store. Autosaves append
+  // only `turns[lastPersistedTurn + 1 ..]`, so a save costs O(delta). Reset to
+  // the restored history length on applyRestore so the first resume autosave
+  // does not re-append the whole backlog.
+  private lastPersistedTurn = -1;
 
   private endTurnIntervalID: ReturnType<typeof setInterval> | undefined;
 
@@ -345,6 +350,8 @@ export class GameServer {
         ? "lobby"
         : save.stage;
     this.turns = save.turns;
+    // The restored turns are already on disk; only append what happens next.
+    this.lastPersistedTurn = save.turns.length - 1;
     this.paused = false;
     this.ended = false;
     // Neutralise the lifecycle traps: a restored "full" or past-deadline lobby
@@ -475,10 +482,18 @@ export class GameServer {
     if (snapshot === null) {
       return;
     }
+    const fromTurn = this.lastPersistedTurn + 1;
+    const persistedThrough = snapshot.turns.length - 1;
     this.saveInFlight = true;
     this.lastSaveAt = Date.now();
     void this.deps.saveStore
-      .save(snapshot)
+      .save(snapshot, fromTurn)
+      .then(() => {
+        // Advance only on success so a failed append is retried in full.
+        if (persistedThrough > this.lastPersistedTurn) {
+          this.lastPersistedTurn = persistedThrough;
+        }
+      })
       .catch((error) => {
         this.log.error("failed to persist game save", {
           gameID: this.id,
