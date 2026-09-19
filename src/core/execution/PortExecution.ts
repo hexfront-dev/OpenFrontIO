@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, Unit, UnitType } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { TradeShipExecution } from "./TradeShipExecution";
@@ -14,6 +15,35 @@ export class PortExecution implements Execution {
 
   constructor(port: Unit) {
     this.port = port;
+  }
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "port",
+      data: {
+        portId: this.port.id(),
+        active: this.active,
+        random: this.random.state(),
+        checkOffset: this.checkOffset,
+        tradeShipSpawnRejections: this.tradeShipSpawnRejections,
+        stationCreated: this.stationCreated,
+      },
+    };
+  }
+
+  restoreCheckpoint(data: {
+    portId: number;
+    active: boolean;
+    random: ReturnType<PseudoRandom["state"]>;
+    checkOffset: number;
+    tradeShipSpawnRejections: number;
+    stationCreated: boolean;
+  }): void {
+    this.active = data.active;
+    this.random.setState(data.random);
+    this.checkOffset = data.checkOffset;
+    this.tradeShipSpawnRejections = data.tradeShipSpawnRejections;
+    this.stationCreated = data.stationCreated;
   }
 
   init(mg: Game, ticks: number): void {

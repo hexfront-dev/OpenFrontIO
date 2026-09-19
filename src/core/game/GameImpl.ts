@@ -668,7 +668,9 @@ export class GameImpl implements Game {
     this._players.forEach((p) => {
       hash = (hash + p.hash()) | 0;
       (p as PlayerImpl)._tiles.forEach((tile) => {
-        hash = (hash + simpleHash(tile * (p.smallID() + 1))) | 0;
+        // Numeric mix (simpleHash takes a string) so this stays allocation-free;
+        // the desync detector only needs a stable, collision-resistant value.
+        hash = (hash + Math.imul(tile + 1, p.smallID() + 1)) | 0;
       });
     });
     return hash;

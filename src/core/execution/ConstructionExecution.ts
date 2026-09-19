@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, Player, Tick, Unit, UnitType } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { CityExecution } from "./CityExecution";
@@ -26,6 +27,43 @@ export class ConstructionExecution implements Execution {
     private rocketDirectionUp?: boolean,
     private amount?: number,
   ) {}
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "construction",
+      data: {
+        playerId: this.player.id(),
+        constructionType: this.constructionType,
+        tile: this.tile,
+        rocketDirectionUp: this.rocketDirectionUp ?? null,
+        amount: this.amount ?? null,
+        structureId: this.structure?.id() ?? null,
+        active: this.active,
+        ticksUntilComplete: this.ticksUntilComplete ?? null,
+      },
+    };
+  }
+
+  restoreCheckpoint(data: {
+    playerId: string;
+    constructionType: UnitType;
+    tile: TileRef;
+    rocketDirectionUp: boolean | null;
+    amount: number | null;
+    structureId: number | null;
+    active: boolean;
+    ticksUntilComplete: number | null;
+  }): void {
+    this.player = this.mg.player(data.playerId) as Player;
+    this.structure =
+      data.structureId !== null
+        ? (this.mg.unit(data.structureId) ?? null)
+        : null;
+    this.active = data.active;
+    // Only read once `structure` is set; a not-yet-built construction never
+    // consumes it, so null safely maps to 0.
+    this.ticksUntilComplete = data.ticksUntilComplete ?? 0;
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

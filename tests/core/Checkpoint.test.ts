@@ -1,11 +1,16 @@
 import { SpawnExecution } from "../../src/core/execution/SpawnExecution";
 import { WinCheckExecution } from "../../src/core/execution/WinCheckExecution";
-import { Game, PlayerInfo, PlayerType } from "../../src/core/game/Game";
+import {
+  Game,
+  PlayerInfo,
+  PlayerType,
+  UnitType,
+} from "../../src/core/game/Game";
 import { GameImpl } from "../../src/core/game/GameImpl";
 import { GameUpdateType } from "../../src/core/game/GameUpdates";
 import { GameID } from "../../src/core/Schemas";
 import { setup } from "../util/Setup";
-import { executeTicks } from "../util/utils";
+import { constructionExecution, executeTicks } from "../util/utils";
 
 const gameID: GameID = "checkpoint_game";
 
@@ -104,6 +109,28 @@ describe("B2 core checkpoints", () => {
     expect(after.troops()).toBe(before.troops());
     expect(after.numTilesOwned()).toBe(before.numTilesOwned());
     expect(after.hasSpawned()).toBe(true);
+  });
+
+  test("restores a live structure execution", async () => {
+    const { game: original, alpha } = await buildGame();
+    const owner = original.player(alpha);
+
+    constructionExecution(original, owner, 0, 15, UnitType.MissileSilo);
+    expect(owner.units(UnitType.MissileSilo)).toHaveLength(1);
+    executeTicks(original, 25);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 35);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+    expect(restored.player(alpha).units(UnitType.MissileSilo)).toHaveLength(1);
+
+    const actualHashes = drainHashes(restored, 35);
+    expect(actualHashes).toEqual(expectedHashes);
   });
 
   test("refuses to checkpoint when an active execution cannot serialize", async () => {

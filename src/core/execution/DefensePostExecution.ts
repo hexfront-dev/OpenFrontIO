@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, Unit } from "../game/Game";
 import { ShellExecution } from "./ShellExecution";
 
@@ -11,6 +12,39 @@ export class DefensePostExecution implements Execution {
   private alreadySentShell = new Set<Unit>();
 
   constructor(private post: Unit) {}
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "defense_post",
+      data: {
+        postId: this.post.id(),
+        active: this.active,
+        targetId: this.target?.id() ?? null,
+        lastShellAttack: this.lastShellAttack,
+        alreadySentShellIds: Array.from(this.alreadySentShell).map((u) =>
+          u.id(),
+        ),
+      },
+    };
+  }
+
+  restoreCheckpoint(data: {
+    postId: number;
+    active: boolean;
+    targetId: number | null;
+    lastShellAttack: number;
+    alreadySentShellIds: number[];
+  }): void {
+    this.active = data.active;
+    this.target =
+      data.targetId !== null ? (this.mg.unit(data.targetId) ?? null) : null;
+    this.lastShellAttack = data.lastShellAttack;
+    this.alreadySentShell = new Set(
+      data.alreadySentShellIds
+        .map((id) => this.mg.unit(id))
+        .filter((u): u is Unit => u !== undefined),
+    );
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

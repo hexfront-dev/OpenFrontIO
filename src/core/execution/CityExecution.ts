@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, Unit, UnitType } from "../game/Game";
 import { TrainStationExecution } from "./TrainStationExecution";
 
@@ -7,6 +8,26 @@ export class CityExecution implements Execution {
   private stationCreated = false;
 
   constructor(private city: Unit) {}
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "city",
+      data: {
+        cityId: this.city.id(),
+        stationCreated: this.stationCreated,
+        active: this.active,
+      },
+    };
+  }
+
+  restoreCheckpoint(data: {
+    cityId: number;
+    stationCreated: boolean;
+    active: boolean;
+  }): void {
+    this.stationCreated = data.stationCreated;
+    this.active = data.active;
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

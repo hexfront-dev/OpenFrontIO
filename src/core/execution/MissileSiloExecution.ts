@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, Unit } from "../game/Game";
 
 export class MissileSiloExecution implements Execution {
@@ -7,6 +8,17 @@ export class MissileSiloExecution implements Execution {
 
   constructor(silo: Unit) {
     this.silo = silo;
+  }
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "missile_silo",
+      data: { siloId: this.silo.id(), active: this.active },
+    };
+  }
+
+  restoreCheckpoint(data: { siloId: number; active: boolean }): void {
+    this.active = data.active;
   }
 
   init(mg: Game, ticks: number): void {
