@@ -3,11 +3,28 @@ import { TileRef } from "../game/GameMap";
 import { PseudoRandom } from "../PseudoRandom";
 import { PathFinder } from "./types";
 
+export interface AirPathFinderSnapshot {
+  seed: number;
+}
+
 export class AirPathFinder implements PathFinder<TileRef> {
   private seed: number;
 
   constructor(private game: Game) {
     this.seed = game.ticks();
+  }
+
+  /**
+   * B2: the seed is drawn from the current tick at construction. A resume that
+   * rebuilt the finder would seed it with the resume tick instead, so any route
+   * recomputed after the checkpoint would take different random turns.
+   */
+  snapshot(): AirPathFinderSnapshot {
+    return { seed: this.seed };
+  }
+
+  restore(snapshot: AirPathFinderSnapshot): void {
+    this.seed = snapshot.seed;
   }
 
   findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {

@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { atan2 } from "../DetMath";
 import {
   Execution,
@@ -5,6 +6,7 @@ import {
   isUnit,
   MessageType,
   Player,
+  PlayerID,
   Structures,
   TerraNullius,
   TrajectoryTile,
@@ -13,13 +15,31 @@ import {
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { UniversalPathFinding } from "../pathfinding/PathFinder";
-import { ParabolaUniversalPathFinder } from "../pathfinding/PathFinder.Parabola";
+import {
+  ParabolaUniversalPathFinder,
+  ParabolaUniversalPathFinderSnapshot,
+} from "../pathfinding/PathFinder.Parabola";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
 import { NukeType } from "../StatsSchemas";
 import { listNukeBreakAlliance } from "./Util";
 
 const SPRITE_RADIUS = 16;
+
+export interface NukeExecutionCheckpoint {
+  nukeType: NukeType;
+  playerId: PlayerID;
+  dst: TileRef;
+  src: TileRef | null;
+  speed: number;
+  waitTicks: number;
+  rocketDirectionUp: boolean;
+  active: boolean;
+  nukeId: number | null;
+  /** Detonation blast set, captured only once it has been computed. */
+  tilesToDestroy: TileRef[] | null;
+  pathFinder: ParabolaUniversalPathFinderSnapshot;
+}
 
 export class NukeExecution implements Execution {
   private active = true;
@@ -37,6 +57,51 @@ export class NukeExecution implements Execution {
     private waitTicks = 0,
     private rocketDirectionUp: boolean = true,
   ) {}
+
+  /** B2: capture the missile's in-flight curve, wait time and detonation set. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "nuke",
+      data: {
+        nukeType: this.nukeType,
+        playerId: this.player.id(),
+        dst: this.dst,
+        src: this.src ?? null,
+        speed: this.speed,
+        waitTicks: this.waitTicks,
+        rocketDirectionUp: this.rocketDirectionUp,
+        active: this.active,
+        nukeId: this.nuke?.id() ?? null,
+        tilesToDestroy: this.tilesToDestroyCache
+          ? [...this.tilesToDestroyCache]
+          : null,
+        pathFinder: this.pathFinder.snapshot(),
+      } satisfies NukeExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this execution from a checkpoint. Returns false when the missile unit is missing. */
+  restoreCheckpoint(game: Game, data: NukeExecutionCheckpoint): boolean {
+    this.mg = game;
+    this.active = data.active;
+    this.speed = data.speed;
+    this.waitTicks = data.waitTicks;
+    this.tilesToDestroyCache =
+      data.tilesToDestroy === null ? undefined : new Set(data.tilesToDestroy);
+    if (data.nukeId === null) {
+      this.nuke = null;
+    } else {
+      const nuke = game.unit(data.nukeId);
+      if (nuke === undefined) return false;
+      this.nuke = nuke;
+    }
+    this.pathFinder = UniversalPathFinding.Parabola(game, {
+      increment: this.speed,
+      directionUp: this.rocketDirectionUp,
+    });
+    this.pathFinder.restore(data.pathFinder);
+    return true;
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

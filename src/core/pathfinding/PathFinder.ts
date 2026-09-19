@@ -200,12 +200,12 @@ export class PathFinding {
     });
   }
 
-  static Air(game: Game): SteppingPathFinder<TileRef> {
+  static Air(game: Game): PathFinderStepper<TileRef> {
     const pf = new AirPathFinder(game);
 
     return PathFinderBuilder.create(pf).buildWithStepper({
       equals: (a, b) => a === b,
-    });
+    }) as PathFinderStepper<TileRef>;
   }
 }
 

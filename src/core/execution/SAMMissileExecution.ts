@@ -1,19 +1,37 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
   MessageType,
   Player,
+  PlayerID,
   Unit,
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { PathFinding } from "../pathfinding/PathFinder";
-import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
+import {
+  PathFinderStepper,
+  PathFinderStepperSnapshot,
+} from "../pathfinding/PathFinderStepper";
+import { PathStatus } from "../pathfinding/types";
 import { NukeType } from "../StatsSchemas";
+
+export interface SAMMissileExecutionCheckpoint {
+  spawn: TileRef;
+  ownerId: PlayerID;
+  ownerUnitId: number;
+  targetId: number;
+  targetTile: TileRef;
+  active: boolean;
+  missileId: number | null;
+  speed: number;
+  pathFinder: PathFinderStepperSnapshot<TileRef>;
+}
 
 export class SAMMissileExecution implements Execution {
   private active = true;
-  private pathFinder: SteppingPathFinder<TileRef>;
+  private pathFinder: PathFinderStepper<TileRef>;
   private SAMMissile: Unit | undefined;
   private mg: Game;
   private speed: number = 0;
@@ -25,6 +43,47 @@ export class SAMMissileExecution implements Execution {
     private target: Unit,
     private targetTile: TileRef,
   ) {}
+
+  /** B2: capture the interceptor's route and target tracking. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "sam_missile",
+      data: {
+        spawn: this.spawn,
+        ownerId: this._owner.id(),
+        ownerUnitId: this.ownerUnit.id(),
+        targetId: this.target.id(),
+        targetTile: this.targetTile,
+        active: this.active,
+        missileId: this.SAMMissile?.id() ?? null,
+        speed: this.speed,
+        pathFinder: this.pathFinder.snapshot(),
+      } satisfies SAMMissileExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this execution from a checkpoint. Returns false if a referenced unit is gone. */
+  restoreCheckpoint(game: Game, data: SAMMissileExecutionCheckpoint): boolean {
+    const ownerUnit = game.unit(data.ownerUnitId);
+    const target = game.unit(data.targetId);
+    if (ownerUnit === undefined || target === undefined) return false;
+    const missile =
+      data.missileId === null ? undefined : game.unit(data.missileId);
+    if (data.missileId !== null && missile === undefined) return false;
+
+    this.mg = game;
+    this.active = data.active;
+    this.spawn = data.spawn;
+    this._owner = game.player(data.ownerId);
+    this.ownerUnit = ownerUnit;
+    this.target = target;
+    this.targetTile = data.targetTile;
+    this.SAMMissile = missile;
+    this.speed = data.speed;
+    this.pathFinder = PathFinding.Air(game);
+    this.pathFinder.restore(data.pathFinder);
+    return true;
+  }
 
   init(mg: Game, ticks: number): void {
     this.pathFinder = PathFinding.Air(mg);

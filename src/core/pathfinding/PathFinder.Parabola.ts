@@ -1,7 +1,15 @@
 import { GameMap, TileRef } from "../game/GameMap";
 import { within } from "../Util";
-import { DistanceBasedBezierCurve } from "../utilities/Line";
+import {
+  BezierCurveSnapshot,
+  DistanceBasedBezierCurve,
+} from "../utilities/Line";
 import { PathResult, PathStatus, SteppingPathFinder } from "./types";
+
+export interface ParabolaUniversalPathFinderSnapshot {
+  curve: BezierCurveSnapshot | null;
+  lastTo: TileRef | null;
+}
 
 export interface ParabolaOptions {
   increment?: number;
@@ -109,5 +117,22 @@ export class ParabolaUniversalPathFinder implements SteppingPathFinder<TileRef> 
 
   currentIndex(): number {
     return this.curve?.getCurrentIndex() ?? 0;
+  }
+
+  /** B2: capture the in-flight curve and destination. */
+  snapshot(): ParabolaUniversalPathFinderSnapshot {
+    return {
+      curve: this.curve?.snapshot() ?? null,
+      lastTo: this.lastTo,
+    };
+  }
+
+  /** B2: install a snapshot captured by snapshot(). */
+  restore(snapshot: ParabolaUniversalPathFinderSnapshot): void {
+    this.curve =
+      snapshot.curve === null
+        ? null
+        : DistanceBasedBezierCurve.fromSnapshot(snapshot.curve);
+    this.lastTo = snapshot.lastTo;
   }
 }

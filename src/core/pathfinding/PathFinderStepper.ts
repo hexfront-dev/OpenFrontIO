@@ -22,6 +22,18 @@ export interface PathFinderStepperSnapshot<T> {
   path: T[] | Uint32Array | null;
   pathIndex: number;
   lastTo: T | null;
+  /**
+   * Snapshot of the wrapped finder when it carries mutable state that affects
+   * future recomputes (e.g. `AirPathFinder`'s seed). Absent for stateless or
+   * cache-only finders such as the shared water chain.
+   */
+  finder?: unknown;
+}
+
+/** A `PathFinder` whose mutable fields can be captured and replayed. */
+export interface SnapshotablePathFinder {
+  snapshot(): unknown;
+  restore(snapshot: unknown): void;
 }
 
 /**
@@ -123,11 +135,14 @@ export class PathFinderStepper<T> implements SteppingPathFinder<T> {
 
   /** B2: capture the cached route exactly as it stands right now. */
   snapshot(): PathFinderStepperSnapshot<T> {
+    const finder = this.finder as Partial<SnapshotablePathFinder>;
     return {
       // Copy so the snapshot is immune to later mutation of the live path.
       path: this.path === null ? null : this.path.slice(),
       pathIndex: this.pathIndex,
       lastTo: this.lastTo,
+      finder:
+        typeof finder.snapshot === "function" ? finder.snapshot() : undefined,
     };
   }
 
@@ -143,6 +158,10 @@ export class PathFinderStepper<T> implements SteppingPathFinder<T> {
     }
     this.pathIndex = snapshot.pathIndex;
     this.lastTo = snapshot.lastTo;
+    if (snapshot.finder !== undefined) {
+      const finder = this.finder as Partial<SnapshotablePathFinder>;
+      finder.restore?.(snapshot.finder);
+    }
   }
 
   /**

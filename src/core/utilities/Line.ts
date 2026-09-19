@@ -1,5 +1,15 @@
 type Point = { x: number; y: number };
 
+export interface BezierCurveSnapshot {
+  p0: Point;
+  p1: Point;
+  p2: Point;
+  p3: Point;
+  pixelSpacingScaled: number;
+  currentIndex: number;
+  accumulatedDistanceScaled: number;
+}
+
 /**
  *  Precomputes regular curve step points along a cubic Bezier curve.
  */
@@ -83,6 +93,37 @@ export class DistanceBasedBezierCurve {
 
   getCurrentIndex(): number {
     return this.currentIndex;
+  }
+
+  /**
+   * B2: capture the curve's progress so a resumed projectile continues where it
+   * left off. The cached points are reconstructed from the control points and
+   * spacing, which are deterministic; only the step counters are mutable state.
+   */
+  snapshot(): BezierCurveSnapshot {
+    return {
+      p0: { ...this.p0 },
+      p1: { ...this.p1 },
+      p2: { ...this.p2 },
+      p3: { ...this.p3 },
+      pixelSpacingScaled: this.pixelSpacingScaled,
+      currentIndex: this.currentIndex,
+      accumulatedDistanceScaled: this.accumulatedDistanceScaled,
+    };
+  }
+
+  static fromSnapshot(snapshot: BezierCurveSnapshot): DistanceBasedBezierCurve {
+    const curve = new DistanceBasedBezierCurve(
+      snapshot.p0,
+      snapshot.p1,
+      snapshot.p2,
+      snapshot.p3,
+      // Chosen so computeAllPoints() recomputes the exact same spacing.
+      snapshot.pixelSpacingScaled / DistanceBasedBezierCurve.SUB_SCALE,
+    );
+    curve.currentIndex = snapshot.currentIndex;
+    curve.accumulatedDistanceScaled = snapshot.accumulatedDistanceScaled;
+    return curve;
   }
 
   /**

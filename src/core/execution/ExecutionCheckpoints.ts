@@ -20,6 +20,7 @@ import {
 } from "./MissileShipExecution";
 import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NationExecution, NationExecutionCheckpoint } from "./NationExecution";
+import { NukeExecution, NukeExecutionCheckpoint } from "./NukeExecution";
 import { PlayerExecution } from "./PlayerExecution";
 import { PortExecution } from "./PortExecution";
 import { RecomputeRailClusterExecution } from "./RecomputeRailClusterExecution";
@@ -27,6 +28,15 @@ import {
   RetreatExecution,
   RetreatExecutionCheckpoint,
 } from "./RetreatExecution";
+import {
+  SAMLauncherExecution,
+  SAMLauncherExecutionCheckpoint,
+} from "./SAMLauncherExecution";
+import {
+  SAMMissileExecution,
+  SAMMissileExecutionCheckpoint,
+} from "./SAMMissileExecution";
+import { ShellExecution, ShellExecutionCheckpoint } from "./ShellExecution";
 import { SpawnTimerExecution } from "./SpawnTimerExecution";
 import {
   TradeShipExecution,
@@ -286,6 +296,64 @@ export function restoreExecution(
       const warship = game.unit(data.warshipId);
       if (warship === undefined) return undefined;
       const exec = new MissileDefenseShipExecution(warship);
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "shell": {
+      const data = cp.data as ShellExecutionCheckpoint;
+      if (!game.hasPlayer(data.ownerId)) return undefined;
+      const ownerUnit = game.unit(data.ownerUnitId);
+      const target = game.unit(data.targetId);
+      if (ownerUnit === undefined || target === undefined) return undefined;
+      const exec = new ShellExecution(
+        data.spawn,
+        game.player(data.ownerId),
+        ownerUnit,
+        target,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "sam_missile": {
+      const data = cp.data as SAMMissileExecutionCheckpoint;
+      if (!game.hasPlayer(data.ownerId)) return undefined;
+      const ownerUnit = game.unit(data.ownerUnitId);
+      const target = game.unit(data.targetId);
+      if (ownerUnit === undefined || target === undefined) return undefined;
+      const exec = new SAMMissileExecution(
+        data.spawn,
+        game.player(data.ownerId),
+        ownerUnit,
+        target,
+        data.targetTile,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "sam_launcher": {
+      const data = cp.data as SAMLauncherExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const sam = data.samId === null ? null : (game.unit(data.samId) ?? null);
+      const exec = new SAMLauncherExecution(
+        game.player(data.playerId),
+        data.tile,
+        sam,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "nuke": {
+      const data = cp.data as NukeExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const exec = new NukeExecution(
+        data.nukeType,
+        game.player(data.playerId),
+        data.dst,
+        data.src,
+        data.speed,
+        data.waitTicks,
+        data.rocketDirectionUp,
+      );
       if (!exec.restoreCheckpoint(game, data)) return undefined;
       return exec;
     }

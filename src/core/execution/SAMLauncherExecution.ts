@@ -1,6 +1,15 @@
-import { Execution, Game, isUnit, Player, Unit, UnitType } from "../game/Game";
+import { ExecutionCheckpoint } from "../Checkpoint";
+import {
+  Execution,
+  Game,
+  isUnit,
+  Player,
+  PlayerID,
+  Unit,
+  UnitType,
+} from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { SAMMissileExecution } from "./SAMMissileExecution";
 
 type Target = {
@@ -280,6 +289,16 @@ export class SAMTargetingSystem {
   }
 }
 
+export interface SAMLauncherExecutionCheckpoint {
+  playerId: PlayerID;
+  tile: TileRef | null;
+  samId: number | null;
+  active: boolean;
+  lastLevel: number;
+  pseudoRandom: PseudoRandomState | null;
+  targetingSystem: SAMTargetingSystemCheckpoint | null;
+}
+
 export class SAMLauncherExecution implements Execution {
   private mg: Game;
   private active: boolean = true;
@@ -297,6 +316,49 @@ export class SAMLauncherExecution implements Execution {
     if (sam !== null) {
       this.tile = sam.tile();
     }
+  }
+
+  /** B2: capture the launcher's live SAM, targeting cache and PRNG. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "sam_launcher",
+      data: {
+        playerId: this.player.id(),
+        tile: this.tile,
+        samId: this.sam?.id() ?? null,
+        active: this.active,
+        lastLevel: this.lastLevel,
+        pseudoRandom: this.pseudoRandom ? this.pseudoRandom.state() : null,
+        targetingSystem: this.targetingSystem
+          ? this.targetingSystem.snapshot()
+          : null,
+      } satisfies SAMLauncherExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this execution from a checkpoint. Returns false when the launcher unit is missing. */
+  restoreCheckpoint(game: Game, data: SAMLauncherExecutionCheckpoint): boolean {
+    this.mg = game;
+    this.active = data.active;
+    this.player = game.player(data.playerId);
+    this.tile = data.tile;
+    this.sam = data.samId === null ? null : (game.unit(data.samId) ?? null);
+    if (data.samId !== null && this.sam === null) return false;
+    this.lastLevel = data.lastLevel;
+    if (data.pseudoRandom !== null) {
+      const random = new PseudoRandom(0);
+      random.setState(data.pseudoRandom);
+      this.pseudoRandom = random;
+    } else {
+      this.pseudoRandom = undefined;
+    }
+    this.targetingSystem = undefined as unknown as SAMTargetingSystem;
+    if (data.targetingSystem !== null && this.sam !== null) {
+      const targetingSystem = new SAMTargetingSystem(game, this.sam);
+      targetingSystem.restore(data.targetingSystem);
+      this.targetingSystem = targetingSystem;
+    }
+    return true;
   }
 
   init(mg: Game, ticks: number): void {
