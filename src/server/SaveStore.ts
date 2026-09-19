@@ -136,6 +136,14 @@ export class MemorySaveStore implements ServerSaveStore {
 //   <gameID>.meta.json   small uncompressed listing row (never decompressed)
 // Legacy single-blob saves (<gameID>.json.gz) are still read as a fallback.
 export class FilesystemSaveStore implements ServerSaveStore {
+  // B0/Phase 3: identity of the checkpoint already written to the sidecar, so a
+  // periodic autosave whose checkpoint is unchanged does not re-gzip and
+  // rewrite the (potentially megabyte-scale) blob. Reset on process restart,
+  // which costs one redundant write per game.
+  private readonly persistedCheckpoints = new Map<string, string>();
+  /** Number of checkpoint sidecar writes performed (telemetry/tests). */
+  public checkpointWrites = 0;
+
   constructor(private readonly dir: string) {}
 
   private headPath(gameID: string): string {
@@ -183,13 +191,21 @@ export class FilesystemSaveStore implements ServerSaveStore {
     );
     // A megabyte-scale sidecar, gzipped and kept off the JSON head. Written
     // last: a crash before it lands leaves the checkpoint missing (full-replay
-    // fallback) rather than a head claiming one that is not there.
-    if (snapshot.checkpoint !== undefined) {
-      const compressed = await gzip(Buffer.from(snapshot.checkpoint, "utf8"));
-      await writeFile(this.checkpointPath(snapshot.gameID), compressed);
+    // fallback) rather than a head claiming one that is not there. Rewritten
+    // only when the checkpoint actually changed, so a periodic autosave with an
+    // unchanged checkpoint (the common case) skips the gzip + write entirely.
+    const checkpoint = snapshot.checkpoint;
+    if (checkpoint !== undefined) {
+      if (this.persistedCheckpoints.get(snapshot.gameID) !== checkpoint) {
+        const compressed = await gzip(Buffer.from(checkpoint, "utf8"));
+        await writeFile(this.checkpointPath(snapshot.gameID), compressed);
+        this.persistedCheckpoints.set(snapshot.gameID, checkpoint);
+        this.checkpointWrites++;
+      }
     } else {
       // A save without a checkpoint must not resurrect a stale sidecar.
       await rm(this.checkpointPath(snapshot.gameID), { force: true });
+      this.persistedCheckpoints.delete(snapshot.gameID);
     }
   }
 
@@ -307,5 +323,6 @@ export class FilesystemSaveStore implements ServerSaveStore {
     await rm(this.metaPath(gameID), { force: true });
     await rm(this.legacyPath(gameID), { force: true });
     await rm(this.checkpointPath(gameID), { force: true });
+    this.persistedCheckpoints.delete(gameID);
   }
 }

@@ -240,4 +240,30 @@ describe("FilesystemSaveStore", () => {
     const loaded = await new FilesystemSaveStore(dir).load("abcd1234");
     expect(loaded?.checkpoint).toBeUndefined();
   });
+
+  it("rewrites the checkpoint sidecar only when it changes", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir);
+
+    await store.save(snapshot({ checkpoint: "cp-v1" }));
+    expect(store.checkpointWrites).toBe(1);
+
+    // The periodic autosave carries the same checkpoint: no gzip, no write.
+    await store.save(snapshot({ checkpoint: "cp-v1", savedAt: 3000 }));
+    expect(store.checkpointWrites).toBe(1);
+
+    // A newer checkpoint does rewrite the sidecar.
+    await store.save(snapshot({ checkpoint: "cp-v2", savedAt: 4000 }));
+    expect(store.checkpointWrites).toBe(2);
+
+    // Omitting the checkpoint removes the sidecar (no additional write), and a
+    // later reintroduction writes it again from scratch.
+    await store.save(snapshot({ savedAt: 5000 }));
+    expect(store.checkpointWrites).toBe(2);
+    expect((await store.load("abcd1234"))?.checkpoint).toBeUndefined();
+
+    await store.save(snapshot({ checkpoint: "cp-v3", savedAt: 6000 }));
+    expect(store.checkpointWrites).toBe(3);
+    expect((await store.load("abcd1234"))?.checkpoint).toBe("cp-v3");
+  });
 });

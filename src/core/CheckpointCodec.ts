@@ -1,4 +1,8 @@
-import { GameCheckpoint, isGameCheckpoint } from "./Checkpoint";
+import {
+  GameCheckpoint,
+  isGameCheckpoint,
+  MapStateCheckpoint,
+} from "./Checkpoint";
 
 /**
  * B2: a portable, schema-free serialization for `GameCheckpoint` blobs that have
@@ -98,6 +102,103 @@ function reviver(_key: string, value: unknown): unknown {
     return Number(num);
   }
   return value;
+}
+
+// Per-entity size estimates (tagged-JSON characters) for the parts of a
+// checkpoint that are not the map. Deliberately generous: an over-estimate only
+// makes the client skip an upload and fall back to full replay, never desync.
+const STATS_PER_PLAYER_BYTES = 800;
+const PLAYER_BASE_BYTES = 300;
+const PLAYER_REF_BYTES = 8;
+const PLAYER_ID_BYTES = 44;
+const PLAYER_TARGET_BYTES = 40;
+const PLAYER_EMOJI_BYTES = 90;
+const PLAYER_DONATION_BYTES = 40;
+const ALLIANCE_REQUEST_BYTES = 100;
+const ALLIANCE_BYTES = 160;
+const UNIT_BASE_BYTES = 350;
+const UNIT_TICK_BYTES = 5;
+const UNIT_TOLL_BYTES = 60;
+const ATTACK_BASE_BYTES = 150;
+const EXECUTION_BYTES = 200;
+const CHECKPOINT_ENVELOPE_BYTES = 2_000;
+
+function base64Length(byteLength: number): number {
+  return 4 * Math.ceil(byteLength / 3);
+}
+
+function typedArrayBase64Length(
+  value: Uint8Array | Uint16Array | undefined,
+): number {
+  if (value === undefined) return 0;
+  const bytesPerElement = value instanceof Uint16Array ? 2 : 1;
+  return base64Length(value.length * bytesPerElement);
+}
+
+/**
+ * A cheap estimate of the tagged-JSON length `encodeCheckpoint` would produce,
+ * computed without building the multi-megabyte string. The dominant, unbounded
+ * cost is the two map typed arrays (main + minimap, fixed per map size), which
+ * is measured exactly; the bounded per-entity arrays are estimated with
+ * conservative constants.
+ *
+ * Callers use this to decide whether a checkpoint can fit the transfer cap
+ * before allocating the encoded string (see docs/SaveResumeLongGames.md).
+ * Over-estimating is safe: it only costs a fallback to full-history replay.
+ */
+export function projectCheckpointBytes(checkpoint: GameCheckpoint): number {
+  const mapBytes = (m: MapStateCheckpoint): number =>
+    typedArrayBase64Length(m.terrain) + typedArrayBase64Length(m.state);
+
+  let bytes = CHECKPOINT_ENVELOPE_BYTES;
+  bytes += mapBytes(checkpoint.map) + mapBytes(checkpoint.miniMap);
+  bytes += Object.keys(checkpoint.stats).length * STATS_PER_PLAYER_BYTES;
+
+  for (const p of checkpoint.players) {
+    bytes += PLAYER_BASE_BYTES;
+    bytes += p.tiles.length * PLAYER_REF_BYTES;
+    bytes += p.avoidedTiles.length * PLAYER_REF_BYTES;
+    bytes += p.unitIds.length * PLAYER_REF_BYTES;
+    bytes += p.outgoingAttackIds.length * PLAYER_ID_BYTES;
+    bytes += p.incomingAttackIds.length * PLAYER_ID_BYTES;
+    bytes += p.relations.length * 12;
+    bytes += p.tollRates.length * 16;
+    bytes += p.embargoes.length * 50;
+    bytes += p.targets.length * PLAYER_TARGET_BYTES;
+    bytes += p.outgoingEmojis.length * PLAYER_EMOJI_BYTES;
+    bytes += p.outgoingQuickChats.length * 20;
+    bytes += p.sentDonations.length * PLAYER_DONATION_BYTES;
+    bytes +=
+      (p.pastOutgoingAllianceRequests?.length ?? 0) * ALLIANCE_REQUEST_BYTES;
+    bytes += (p.expiredAlliances?.length ?? 0) * ALLIANCE_BYTES;
+  }
+
+  for (const u of checkpoint.units) {
+    bytes += UNIT_BASE_BYTES;
+    bytes += u.missileTimerQueue.length * UNIT_TICK_BYTES;
+    bytes += u.tollTicks.length * UNIT_TICK_BYTES;
+    bytes += u.tolls.length * UNIT_TOLL_BYTES;
+  }
+
+  for (const a of checkpoint.attacks) {
+    bytes += ATTACK_BASE_BYTES + a.border.length * PLAYER_REF_BYTES;
+  }
+
+  bytes += checkpoint.allianceRequests.length * ALLIANCE_REQUEST_BYTES;
+  bytes += checkpoint.alliances.length * ALLIANCE_BYTES;
+  bytes += checkpoint.executions.length * EXECUTION_BYTES;
+  return bytes;
+}
+
+/**
+ * True when a checkpoint is projected to fit under the transfer cap, so the
+ * caller can encode and upload it. Checkpoints that fail this are skipped and
+ * the resume falls back to full-history replay.
+ */
+export function checkpointFitsTransferBudget(
+  checkpoint: GameCheckpoint,
+): boolean {
+  return projectCheckpointBytes(checkpoint) <= MAX_CHECKPOINT_TRANSFER_BYTES;
 }
 
 /** Serialize a checkpoint to its tagged-JSON wire/store form. */

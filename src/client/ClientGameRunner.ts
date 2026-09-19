@@ -2,6 +2,7 @@ import { Config } from "src/core/configuration/Config";
 import { translateText } from "../client/Utils";
 import { GameCheckpoint } from "../core/Checkpoint";
 import {
+  checkpointFitsTransferBudget,
   decodeCheckpoint,
   encodeCheckpoint,
   MAX_CHECKPOINT_TRANSFER_BYTES,
@@ -875,6 +876,9 @@ export class ClientGameRunner {
   // B2: latest core checkpoint received from the worker (seeded with the one we
   // resumed from), attached to each autosave.
   private latestCheckpoint: GameCheckpoint | undefined;
+  // B2: tick of the last checkpoint we encoded for upload, so a callback that
+  // repeats an already-sent checkpoint does not re-encode it.
+  private lastUploadedCheckpointTick = -1;
   // The checkpoint this client resumed from (local save or server-hosted), if
   // any. Drives the suffix-skip in the start handler.
   private readonly resumeCheckpoint?: GameCheckpoint;
@@ -935,7 +939,16 @@ export class ClientGameRunner {
   // an oversized blob is skipped and the save falls back to full history.
   private uploadCheckpoint(checkpoint: GameCheckpoint): void {
     if (this.transport.isLocal || !this.isLobbyCreator()) return;
+    if (checkpoint.ticks <= this.lastUploadedCheckpointTick) return;
+    // Budget guard before encoding: on every real map the projected size is far
+    // over the cap, so this skips a multi-megabyte string allocation and lets
+    // the resume fall back to (chunked) full-history replay.
+    if (!checkpointFitsTransferBudget(checkpoint)) {
+      this.lastUploadedCheckpointTick = checkpoint.ticks;
+      return;
+    }
     const serialized = encodeCheckpoint(checkpoint);
+    this.lastUploadedCheckpointTick = checkpoint.ticks;
     if (serialized.length > MAX_CHECKPOINT_TRANSFER_BYTES) return;
     this.transport.sendCheckpoint(serialized);
   }

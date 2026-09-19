@@ -64,6 +64,9 @@ export class PlayerExecution implements Execution {
   }
 
   tick(ticks: number) {
+    // B2: bound per-player transient history (docs/SaveResumeLongGames.md D3)
+    // before anything in this tick reads it; behavior-neutral by construction.
+    this.player.pruneTransient();
     this.player.decayRelations();
     for (const u of this.player.units()) {
       if (!Structures.has(u.type())) {

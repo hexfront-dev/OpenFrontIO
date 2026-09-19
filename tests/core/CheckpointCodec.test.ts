@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CHECKPOINT_VERSION, GameCheckpoint } from "../../src/core/Checkpoint";
 import {
+  checkpointFitsTransferBudget,
   decodeCheckpoint,
   encodeCheckpoint,
   MAX_CHECKPOINT_TRANSFER_BYTES,
+  projectCheckpointBytes,
 } from "../../src/core/CheckpointCodec";
 
 // A structurally valid checkpoint (isGameCheckpoint only inspects version,
@@ -108,5 +110,35 @@ describe("CheckpointCodec", () => {
 
   it("keeps the transfer cap inside the game socket's frame limit", () => {
     expect(MAX_CHECKPOINT_TRANSFER_BYTES).toBeLessThan(1024 * 1024);
+  });
+
+  describe("projectCheckpointBytes", () => {
+    it("is a conservative estimate of the encoded size", () => {
+      const checkpoint = sampleCheckpoint();
+      const projected = projectCheckpointBytes(checkpoint);
+      const actual = encodeCheckpoint(checkpoint).length;
+      // The projection must never suggest a blob is smaller than it is, and it
+      // should not be wildly pessimistic for a small state.
+      expect(projected).toBeGreaterThanOrEqual(actual);
+      expect(projected).toBeLessThan(actual * 20);
+    });
+
+    it("flags a large-map checkpoint as over budget without encoding it", () => {
+      const checkpoint = sampleCheckpoint();
+      // A World-sized main map plus its 4x minimap: ~2.5M tiles of state, far
+      // past the cap before any player/unit data.
+      checkpoint.map.terrain = new Uint8Array(2_000_000);
+      checkpoint.map.state = new Uint16Array(2_000_000);
+      checkpoint.miniMap.terrain = new Uint8Array(500_000);
+      checkpoint.miniMap.state = new Uint16Array(500_000);
+      expect(projectCheckpointBytes(checkpoint)).toBeGreaterThan(
+        MAX_CHECKPOINT_TRANSFER_BYTES,
+      );
+      expect(checkpointFitsTransferBudget(checkpoint)).toBe(false);
+    });
+
+    it("accepts a small checkpoint", () => {
+      expect(checkpointFitsTransferBudget(sampleCheckpoint())).toBe(true);
+    });
   });
 });

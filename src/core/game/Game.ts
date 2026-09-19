@@ -780,6 +780,11 @@ export interface Player {
   target(other: Player): void;
   targets(): Player[];
   transitiveTargets(): Player[];
+  /**
+   * B2: drop transient history (targets, emojis, donations, alliance requests)
+   * that is too old to affect behavior, bounding memory and checkpoint size.
+   */
+  pruneTransient(): void;
 
   // Communication
   canSendEmoji(recipient: Player | typeof AllPlayers): boolean;

@@ -72,6 +72,24 @@ import { UnitImpl } from "./UnitImpl";
 // Rot re-stamps every second, so a little slack keeps the cue from strobing.
 const DECAY_CUE_GRACE_TICKS = 30;
 
+/**
+ * B2: drop the leading entries of a tick-ordered array whose timestamp is at or
+ * before `cutoff`. Entries are appended in non-decreasing tick order, so one
+ * scan from the front is O(dropped) and the input array is returned unchanged
+ * when nothing is stale.
+ */
+function dropBefore<T>(
+  items: T[],
+  cutoff: number,
+  tickOf: (item: T) => number,
+): T[] {
+  let drop = 0;
+  while (drop < items.length && tickOf(items[drop]) <= cutoff) {
+    drop++;
+  }
+  return drop === 0 ? items : items.slice(drop);
+}
+
 interface Target {
   tick: Tick;
   target: Player;
@@ -1012,6 +1030,40 @@ export class PlayerImpl implements Player {
       }
       this.relations.set(p, r);
     });
+  }
+
+  /**
+   * B2: drop transient history that can no longer affect behavior, so memory
+   * and checkpoints stay bounded over a long game (docs/SaveResumeLongGames.md
+   * D3). Each window is the cooldown that gates the corresponding query, so an
+   * entry removed here is already too old to block or be shown: canTarget,
+   * canSendEmoji, canDonate* and canSendAllianceRequest all read entries newer
+   * than the window we keep. `PlayerImpl.hash()` ignores these arrays, so this
+   * is determinism- and hash-neutral.
+   */
+  pruneTransient(): void {
+    const ticks = this.mg.ticks();
+    const config = this.mg.config();
+    this.targets_ = dropBefore(
+      this.targets_,
+      ticks - config.targetCooldown(),
+      (t) => t.tick,
+    );
+    this.outgoingEmojis_ = dropBefore(
+      this.outgoingEmojis_,
+      ticks - config.emojiMessageCooldown(),
+      (e) => e.createdAt,
+    );
+    this.sentDonations = dropBefore(
+      this.sentDonations,
+      ticks - config.donateCooldown(),
+      (d) => d.tick,
+    );
+    this.pastOutgoingAllianceRequests = dropBefore(
+      this.pastOutgoingAllianceRequests,
+      ticks - config.allianceRequestCooldown(),
+      (r) => r.createdAt(),
+    );
   }
 
   canTarget(other: Player): boolean {
@@ -1997,6 +2049,11 @@ export class PlayerImpl implements Player {
 
   /** B2: capture every authoritative field of this player. */
   checkpoint(): PlayerCheckpoint {
+    // Capture only the in-window transient history. `pruneTransient` keeps the
+    // live arrays bounded, and this guard covers a checkpoint taken for a
+    // player whose execution has stopped ticking (e.g. one that died).
+    const ticks = this.mg.ticks();
+    const config = this.mg.config();
     return {
       id: this.playerInfo.id,
       smallID: this._smallID,
@@ -2036,20 +2093,34 @@ export class PlayerImpl implements Player {
         createdAt: e.createdAt,
         isTemporary: e.isTemporary,
       })),
-      targets: this.targets_.map((t) => ({
+      targets: dropBefore(
+        this.targets_,
+        ticks - config.targetCooldown(),
+        (t) => t.tick,
+      ).map((t) => ({
         tick: t.tick,
         targetId: t.target.id(),
       })),
-      outgoingEmojis: this.outgoingEmojis_.map((e) => ({ ...e })),
+      outgoingEmojis: dropBefore(
+        this.outgoingEmojis_,
+        ticks - config.emojiMessageCooldown(),
+        (e) => e.createdAt,
+      ).map((e) => ({ ...e })),
       outgoingQuickChats: Array.from(this.outgoingQuickChats_.entries()),
-      sentDonations: this.sentDonations.map((d) => ({
+      sentDonations: dropBefore(
+        this.sentDonations,
+        ticks - config.donateCooldown(),
+        (d) => d.tick,
+      ).map((d) => ({
         recipientId: d.recipient.id(),
         tick: d.tick,
       })),
       pseudoRandom: this._pseudo_random.state(),
-      pastOutgoingAllianceRequests: this.pastOutgoingAllianceRequests.map((r) =>
-        (r as AllianceRequestImpl).checkpoint(),
-      ),
+      pastOutgoingAllianceRequests: dropBefore(
+        this.pastOutgoingAllianceRequests,
+        ticks - config.allianceRequestCooldown(),
+        (r) => r.createdAt(),
+      ).map((r) => (r as AllianceRequestImpl).checkpoint()),
       expiredAlliances: this._expiredAlliances.map((a) =>
         (a as AllianceImpl).checkpoint(),
       ),
