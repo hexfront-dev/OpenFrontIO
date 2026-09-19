@@ -20,6 +20,14 @@ import {
   RetreatExecutionCheckpoint,
 } from "./RetreatExecution";
 import { SpawnTimerExecution } from "./SpawnTimerExecution";
+import {
+  TradeShipExecution,
+  TradeShipExecutionCheckpoint,
+} from "./TradeShipExecution";
+import {
+  TransportShipExecution,
+  TransportShipExecutionCheckpoint,
+} from "./TransportShipExecution";
 import { TribeExecution, TribeExecutionCheckpoint } from "./TribeExecution";
 import { WinCheckExecution } from "./WinCheckExecution";
 
@@ -214,6 +222,32 @@ export function restoreExecution(
         data.unitId,
       );
       exec.restoreCheckpoint(game, data);
+      return exec;
+    }
+    case "trade_ship": {
+      const data = cp.data as TradeShipExecutionCheckpoint;
+      if (!game.hasPlayer(data.origOwnerId)) return undefined;
+      const srcPort = game.unit(data.srcPortId);
+      const dstPort = game.unit(data.dstPortId);
+      if (srcPort === undefined || dstPort === undefined) return undefined;
+      const exec = new TradeShipExecution(
+        game.player(data.origOwnerId),
+        srcPort,
+        dstPort,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "transport_ship": {
+      const data = cp.data as TransportShipExecutionCheckpoint;
+      if (!game.hasPlayer(data.attackerId)) return undefined;
+      const exec = new TransportShipExecution(
+        game.player(data.attackerId),
+        data.ref,
+        data.troops,
+        data.escort,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
       return exec;
     }
     default:

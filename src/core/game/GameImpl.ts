@@ -7,11 +7,16 @@ import {
   CheckpointWinner,
   ExecutionCheckpoint,
   GameCheckpoint,
+  UnitCheckpoint,
 } from "../Checkpoint";
 import { Config } from "../configuration/Config";
 import { restoreExecution } from "../execution/ExecutionCheckpoints";
 import { SharedWaterCache } from "../execution/nation/SharedWaterCache";
 import { AbstractGraph } from "../pathfinding/algorithms/AbstractGraph";
+import {
+  tradeShipStagger,
+  transportShipStagger,
+} from "../pathfinding/PathfinderStagger";
 import { PathFinder } from "../pathfinding/types";
 import { AllPlayersStats, ClientID, Winner } from "../Schemas";
 import { ATTACK_INDEX_SENT } from "../StatsSchemas";
@@ -1538,6 +1543,10 @@ export class GameImpl implements Game {
       numMirvsLaunched: stats.numMirvLaunched,
       executions,
       execsCount,
+      pathfinderStatics: {
+        tradeShipStagger: tradeShipStagger.snapshot(),
+        transportShipStagger: transportShipStagger.snapshot(),
+      },
     };
   }
 
@@ -1591,10 +1600,15 @@ export class GameImpl implements Game {
       players.push(player);
     }
 
-    // Units: rebuild spatially and re-link ownership.
+    // Units: rebuild spatially and re-link ownership. Two passes so a unit's
+    // targetUnit can resolve another unit restored later in the loop (a trade
+    // ship targets a port owned by a different player, for instance): create
+    // and register every unit first, then overwrite the state that may
+    // reference them.
     this._unitMap = new Map();
     this.unitGrid = new UnitGrid(this._map);
     const unitCpById = new Map(cp.units.map((u) => [u.id, u]));
+    const restoredUnits: { unit: UnitImpl; cp: UnitCheckpoint }[] = [];
     for (const player of players) {
       const pcp = playerCpById.get(player.id())!;
       for (const unitId of pcp.unitIds) {
@@ -1611,10 +1625,13 @@ export class GameImpl implements Game {
           {},
           false,
         );
-        unit.restoreFromCheckpoint(ucp);
         player._units.push(unit);
         this.addUnit(unit);
+        restoredUnits.push({ unit, cp: ucp });
       }
+    }
+    for (const { unit, cp: ucp } of restoredUnits) {
+      unit.restoreFromCheckpoint(ucp);
     }
 
     // Attacks (shared between attacker and defender lists).
@@ -1705,6 +1722,13 @@ export class GameImpl implements Game {
       data: cp.stats,
       numMirvLaunched: cp.numMirvsLaunched,
     });
+
+    // Restore the process-global pathfinder staggering last, so rebuilding the
+    // executions above cannot advance it.
+    if (cp.pathfinderStatics !== undefined) {
+      tradeShipStagger.restore(cp.pathfinderStatics.tradeShipStagger);
+      transportShipStagger.restore(cp.pathfinderStatics.transportShipStagger);
+    }
 
     // Transient per-tick buffers and memoised derived data.
     this.updates = createGameUpdatesMap();

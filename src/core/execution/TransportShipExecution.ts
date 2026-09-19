@@ -1,9 +1,11 @@
 import { renderTroops } from "../../client/Utils";
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
   MessageType,
   Player,
+  PlayerID,
   PlayerType,
   TerraNullius,
   Unit,
@@ -12,11 +14,36 @@ import {
 import { TileRef } from "../game/GameMap";
 import { MotionPlanRecord } from "../game/MotionPlans";
 import { targetTransportTile } from "../game/TransportShipUtils";
-import { WaterPathFinder } from "../pathfinding/PathFinder";
+import {
+  WaterPathFinder,
+  WaterPathFinderSnapshot,
+} from "../pathfinding/PathFinder";
+import { transportShipStagger } from "../pathfinding/PathfinderStagger";
 import { PathStatus } from "../pathfinding/types";
 import { AttackExecution } from "./AttackExecution";
 
 const malusForRetreat = 25;
+
+export interface TransportShipExecutionCheckpoint {
+  attackerId: PlayerID;
+  originalOwnerId: PlayerID;
+  ref: TileRef;
+  troops: number;
+  escort: boolean;
+  active: boolean;
+  lastMove: number;
+  /** null when the target is TerraNullius. */
+  targetId: PlayerID | null;
+  dst: TileRef | null;
+  src: TileRef | null;
+  retreatDst: TileRef | false | null;
+  retreating: boolean;
+  boatId: number | null;
+  motionPlanId: number;
+  motionPlanDst: TileRef | null;
+  /** null for an execution captured before its first tick. */
+  pathFinder: WaterPathFinderSnapshot | null;
+}
 
 export class TransportShipExecution implements Execution {
   private active = true;
@@ -29,7 +56,7 @@ export class TransportShipExecution implements Execution {
   private target: Player | TerraNullius;
   private pathFinder: WaterPathFinder;
 
-  private static _staggerCounter = 0;
+  private initialized = false;
 
   private dst: TileRef | null;
   private src: TileRef | null;
@@ -64,9 +91,9 @@ export class TransportShipExecution implements Execution {
     this.lastMove = ticks;
     this.mg = mg;
     this.target = mg.owner(this.ref);
-    const stagger =
-      TransportShipExecution._staggerCounter++ % WaterPathFinder.STAGGER_SPREAD;
+    const stagger = transportShipStagger.next();
     this.pathFinder = new WaterPathFinder(mg, stagger);
+    this.initialized = true;
 
     if (
       !this.escort &&
@@ -185,6 +212,77 @@ export class TransportShipExecution implements Execution {
     this.mg
       .stats()
       .boatSendTroops(this.attacker, this.target, this.boat.troops());
+  }
+
+  /** B2: capture the invasion voyage (boat, route cache, retreat state). */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "transport_ship",
+      data: {
+        attackerId: this.attacker.id(),
+        originalOwnerId: this.originalOwner.id(),
+        ref: this.ref,
+        troops: this.troops,
+        escort: this.escort,
+        active: this.active,
+        lastMove: this.lastMove ?? 0,
+        targetId:
+          this.initialized && this.target.isPlayer() ? this.target.id() : null,
+        dst: this.dst,
+        src: this.src,
+        retreatDst: this.retreatDst,
+        retreating: this.retreating,
+        boatId: this.boat?.id() ?? null,
+        motionPlanId: this.motionPlanId,
+        motionPlanDst: this.motionPlanDst,
+        pathFinder: this.initialized ? this.pathFinder.snapshot() : null,
+      } satisfies TransportShipExecutionCheckpoint,
+    };
+  }
+
+  /**
+   * B2: overwrite this execution from a checkpoint. The attacker/troops/escort
+   * come in through the constructor; everything derived during `init` (boat,
+   * target, route cache) is reinstalled here. Returns false when the boat is
+   * missing (fail-safe).
+   */
+  restoreCheckpoint(
+    game: Game,
+    data: TransportShipExecutionCheckpoint,
+  ): boolean {
+    this.mg = game;
+    this.active = data.active;
+    this.lastMove = data.lastMove;
+    this.ref = data.ref;
+    this.troops = data.troops;
+    this.escort = data.escort;
+    this.attacker = game.player(data.attackerId);
+    this.originalOwner = game.player(data.originalOwnerId);
+    this.target =
+      data.targetId === null ? game.terraNullius() : game.player(data.targetId);
+    this.dst = data.dst;
+    this.src = data.src;
+    this.retreatDst = data.retreatDst;
+    this.retreating = data.retreating;
+    this.motionPlanId = data.motionPlanId;
+    this.motionPlanDst = data.motionPlanDst;
+    if (data.boatId === null) {
+      this.boat = undefined as unknown as Unit;
+    } else {
+      const boat = game.unit(data.boatId);
+      if (boat === undefined) return false;
+      this.boat = boat;
+    }
+    if (data.pathFinder !== null) {
+      this.pathFinder = new WaterPathFinder(
+        game,
+        data.pathFinder.stagger,
+        data.pathFinder.memoized,
+      );
+      this.pathFinder.restore(data.pathFinder);
+      this.initialized = true;
+    }
+    return true;
   }
 
   tick(ticks: number) {

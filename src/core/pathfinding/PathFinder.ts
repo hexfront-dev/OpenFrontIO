@@ -10,7 +10,11 @@ import {
 } from "./PathFinder.Parabola";
 import { StationPathFinder } from "./PathFinder.Station";
 import { PathFinderBuilder } from "./PathFinderBuilder";
-import { PathFinderStepper, StepperConfig } from "./PathFinderStepper";
+import {
+  PathFinderStepper,
+  PathFinderStepperSnapshot,
+  StepperConfig,
+} from "./PathFinderStepper";
 import { ComponentCheckTransformer } from "./transformers/ComponentCheckTransformer";
 import { MiniMapTransformer } from "./transformers/MiniMapTransformer";
 import { ShoreCoercingTransformer } from "./transformers/ShoreCoercingTransformer";
@@ -206,6 +210,22 @@ export class PathFinding {
 }
 
 /**
+ * B2: serializable state of a ship's `WaterPathFinder`. The cached stepper
+ * route plus the graph-version/stagger bookkeeping must round-trip: the latter
+ * decides *when* a ship drops its cached path after a water-graph change
+ * (water nuke), which changes which tiles it occupies on the intervening ticks.
+ */
+export interface WaterPathFinderSnapshot {
+  stepper: PathFinderStepperSnapshot<TileRef>;
+  waterGraphVersion: number;
+  rebuilt: boolean;
+  stagger: number;
+  memoized: boolean;
+  staggerCountdown: number;
+  pendingVersion: number;
+}
+
+/**
  * Water pathfinder that auto-rebuilds when the water graph changes.
  * Wraps a per-ship stepper around the shared water chain on Game; tracks
  * waterGraphVersion to stagger when each ship invalidates its cached path.
@@ -301,6 +321,36 @@ export class WaterPathFinder implements SteppingPathFinder<TileRef> {
 
   invalidate(): void {
     this.stepper.invalidate();
+  }
+
+  /** B2: capture the cached route and the water-graph rebuild bookkeeping. */
+  snapshot(): WaterPathFinderSnapshot {
+    return {
+      stepper: this.stepper.snapshot(),
+      waterGraphVersion: this._waterGraphVersion,
+      rebuilt: this._rebuilt,
+      stagger: this._stagger,
+      memoized: this._memoized,
+      staggerCountdown: this._staggerCountdown,
+      pendingVersion: this._pendingVersion,
+    };
+  }
+
+  /**
+   * B2: install a snapshot on this pathfinder. Rebuilds the stepper around the
+   * shared chain (derived state) and replays the captured route/bookkeeping.
+   * The finder and its stash of derived caches are otherwise stateless.
+   */
+  restore(snapshot: WaterPathFinderSnapshot): void {
+    this.stepper = new PathFinderStepper(
+      sharedWaterChain(this.game, snapshot.memoized),
+      tileStepperConfig(this.game),
+    );
+    this.stepper.restore(snapshot.stepper);
+    this._waterGraphVersion = snapshot.waterGraphVersion;
+    this._rebuilt = snapshot.rebuilt;
+    this._staggerCountdown = snapshot.staggerCountdown;
+    this._pendingVersion = snapshot.pendingVersion;
   }
 }
 

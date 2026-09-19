@@ -166,6 +166,56 @@ describe("PathFinderStepper", () => {
     });
   });
 
+  describe("snapshot/restore", () => {
+    it("round-trips the cached route so a fresh stepper continues it", () => {
+      const pathMap = new Map<string, number[]>([["1->5", [1, 2, 3, 4, 5]]]);
+      const stepper = new PathFinderStepper(createMockFinder(pathMap));
+
+      expect(stepper.next(1, 5)).toEqual({ status: PathStatus.NEXT, node: 2 });
+      const snapshot = stepper.snapshot();
+
+      // A fresh stepper with no finder state at all still continues the route.
+      const restored = new PathFinderStepper(createMockFinder(new Map()));
+      restored.restore(snapshot);
+
+      expect(restored.next(2, 5)).toEqual({ status: PathStatus.NEXT, node: 3 });
+      expect(restored.next(3, 5)).toEqual({ status: PathStatus.NEXT, node: 4 });
+      expect(restored.pathAfterNext()).toEqual(new Uint32Array([4, 5]));
+    });
+
+    it("captures an empty traversal", () => {
+      const stepper = new PathFinderStepper(createMockFinder(new Map()));
+      const snapshot = stepper.snapshot();
+      expect(snapshot.path).toBeNull();
+      expect(snapshot.pathIndex).toBe(0);
+      expect(snapshot.lastTo).toBeNull();
+
+      const restored = new PathFinderStepper(createMockFinder(new Map()));
+      restored.restore(snapshot);
+      expect(restored.pathAfterNext()).toBeNull();
+    });
+
+    it("copies the path on both snapshot and restore", () => {
+      const pathMap = new Map<string, number[]>([["1->5", [1, 2, 3, 4, 5]]]);
+      const stepper = new PathFinderStepper(createMockFinder(pathMap));
+      stepper.next(1, 5);
+
+      const snapshot = stepper.snapshot();
+      // Mutating the snapshot must not leak back into the live stepper.
+      snapshot.path![1] = 99;
+      expect(stepper.next(2, 5)).toEqual({ status: PathStatus.NEXT, node: 3 });
+
+      const clean = new PathFinderStepper(createMockFinder(pathMap));
+      clean.next(1, 5);
+      const cleanSnapshot = clean.snapshot();
+      const restored = new PathFinderStepper(createMockFinder(new Map()));
+      restored.restore(cleanSnapshot);
+      // Mutating the snapshot after restore must not mutate the restored stepper.
+      cleanSnapshot.path![2] = 99;
+      expect(restored.next(2, 5)).toEqual({ status: PathStatus.NEXT, node: 3 });
+    });
+  });
+
   describe("custom equals", () => {
     it("uses custom equals function for position comparison", () => {
       type Pos = { x: number; y: number };

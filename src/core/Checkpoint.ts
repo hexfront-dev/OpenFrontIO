@@ -158,6 +158,16 @@ export interface ExecutionCheckpoint {
   data: unknown;
 }
 
+/**
+ * B2: process-global counters that ship pathfinders draw from. They are not
+ * per-game fields, but they are part of the deterministic state: restoring them
+ * keeps a resumed run's rebuild stagger in lockstep with the run it continues.
+ */
+export interface PathfinderStaticsCheckpoint {
+  tradeShipStagger: number;
+  transportShipStagger: number;
+}
+
 export type CheckpointWinner =
   | { kind: "player"; id: PlayerID }
   | { kind: "team"; team: Team }
@@ -188,6 +198,8 @@ export interface GameCheckpoint {
   executions: ExecutionCheckpoint[];
   /** Number of leading `executions` entries that were active (not pending). */
   execsCount: number;
+  /** Optional for checkpoints written before pathfinder statics were captured. */
+  pathfinderStatics?: PathfinderStaticsCheckpoint;
 }
 
 /** Serialized form of a `PlayerStats` record (bigints survive structured clone). */

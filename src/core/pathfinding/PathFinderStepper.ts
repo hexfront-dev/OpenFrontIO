@@ -12,6 +12,19 @@ export interface StepperConfig<T> {
 }
 
 /**
+ * B2: serializable form of a stepper's cached route. Capturing the live
+ * `path`/`pathIndex`/`lastTo` is what makes a resume replays the suffix
+ * identically: a fresh stepper that re-ran A* could pick a different
+ * equal-cost route under the finder's tie-breaking, so re-`init()` is not
+ * equivalent.
+ */
+export interface PathFinderStepperSnapshot<T> {
+  path: T[] | Uint32Array | null;
+  pathIndex: number;
+  lastTo: T | null;
+}
+
+/**
  * PathFinderStepper - wraps a PathFinder and provides step-by-step traversal
  *
  * Handles path caching, invalidation, and incremental movement.
@@ -106,6 +119,30 @@ export class PathFinderStepper<T> implements SteppingPathFinder<T> {
     this.path = null;
     this.pathIndex = 0;
     this.lastTo = null;
+  }
+
+  /** B2: capture the cached route exactly as it stands right now. */
+  snapshot(): PathFinderStepperSnapshot<T> {
+    return {
+      // Copy so the snapshot is immune to later mutation of the live path.
+      path: this.path === null ? null : this.path.slice(),
+      pathIndex: this.pathIndex,
+      lastTo: this.lastTo,
+    };
+  }
+
+  /** B2: install a route captured by snapshot() on this (or a fresh) stepper. */
+  restore(snapshot: PathFinderStepperSnapshot<T>): void {
+    if (snapshot.path === null) {
+      this.path = null;
+    } else if (snapshot.path instanceof Uint32Array) {
+      // Re-copy on restore as well; checkpoints may be shared across games.
+      this.path = new Uint32Array(snapshot.path);
+    } else {
+      this.path = snapshot.path.slice();
+    }
+    this.pathIndex = snapshot.pathIndex;
+    this.lastTo = snapshot.lastTo;
   }
 
   /**

@@ -1,17 +1,38 @@
 import { renderNumber } from "../../client/Utils";
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
   Gold,
   MessageType,
   Player,
+  PlayerID,
   Unit,
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { WaterPathFinder } from "../pathfinding/PathFinder";
+import {
+  WaterPathFinder,
+  WaterPathFinderSnapshot,
+} from "../pathfinding/PathFinder";
+import { tradeShipStagger } from "../pathfinding/PathfinderStagger";
 import { PathStatus } from "../pathfinding/types";
 import { findClosestBy } from "../Util";
+
+export interface TradeShipExecutionCheckpoint {
+  origOwnerId: PlayerID;
+  srcPortId: number;
+  /** Current destination port id (can change after a capture). */
+  dstPortId: number;
+  tradeShipId: number | null;
+  wasCaptured: boolean;
+  tilesTraveled: number;
+  motionPlanId: number;
+  motionPlanDst: TileRef | null;
+  active: boolean;
+  /** null for an execution captured before its first tick. */
+  pathFinder: WaterPathFinderSnapshot | null;
+}
 
 export class TradeShipExecution implements Execution {
   private active = true;
@@ -22,8 +43,7 @@ export class TradeShipExecution implements Execution {
   private tilesTraveled = 0;
   private motionPlanId = 1;
   private motionPlanDst: TileRef | null = null;
-
-  private static _staggerCounter = 0;
+  private initialized = false;
 
   constructor(
     private origOwner: Player,
@@ -33,9 +53,60 @@ export class TradeShipExecution implements Execution {
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;
-    const stagger =
-      TradeShipExecution._staggerCounter++ % WaterPathFinder.STAGGER_SPREAD;
+    const stagger = tradeShipStagger.next();
     this.pathFinder = new WaterPathFinder(mg, stagger, true); // memoized: port tile to port tile repeats
+    this.initialized = true;
+  }
+
+  /** B2: capture the voyage (route cache, tolls-travelled, current target). */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "trade_ship",
+      data: {
+        origOwnerId: this.origOwner.id(),
+        srcPortId: this.srcPort.id(),
+        dstPortId: this._dstPort.id(),
+        tradeShipId: this.tradeShip?.id() ?? null,
+        wasCaptured: this.wasCaptured,
+        tilesTraveled: this.tilesTraveled,
+        motionPlanId: this.motionPlanId,
+        motionPlanDst: this.motionPlanDst,
+        active: this.active,
+        pathFinder: this.initialized ? this.pathFinder.snapshot() : null,
+      } satisfies TradeShipExecutionCheckpoint,
+    };
+  }
+
+  /**
+   * B2: overwrite this execution from a checkpoint. The source/destination
+   * ports are resolved by the loader and passed to the constructor, so this
+   * only installs the mutable voyage state. Returns false when the ship exists
+   * but cannot be resolved (fail-safe).
+   */
+  restoreCheckpoint(game: Game, data: TradeShipExecutionCheckpoint): boolean {
+    this.mg = game;
+    this.active = data.active;
+    this.wasCaptured = data.wasCaptured;
+    this.tilesTraveled = data.tilesTraveled;
+    this.motionPlanId = data.motionPlanId;
+    this.motionPlanDst = data.motionPlanDst;
+    if (data.tradeShipId === null) {
+      this.tradeShip = undefined;
+    } else {
+      const ship = game.unit(data.tradeShipId);
+      if (ship === undefined) return false;
+      this.tradeShip = ship;
+    }
+    if (data.pathFinder !== null) {
+      this.pathFinder = new WaterPathFinder(
+        game,
+        data.pathFinder.stagger,
+        data.pathFinder.memoized,
+      );
+      this.pathFinder.restore(data.pathFinder);
+      this.initialized = true;
+    }
+    return true;
   }
 
   tick(ticks: number): void {
