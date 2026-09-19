@@ -68,6 +68,22 @@ describe("MemorySaveStore", () => {
     await store.delete("abcd1234");
     expect(await store.load("abcd1234")).toBeNull();
   });
+
+  it("round-trips a checkpoint and drops it when a later save omits one", async () => {
+    const store = new MemorySaveStore();
+    await store.save(snapshot({ checkpoint: "cp-v1" }));
+    expect((await store.load("abcd1234"))?.checkpoint).toBe("cp-v1");
+
+    await store.save(snapshot({ savedAt: 3000 }));
+    expect((await store.load("abcd1234"))?.checkpoint).toBeUndefined();
+  });
+
+  it("forgets the checkpoint on delete", async () => {
+    const store = new MemorySaveStore();
+    await store.save(snapshot({ checkpoint: "cp-v1" }));
+    await store.delete("abcd1234");
+    expect(await store.load("abcd1234")).toBeNull();
+  });
 });
 
 describe("FilesystemSaveStore", () => {
@@ -198,5 +214,30 @@ describe("FilesystemSaveStore", () => {
     );
     const loaded = await store.load("abcd1234");
     expect(loaded?.gameID).toBe("abcd1234");
+  });
+
+  it("stores the checkpoint in a sidecar, not the JSON head", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir);
+    await store.save(snapshot({ checkpoint: "cp-v1" }));
+
+    // The head on disk must stay free of the (potentially huge) blob.
+    const headRaw = await (
+      await import("node:fs/promises")
+    ).readFile(path.join(dir, "abcd1234.head.json"), "utf8");
+    expect(headRaw).not.toContain("cp-v1");
+
+    const loaded = await new FilesystemSaveStore(dir).load("abcd1234");
+    expect(loaded?.checkpoint).toBe("cp-v1");
+  });
+
+  it("removes a stale checkpoint sidecar when a later save omits it", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir);
+    await store.save(snapshot({ checkpoint: "cp-v1" }));
+    await store.save(snapshot({ savedAt: 3000 }));
+
+    const loaded = await new FilesystemSaveStore(dir).load("abcd1234");
+    expect(loaded?.checkpoint).toBeUndefined();
   });
 });

@@ -12,6 +12,7 @@ import {
 import { TileRef } from "../core/game/GameMap";
 import {
   AllPlayersStats,
+  ClientCheckpointMessage,
   ClientHashMessage,
   ClientID,
   ClientIntentMessage,
@@ -536,6 +537,18 @@ export class Transport {
       lastTurn: lastTurn,
       token: await getPlayToken(),
     } satisfies ClientRejoinMessage);
+  }
+
+  // B2: volunteer a serialized core checkpoint to the game server so it can be
+  // stored with the save and served back on resume. Large and only meaningful
+  // for a started remote game; drop silently otherwise.
+  sendCheckpoint(checkpoint: string) {
+    if (this.isLocal) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.sendMsg({
+      type: "checkpoint",
+      checkpoint,
+    } satisfies ClientCheckpointMessage);
   }
 
   leaveGame() {

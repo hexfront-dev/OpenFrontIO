@@ -118,6 +118,7 @@ export type ClientMessage =
   | ClientIntentMessage
   | ClientJoinMessage
   | ClientRejoinMessage
+  | ClientCheckpointMessage
   | ClientLogMessage
   | ClientHashMessage
   | ClientSpectateMessage
@@ -158,6 +159,9 @@ export type ClientPingMessage = z.infer<typeof ClientPingMessageSchema>;
 export type ClientIntentMessage = z.infer<typeof ClientIntentMessageSchema>;
 export type ClientJoinMessage = z.infer<typeof ClientJoinMessageSchema>;
 export type ClientRejoinMessage = z.infer<typeof ClientRejoinMessageSchema>;
+export type ClientCheckpointMessage = z.infer<
+  typeof ClientCheckpointMessageSchema
+>;
 export type ClientLogMessage = z.infer<typeof ClientLogMessageSchema>;
 export type ClientHashMessage = z.infer<typeof ClientHashSchema>;
 export type ClientSpectateMessage = z.infer<typeof ClientSpectateMessageSchema>;
@@ -999,13 +1003,18 @@ export const ServerPrestartMessageSchema = z.object({
 
 export const ServerStartGameMessageSchema = z.object({
   type: z.literal("start"),
-  // Turns the client missed if they are late to the game.
+  // Turns the client missed if they are late to the game. When `checkpoint` is
+  // present this is only the suffix after `checkpoint.ticks`.
   turns: TurnSchema.array(),
   gameStartInfo: GameStartInfoSchema,
   lobbyCreatedAt: zb.uint(),
   // The clientID assigned to this connection by the server.
   // Absent for replays where the viewer has no player identity.
   myClientID: ID.optional(),
+  // B2: a tagged-JSON core checkpoint (see core/CheckpointCodec.ts) captured at
+  // `checkpoint.ticks`, letting the client restore instead of replaying from
+  // turn 0. Present only on a server-hosted resume whose host uploaded one.
+  checkpoint: z.string().optional(),
 });
 
 export const ServerDesyncSchema = z.object({
@@ -1157,6 +1166,15 @@ export const ClientJoinMessageSchema = z.object({
   claimClientID: ID.optional(),
 });
 
+// B2: a host client volunteering its latest core checkpoint so the server can
+// persist it with the save and hand it back on resume. Ignored for public
+// games, non-creators, and blobs that are too large or not a checkpoint.
+export const ClientCheckpointMessageSchema = z.object({
+  type: z.literal("checkpoint"),
+  // Tagged-JSON checkpoint (core/CheckpointCodec.ts); opaque to the wire.
+  checkpoint: z.string(),
+});
+
 export const ClientRejoinMessageSchema = z.object({
   type: z.literal("rejoin"),
   gameID: ID,
@@ -1184,6 +1202,8 @@ export const ClientMessageSchema = zb.discriminatedUnion("type", [
   ClientHashSchema,
   ClientSpectateMessageSchema,
   ClientReportMessageSchema,
+  // Appended last so existing clients keep their union tag indices.
+  ClientCheckpointMessageSchema,
 ]);
 
 //
@@ -1392,6 +1412,11 @@ export const SavedLobbySchema = z.object({
   // reference these clientIDs, so restoring must reuse it verbatim.
   gameStartInfo: GameStartInfoSchema.optional(),
   turns: TurnSchema.array(),
+  // B2: an optional tagged-JSON core checkpoint (core/CheckpointCodec.ts)
+  // captured at some turn boundary, contributed by the host client. Stored as a
+  // sidecar artifact (not on the JSON head) and handed back on resume so the
+  // client replays only the suffix.
+  checkpoint: z.string().optional(),
   savedAt: zb.uint(),
   gitCommit: z.string(),
 });
@@ -1420,13 +1445,18 @@ export function savedLobbyMetaFrom(save: SavedLobby): SavedLobbyMeta {
 // turns to an append-only history file, so an autosave costs O(delta).
 export const SavedLobbyHeadSchema = SavedLobbySchema.omit({
   turns: true,
+  // The checkpoint is the one artifact that can be megabytes; it lives in a
+  // sidecar (see SaveStore) rather than the small, JSON head.
+  checkpoint: true,
 }).extend({
   numTurns: z.number().int().nonnegative(),
 });
 export type SavedLobbyHead = z.infer<typeof SavedLobbyHeadSchema>;
 
 export function savedLobbyHeadFrom(save: SavedLobby): SavedLobbyHead {
-  const { turns, ...head } = save;
+  const { turns, checkpoint: _checkpoint, ...head } = save;
+  // `_checkpoint` is deliberately dropped: the store writes it as a sidecar.
+  void _checkpoint;
   return { ...head, numTurns: turns.length };
 }
 

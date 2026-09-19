@@ -5,9 +5,14 @@ import WebSocket from "ws";
 import { z } from "zod";
 import { ZbContext } from "../../zbin";
 import { isAdminRole } from "../core/ApiSchemas";
+import {
+  decodeCheckpoint,
+  MAX_CHECKPOINT_TRANSFER_BYTES,
+} from "../core/CheckpointCodec";
 import { GameEnv } from "../core/configuration/Config";
 import { GameType, RankedType } from "../core/game/Game";
 import {
+  ClientCheckpointMessage,
   ClientID,
   ClientMessage,
   ClientReportMessage,
@@ -198,6 +203,14 @@ export class GameServer {
   // does not re-append the whole backlog.
   private lastPersistedTurn = -1;
 
+  // B2: the latest core checkpoint the host client volunteered, tagged-JSON
+  // (core/CheckpointCodec.ts), and the turn it was taken at. Persisted with the
+  // save and handed to clients on resume so they replay only the suffix. The
+  // server never simulates, so this is always a client contribution; absent
+  // means full-history resume.
+  private checkpoint?: string;
+  private checkpointTurn = -1;
+
   private endTurnIntervalID: ReturnType<typeof setInterval> | undefined;
 
   private lastPingUpdate = 0;
@@ -352,6 +365,7 @@ export class GameServer {
     this.turns = save.turns;
     // The restored turns are already on disk; only append what happens next.
     this.lastPersistedTurn = save.turns.length - 1;
+    this.restoreCheckpoint(save);
     this.paused = false;
     this.ended = false;
     // Neutralise the lifecycle traps: a restored "full" or past-deadline lobby
@@ -391,6 +405,47 @@ export class GameServer {
     });
   }
 
+  // Whether a save was written by a build this server can replay. Mirrors the
+  // client-side commitMatches in SavesModal.ts: "DEV" on either side is a
+  // wildcard so local saves keep working.
+  private commitMatches(saveGitCommit: string): boolean {
+    const current = this.deps.telemetryBuildHash;
+    if (current === "DEV" || saveGitCommit === "DEV") {
+      return true;
+    }
+    return saveGitCommit === current;
+  }
+
+  // Adopt a saved checkpoint only when it decodes, was written by a compatible
+  // build, and does not claim to be ahead of the turns we actually hold (a
+  // client cannot be trusted to be consistent). Anything else degrades to
+  // full-history replay.
+  private restoreCheckpoint(save: SavedLobby): void {
+    if (save.checkpoint === undefined) return;
+    if (!this.commitMatches(save.gitCommit)) {
+      this.log.warn("dropping checkpoint from a different build", {
+        gameID: this.id,
+        savedCommit: save.gitCommit,
+      });
+      return;
+    }
+    const checkpoint = decodeCheckpoint(save.checkpoint);
+    if (checkpoint === undefined) {
+      this.log.warn("dropping unreadable checkpoint", { gameID: this.id });
+      return;
+    }
+    if (checkpoint.ticks > save.turns.length) {
+      this.log.warn("dropping checkpoint ahead of saved history", {
+        gameID: this.id,
+        ticks: checkpoint.ticks,
+        turns: save.turns.length,
+      });
+      return;
+    }
+    this.checkpoint = save.checkpoint;
+    this.checkpointTurn = checkpoint.ticks;
+  }
+
   // Build a snapshot of this game for persistence, or null when it must not be
   // saved (public games and games without a creator account). Never send the
   // result to a client: it carries persistentIDs.
@@ -409,6 +464,7 @@ export class GameServer {
       seats: this.buildSeats(),
       gameStartInfo: this.stage === "started" ? this.gameStartInfo : undefined,
       turns: this.turns,
+      checkpoint: this.checkpoint,
       savedAt: Date.now(),
       gitCommit: this.deps.telemetryBuildHash,
     };
@@ -982,6 +1038,10 @@ export class GameServer {
         }
         break;
       }
+      case "checkpoint": {
+        this.handleClientCheckpoint(client, clientMsg);
+        break;
+      }
       case "intent": {
         // Server stamps clientID from the authenticated connection.
         const outcome = this.handleIntent(clientMsg.intent, {
@@ -1032,6 +1092,49 @@ export class GameServer {
         break;
       }
     }
+  }
+
+  // A host client volunteering its latest core checkpoint. Only a resumable
+  // private game whose creator is connected may contribute, and only a blob
+  // that decodes to a checkpoint at or behind our turn count is accepted. It is
+  // never trusted for anything but a resume optimisation: the client that
+  // restores it re-derives its own state, and a bad blob only costs a replay.
+  private handleClientCheckpoint(
+    client: Client,
+    message: ClientCheckpointMessage,
+  ): void {
+    if (
+      this.stage !== "started" ||
+      this.isPublic() ||
+      this.creatorPersistentID === undefined
+    ) {
+      return;
+    }
+    if (client.clientID !== this.lobbyCreatorID) {
+      return;
+    }
+    if (message.checkpoint.length > MAX_CHECKPOINT_TRANSFER_BYTES) {
+      return;
+    }
+    const checkpoint = decodeCheckpoint(message.checkpoint);
+    if (
+      checkpoint === undefined ||
+      checkpoint.ticks < 0 ||
+      checkpoint.ticks > this.turns.length
+    ) {
+      return;
+    }
+    // Never regress to an older checkpoint; the host only ever moves forward.
+    if (
+      this.checkpoint !== undefined &&
+      checkpoint.ticks <= this.checkpointTurn
+    ) {
+      return;
+    }
+    this.checkpoint = message.checkpoint;
+    this.checkpointTurn = checkpoint.ticks;
+    // Land it on disk without waiting for the next periodic autosave.
+    this.scheduleSave();
   }
 
   private handleClientDisconnect(client: Client) {
@@ -1519,11 +1622,18 @@ export class GameServer {
         });
         return;
       }
+      // A resume with a checkpoint sends the checkpoint plus only the turns
+      // after it. A client whose `lastTurn` is already at or past the
+      // checkpoint has that state and must not be re-seeded (a reconnect
+      // mid-game): it keeps the old full-history contract from `lastTurn`.
+      const includeCheckpoint =
+        this.checkpoint !== undefined && lastTurn <= this.checkpointTurn;
+      const fromTurn = includeCheckpoint ? this.checkpointTurn : lastTurn;
       ws.send(
         encodeServerMessage(
           {
             type: "start",
-            turns: this.turns.slice(lastTurn),
+            turns: this.turns.slice(fromTurn),
             gameStartInfo: this.names.startInfoFor(
               client.clientID,
               isAdminRole(client.role),
@@ -1532,6 +1642,7 @@ export class GameServer {
             ),
             lobbyCreatedAt: this.createdAt,
             myClientID: client.clientID,
+            ...(includeCheckpoint ? { checkpoint: this.checkpoint } : {}),
           } satisfies ServerStartGameMessage,
           this.zbinCtx,
         ),

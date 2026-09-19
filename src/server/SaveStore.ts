@@ -79,6 +79,7 @@ function densifyTurns(turns: Turn[], numTurns: number): Turn[] {
 export class MemorySaveStore implements ServerSaveStore {
   private heads = new Map<string, SavedLobbyHead>();
   private turns = new Map<string, Turn[]>();
+  private checkpoints = new Map<string, string>();
 
   async save(snapshot: SavedLobby, fromTurn = 0): Promise<void> {
     // Round-trip only the head + delta through the schema so a memory store
@@ -91,6 +92,12 @@ export class MemorySaveStore implements ServerSaveStore {
       stored[turn.turnNumber] = turn;
     }
     this.turns.set(head.gameID, stored);
+    if (snapshot.checkpoint !== undefined) {
+      this.checkpoints.set(head.gameID, snapshot.checkpoint);
+    } else {
+      // A later save without a checkpoint must not resurrect the old one.
+      this.checkpoints.delete(head.gameID);
+    }
   }
 
   async load(gameID: string): Promise<SavedLobby | null> {
@@ -99,7 +106,12 @@ export class MemorySaveStore implements ServerSaveStore {
       return null;
     }
     const turns = densifyTurns(this.turns.get(gameID) ?? [], head.numTurns);
-    return SavedLobbySchema.parse({ ...head, turns });
+    const checkpoint = this.checkpoints.get(gameID);
+    return SavedLobbySchema.parse({
+      ...head,
+      turns,
+      ...(checkpoint !== undefined ? { checkpoint } : {}),
+    });
   }
 
   async list(creatorPersistentID: string): Promise<SavedLobbyMeta[]> {
@@ -112,6 +124,7 @@ export class MemorySaveStore implements ServerSaveStore {
   async delete(gameID: string): Promise<void> {
     this.heads.delete(gameID);
     this.turns.delete(gameID);
+    this.checkpoints.delete(gameID);
   }
 }
 
@@ -145,6 +158,11 @@ export class FilesystemSaveStore implements ServerSaveStore {
     return path.join(this.dir, `${gameID}.json.gz`);
   }
 
+  private checkpointPath(gameID: string): string {
+    assertGameID(gameID);
+    return path.join(this.dir, `${gameID}.checkpoint.json.gz`);
+  }
+
   async save(snapshot: SavedLobby, fromTurn = 0): Promise<void> {
     const head = SavedLobbyHeadSchema.parse(savedLobbyHeadFrom(snapshot));
     // Slice before the first await: snapshot.turns aliases the live server array,
@@ -163,6 +181,16 @@ export class FilesystemSaveStore implements ServerSaveStore {
       this.metaPath(snapshot.gameID),
       JSON.stringify(savedLobbyMetaFromHead(head)),
     );
+    // A megabyte-scale sidecar, gzipped and kept off the JSON head. Written
+    // last: a crash before it lands leaves the checkpoint missing (full-replay
+    // fallback) rather than a head claiming one that is not there.
+    if (snapshot.checkpoint !== undefined) {
+      const compressed = await gzip(Buffer.from(snapshot.checkpoint, "utf8"));
+      await writeFile(this.checkpointPath(snapshot.gameID), compressed);
+    } else {
+      // A save without a checkpoint must not resurrect a stale sidecar.
+      await rm(this.checkpointPath(snapshot.gameID), { force: true });
+    }
   }
 
   async load(gameID: string): Promise<SavedLobby | null> {
@@ -173,7 +201,12 @@ export class FilesystemSaveStore implements ServerSaveStore {
       const headRaw = await readFile(this.headPath(gameID), "utf8");
       const head = SavedLobbyHeadSchema.parse(JSON.parse(headRaw));
       const turns = await this.readHistory(gameID, head.numTurns);
-      return SavedLobbySchema.parse({ ...head, turns });
+      const checkpoint = await this.readCheckpoint(gameID);
+      return SavedLobbySchema.parse({
+        ...head,
+        turns,
+        ...(checkpoint !== undefined ? { checkpoint } : {}),
+      });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
@@ -198,6 +231,26 @@ export class FilesystemSaveStore implements ServerSaveStore {
         console.error(`failed to load save ${gameID}:`, error);
       }
       return null;
+    }
+  }
+
+  // The optional checkpoint sidecar. Absent (or unreadable) means "no
+  // checkpoint": the caller resumes from the full history.
+  private async readCheckpoint(gameID: string): Promise<string | undefined> {
+    let compressed: Buffer;
+    try {
+      compressed = await readFile(this.checkpointPath(gameID));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") return undefined;
+      throw error;
+    }
+    try {
+      return (await gunzip(compressed)).toString("utf8");
+    } catch (error) {
+      // A corrupt sidecar must not fail the whole load; drop to full replay.
+      console.error(`failed to read checkpoint for ${gameID}:`, error);
+      return undefined;
     }
   }
 
@@ -253,5 +306,6 @@ export class FilesystemSaveStore implements ServerSaveStore {
     await rm(this.historyPath(gameID), { force: true });
     await rm(this.metaPath(gameID), { force: true });
     await rm(this.legacyPath(gameID), { force: true });
+    await rm(this.checkpointPath(gameID), { force: true });
   }
 }

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CHECKPOINT_VERSION, GameCheckpoint } from "../../src/core/Checkpoint";
+import { encodeCheckpoint } from "../../src/core/CheckpointCodec";
 import { GameType } from "../../src/core/game/Game";
 import { SavedLobbySchema } from "../../src/core/Schemas";
 import { createGameWireContext } from "../../src/core/ZbinWire";
@@ -258,5 +260,93 @@ describe("GameServer autosave", () => {
     const loaded = await saveStore.load(game.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.turns.length).toBeGreaterThanOrEqual(25);
+  });
+});
+
+describe("GameServer checkpoint resume", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  // A minimal structurally-valid checkpoint; the server only decodes it to
+  // read `ticks` and to run isGameCheckpoint, so no real simulation state is
+  // needed. Encoding with the real codec exercises the same path a host uses.
+  function checkpointJson(ticks: number): string {
+    return encodeCheckpoint({
+      version: CHECKPOINT_VERSION,
+      ticks,
+      players: [],
+      units: [],
+      map: {},
+    } as unknown as GameCheckpoint);
+  }
+
+  function startedGame(saveStore: MemorySaveStore) {
+    const game = makeGame({
+      creatorPersistentID: "host-pid",
+      deps: { saveStore },
+    });
+    const host = makeClient({
+      clientID: cid("host"),
+      persistentID: "host-pid",
+    });
+    const p2 = makeClient({ clientID: cid("p2"), persistentID: "p2-pid" });
+    game.joinClient(host);
+    game.joinClient(p2);
+    startGame(game);
+    return { game, host, p2 };
+  }
+
+  it("stores a host checkpoint and serves only the suffix on resume", async () => {
+    const saveStore = new MemorySaveStore();
+    const { game, host } = startedGame(saveStore);
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+    expect(game.snapshot()!.turns.length).toBe(10);
+
+    const checkpoint = checkpointJson(5);
+    await mockWsOf(host).emit({ type: "checkpoint", checkpoint });
+    await vi.advanceTimersByTimeAsync(0);
+    const snap = game.snapshot()!;
+    expect(snap.checkpoint).toBe(checkpoint);
+    await saveStore.save(snap, 0);
+
+    const loaded = (await saveStore.load(game.id))!;
+    const restored = makeGame({ restore: loaded });
+    const joiner = makeClient({
+      clientID: cid("new"),
+      persistentID: "new-pid",
+    });
+    expect(restored.joinClient(joiner, cid("p2"))).toBe("joined");
+    vi.advanceTimersByTime(GameServer.RESUME_START_DELAY_MS + 10);
+
+    const ctx = createGameWireContext(loaded.gameStartInfo!.players);
+    const start = mockWsOf(joiner)
+      .sent(ctx)
+      .find((m) => m.type === "start");
+    expect(start?.type).toBe("start");
+    if (start?.type !== "start") return;
+    expect(start.checkpoint).toBe(checkpoint);
+    // Only turns 5..9, not the whole 0..9 history.
+    expect(start.turns[0].turnNumber).toBe(5);
+    expect(start.turns.map((t) => t.turnNumber)).toEqual([5, 6, 7, 8, 9]);
+  });
+
+  it("ignores a checkpoint from a non-creator", async () => {
+    const saveStore = new MemorySaveStore();
+    const { game, p2 } = startedGame(saveStore);
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+
+    // p2 is in the game but not the creator; its upload must be dropped.
+    await mockWsOf(p2).emit({
+      type: "checkpoint",
+      checkpoint: checkpointJson(4),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(game.snapshot()!.checkpoint).toBeUndefined();
   });
 });

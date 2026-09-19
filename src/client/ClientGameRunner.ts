@@ -1,6 +1,11 @@
 import { Config } from "src/core/configuration/Config";
 import { translateText } from "../client/Utils";
 import { GameCheckpoint } from "../core/Checkpoint";
+import {
+  decodeCheckpoint,
+  encodeCheckpoint,
+  MAX_CHECKPOINT_TRANSFER_BYTES,
+} from "../core/CheckpointCodec";
 import { EventBus } from "../core/EventBus";
 import {
   ClientID,
@@ -120,6 +125,9 @@ export interface LobbyConfig {
   gameRecord?: GameRecord;
   // A locally stored save being resumed: history replays, then play continues.
   resume?: ResumeInfo;
+  // B2: a checkpoint delivered by the server in the start message of a
+  // server-hosted resume (unlike `resume`, the game is hosted over the network).
+  resumeCheckpoint?: GameCheckpoint;
   // Resume-as-lobby: join a game restored from a server-side save and claim
   // this saved nation's clientID. Unlike `resume`, the game is hosted by the
   // server (normal WebSocket join), so other players can join too.
@@ -283,6 +291,16 @@ export function joinLobby(
       resolveJoin();
       // For multiplayer games, GameStartInfo is not known until game starts.
       lobbyConfig.gameStartInfo = message.gameStartInfo;
+      // B2: a server-hosted resume carries its core checkpoint here. Decode it
+      // before the worker is built so it restores state before the suffix.
+      if (message.checkpoint !== undefined) {
+        const checkpoint = decodeCheckpoint(message.checkpoint);
+        if (checkpoint !== undefined) {
+          lobbyConfig.resumeCheckpoint = checkpoint;
+        } else {
+          console.warn("dropping unreadable server checkpoint");
+        }
+      }
       createClientGame(
         lobbyConfig,
         clientID,
@@ -642,7 +660,7 @@ async function createClientGame(
   const worker = new WorkerClient(
     lobbyConfig.gameStartInfo,
     clientID,
-    lobbyConfig.resume?.checkpoint,
+    lobbyConfig.resume?.checkpoint ?? lobbyConfig.resumeCheckpoint,
   );
   await worker.initialize();
   await atlasDataLoad;
@@ -857,6 +875,9 @@ export class ClientGameRunner {
   // B2: latest core checkpoint received from the worker (seeded with the one we
   // resumed from), attached to each autosave.
   private latestCheckpoint: GameCheckpoint | undefined;
+  // The checkpoint this client resumed from (local save or server-hosted), if
+  // any. Drives the suffix-skip in the start handler.
+  private readonly resumeCheckpoint?: GameCheckpoint;
 
   // A resumed save (local IndexedDB or a server-restored lobby) replays its
   // saved history. We catch that history up off-screen and only reveal the
@@ -890,9 +911,33 @@ export class ClientGameRunner {
     private disposeRenderer: (() => void) | null = null,
   ) {
     this.lastMessageTime = Date.now();
+    this.resumeCheckpoint = lobby.resume?.checkpoint ?? lobby.resumeCheckpoint;
     this.isResume =
-      lobby.resume !== undefined || lobby.claimClientID !== undefined;
-    this.latestCheckpoint = lobby.resume?.checkpoint;
+      lobby.resume !== undefined ||
+      lobby.claimClientID !== undefined ||
+      this.resumeCheckpoint !== undefined;
+    this.latestCheckpoint = this.resumeCheckpoint;
+  }
+
+  // Whether this client is the lobby creator, the only participant that
+  // volunteers its checkpoint to the server.
+  private isLobbyCreator(): boolean {
+    if (this.clientID === undefined) return false;
+    const players = this.lobby.gameStartInfo?.players;
+    if (players === undefined) return false;
+    return players.some(
+      (p) => p.clientID === this.clientID && p.isLobbyCreator === true,
+    );
+  }
+
+  // B2: send the latest core checkpoint back to the server so a server-hosted
+  // resume can restore instead of replaying from turn 0. Only the host uploads;
+  // an oversized blob is skipped and the save falls back to full history.
+  private uploadCheckpoint(checkpoint: GameCheckpoint): void {
+    if (this.transport.isLocal || !this.isLobbyCreator()) return;
+    const serialized = encodeCheckpoint(checkpoint);
+    if (serialized.length > MAX_CHECKPOINT_TRANSFER_BYTES) return;
+    this.transport.sendCheckpoint(serialized);
   }
 
   /**
@@ -959,6 +1004,7 @@ export class ClientGameRunner {
     // each autosave.
     this.worker.setCheckpointCallback((checkpoint) => {
       this.latestCheckpoint = checkpoint;
+      this.uploadCheckpoint(checkpoint);
     });
     this.saveManager.setCheckpointProvider(() => this.latestCheckpoint);
     setTimeout(() => {
@@ -1089,7 +1135,7 @@ export class ClientGameRunner {
         // restored state through `checkpoint.ticks`, so it must only execute the
         // suffix. Every received turn is still recorded so the saved history
         // stays dense and a later autosave is complete.
-        const checkpointTicks = this.lobby.resume?.checkpoint?.ticks ?? 0;
+        const checkpointTicks = this.resumeCheckpoint?.ticks ?? 0;
         if (
           this.isResume &&
           checkpointTicks > this.turnsSeen &&

@@ -20,6 +20,9 @@ const SPECTATOR_BLOCKED_MESSAGES = new Set([
   "live_stats",
   "hash",
   "report",
+  // A checkpoint is a host player's authoritative state; a spectator does not
+  // hold one and must not be able to inject one.
+  "checkpoint",
 ]);
 
 // What the ingress needs from the game it feeds.
