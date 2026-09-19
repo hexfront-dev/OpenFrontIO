@@ -111,6 +111,19 @@ export interface AllianceRequestCheckpoint {
   status?: AllianceRequestStatus;
 }
 
+/**
+ * B2: a live `AllianceRequestExecution`. The execution owns a reference to the
+ * pending `AllianceRequest`, which is re-linked by requestor/recipient/createdAt
+ * on restore (the request itself is restored from `GameCheckpoint.allianceRequests`).
+ */
+export interface AllianceRequestExecutionCheckpoint {
+  requestorId: PlayerID;
+  recipientId: PlayerID;
+  active: boolean;
+  /** `null` when the execution had not created a request yet. */
+  requestCreatedAt: number | null;
+}
+
 export interface AllianceCheckpoint {
   id: number;
   requestorId: PlayerID;

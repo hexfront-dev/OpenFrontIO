@@ -1,10 +1,12 @@
 import {
+  AllianceRequestExecutionCheckpoint,
   ExecutionCheckpoint,
   TrainExecutionCheckpoint,
   TrainStationExecutionCheckpoint,
 } from "../Checkpoint";
 import { Execution, Game, UnitType } from "../game/Game";
 import { PseudoRandomState } from "../PseudoRandom";
+import { AllianceRequestExecution } from "./alliance/AllianceRequestExecution";
 import { AttackExecution, AttackExecutionCheckpoint } from "./AttackExecution";
 import { CityExecution } from "./CityExecution";
 import { ConstructionExecution } from "./ConstructionExecution";
@@ -248,6 +250,17 @@ export function restoreExecution(
       if (!game.hasPlayer(data.playerId)) return undefined;
       const exec = new TribeExecution(game.player(data.playerId));
       exec.restoreCheckpoint(game, data, initialize);
+      return exec;
+    }
+    case "alliance_request": {
+      const data = cp.data as AllianceRequestExecutionCheckpoint;
+      if (!game.hasPlayer(data.requestorId)) return undefined;
+      if (!game.hasPlayer(data.recipientId)) return undefined;
+      const exec = new AllianceRequestExecution(
+        game.player(data.requestorId),
+        data.recipientId,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
       return exec;
     }
     case "attack": {

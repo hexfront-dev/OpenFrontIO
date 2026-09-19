@@ -1,3 +1,4 @@
+import { AllianceRequestExecution } from "../../src/core/execution/alliance/AllianceRequestExecution";
 import { DoomsdayClockExecution } from "../../src/core/execution/DoomsdayClockExecution";
 import { NationExecution } from "../../src/core/execution/NationExecution";
 import { SpawnExecution } from "../../src/core/execution/SpawnExecution";
@@ -256,6 +257,33 @@ describe("B2 core checkpoints", () => {
     expect(restored.player(alpha).units(UnitType.MissileSilo)).toHaveLength(1);
 
     const actualHashes = drainHashes(restored, 35);
+    expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  test("restores a live alliance request execution", async () => {
+    const { game: original, alpha, beta } = await buildGame();
+    // Past the spawn phase so the execution is initialized (and creates its
+    // request) on the next tick instead of waiting in the pending queue.
+    executeTicks(original, 80);
+
+    original.addExecution(
+      new AllianceRequestExecution(original.player(alpha), beta),
+    );
+    executeTicks(original, 1);
+
+    expect(original.player(alpha).outgoingAllianceRequests()).toHaveLength(1);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 40);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+    expect(restored.player(alpha).outgoingAllianceRequests()).toHaveLength(1);
+
+    const actualHashes = drainHashes(restored, 40);
     expect(actualHashes).toEqual(expectedHashes);
   });
 

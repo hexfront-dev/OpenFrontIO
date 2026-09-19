@@ -1,4 +1,8 @@
 import {
+  AllianceRequestExecutionCheckpoint,
+  ExecutionCheckpoint,
+} from "../../Checkpoint";
+import {
   AllianceRequest,
   Execution,
   Game,
@@ -84,6 +88,45 @@ export class AllianceRequestExecution implements Execution {
 
   activeDuringSpawnPhase(): boolean {
     return false;
+  }
+
+  /** B2: capture the live execution and its pending request. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "alliance_request",
+      data: {
+        requestorId: this.requestor.id(),
+        recipientId: this.recipientID,
+        active: this.active,
+        requestCreatedAt: this.req?.createdAt() ?? null,
+      } satisfies AllianceRequestExecutionCheckpoint,
+    };
+  }
+
+  /**
+   * B2: restore without re-running `init` (which can create or accept a
+   * request). The pending request is re-linked by requestor/recipient/createdAt
+   * from the game's restored `allianceRequests`.
+   */
+  restoreCheckpoint(
+    game: Game,
+    data: AllianceRequestExecutionCheckpoint,
+  ): boolean {
+    this.mg = game;
+    this.active = data.active;
+    if (data.requestCreatedAt === null) {
+      this.req = null;
+      return true;
+    }
+    this.req =
+      this.requestor
+        .outgoingAllianceRequests()
+        .find(
+          (r) =>
+            r.recipient().id() === data.recipientId &&
+            r.createdAt() === data.requestCreatedAt,
+        ) ?? null;
+    return this.req !== null;
   }
 
   cancelNukesBetweenAlliedPlayers(recipient: Player): void {
