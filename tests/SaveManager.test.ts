@@ -97,6 +97,37 @@ describe("SaveManager append-only autosave", () => {
     manager.dispose();
   });
 
+  it("retains only the unpersisted tail and keeps counting", async () => {
+    const manager = new SaveManager();
+    manager.begin(startInfo(), "CLIENT01");
+
+    for (let i = 0; i < 10; i++) {
+      manager.recordTurn({ turnNumber: i, intents: [] });
+    }
+    await manager.persist();
+
+    // The written prefix is dropped; only the count is retained.
+    expect((manager as any).numTurns).toBe(10);
+    expect((manager as any).turnsBase).toBe(10);
+    expect((manager as any).turns).toHaveLength(0);
+
+    for (let i = 10; i < 15; i++) {
+      manager.recordTurn({ turnNumber: i, intents: [] });
+    }
+    expect((manager as any).turns).toHaveLength(5);
+    await manager.persist();
+
+    const loaded = await loadSave("GAME0001");
+    expect(loaded?.turns.map((t) => t.turnNumber)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    ]);
+    expect((manager as any).numTurns).toBe(15);
+    expect((manager as any).turnsBase).toBe(15);
+    expect((manager as any).turns).toHaveLength(0);
+
+    manager.dispose();
+  });
+
   it("attaches a core checkpoint that is covered by the recorded turns", async () => {
     const manager = new SaveManager();
     manager.begin(startInfo(), "CLIENT01");

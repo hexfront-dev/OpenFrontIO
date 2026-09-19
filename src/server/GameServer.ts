@@ -39,6 +39,7 @@ import {
   ServerNewLobbyMessage,
   ServerPrestartMessageSchema,
   ServerStartGameMessage,
+  ServerTurnChunkMessage,
   ServerTurnMessage,
   StampedIntent,
   Tribe,
@@ -145,6 +146,14 @@ export class GameServer {
   // it gives the original players time to open the link and claim a nation
   // before play continues. Static so tests can shorten it.
   public static RESUME_START_DELAY_MS = 15_000;
+
+  // Phase 4: stream a large resume backlog in `turn_chunk` frames instead of
+  // one oversized `start`. Static so a mixed-version fleet can disable it (the
+  // legacy single-frame path) and tests can tune the chunk size.
+  public static CHUNKED_RESUME = true;
+  public static RESUME_CHUNK_TURNS = 512;
+  public static RESUME_CHUNK_BUFFERED_BYTES = 4 * 1024 * 1024;
+  public static RESUME_CHUNK_PAUSE_MS = 1;
 
   // Compares the per-turn state hashes clients report; a disagreeing client
   // is told once and its votes are ignored from then on.
@@ -1629,11 +1638,20 @@ export class GameServer {
       const includeCheckpoint =
         this.checkpoint !== undefined && lastTurn <= this.checkpointTurn;
       const fromTurn = includeCheckpoint ? this.checkpointTurn : lastTurn;
+      const total = this.turns.length;
+      // Phase 4: a large backlog is streamed in chunks instead of one frame
+      // that grows with the game.
+      const chunked =
+        GameServer.CHUNKED_RESUME &&
+        total - fromTurn > GameServer.RESUME_CHUNK_TURNS;
+      const firstEnd = chunked
+        ? Math.min(fromTurn + GameServer.RESUME_CHUNK_TURNS, total)
+        : total;
       ws.send(
         encodeServerMessage(
           {
             type: "start",
-            turns: this.turns.slice(fromTurn),
+            turns: this.turns.slice(fromTurn, firstEnd),
             gameStartInfo: this.names.startInfoFor(
               client.clientID,
               isAdminRole(client.role),
@@ -1643,16 +1661,73 @@ export class GameServer {
             lobbyCreatedAt: this.createdAt,
             myClientID: client.clientID,
             ...(includeCheckpoint ? { checkpoint: this.checkpoint } : {}),
+            ...(chunked
+              ? {
+                  chunkSize: GameServer.RESUME_CHUNK_TURNS,
+                  numTurns: total,
+                }
+              : {}),
           } satisfies ServerStartGameMessage,
           this.zbinCtx,
         ),
       );
+      if (chunked) {
+        client.catchingUp = true;
+        this.streamTurnChunks(client, firstEnd);
+      }
     } catch (error) {
       this.log.error(`error sending start message for game ${this.id}`, {
         clientID: client.clientID,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  // Phase 4: stream the remainder of a long resume backlog as `turn_chunk`
+  // frames. Reads `this.turns.length` on every pump, so turns committed while
+  // streaming are included; once the cursor reaches the head the client is
+  // marked caught up and normal live turn broadcasts resume. The client is held
+  // out of those broadcasts (`catchingUp`) so it never sees a turn out of order.
+  private streamTurnChunks(client: Client, cursor: number): void {
+    const ws = client.ws;
+    const pump = () => {
+      // A reconnect during streaming replaces the socket; stop this stream and
+      // let the fresh start message restart it.
+      if (client.ws !== ws || ws.readyState !== WebSocket.OPEN) {
+        client.catchingUp = false;
+        return;
+      }
+      // Back-pressure: pause while the outbound buffer is above the high-water
+      // mark rather than queueing the whole history into it.
+      if (ws.bufferedAmount > GameServer.RESUME_CHUNK_BUFFERED_BYTES) {
+        setTimeout(pump, GameServer.RESUME_CHUNK_PAUSE_MS);
+        return;
+      }
+      const total = this.turns.length;
+      if (cursor >= total) {
+        client.catchingUp = false;
+        return;
+      }
+      const end = Math.min(cursor + GameServer.RESUME_CHUNK_TURNS, total);
+      const final = end >= total;
+      ws.send(
+        encodeServerMessage(
+          {
+            type: "turn_chunk",
+            turns: this.turns.slice(cursor, end),
+            final,
+          } satisfies ServerTurnChunkMessage,
+          this.zbinCtx,
+        ),
+      );
+      cursor = end;
+      if (final) {
+        client.catchingUp = false;
+      } else {
+        setTimeout(pump, GameServer.RESUME_CHUNK_PAUSE_MS);
+      }
+    };
+    pump();
   }
 
   private endTurn() {
@@ -1701,6 +1776,9 @@ export class GameServer {
       this.zbinCtx,
     );
     this.clients.active().forEach((c) => {
+      // A client still receiving its chunked backlog gets this turn from the
+      // stream instead, in order. See streamTurnChunks.
+      if (c.catchingUp) return;
       if (c.ws.readyState === c.ws.OPEN) {
         c.ws.send(msg);
       }

@@ -1144,6 +1144,11 @@ export class ClientGameRunner {
           goToPlayer();
         }
 
+        // The authoritative number of turns this client must catch up to. When
+        // the server streams the backlog it is `numTurns`; otherwise the start
+        // message already carries the whole history (its length).
+        const startTotal = message.numTurns ?? message.turns.length;
+
         // B2: when the resume carries a core checkpoint the worker has already
         // restored state through `checkpoint.ticks`, so it must only execute the
         // suffix. Every received turn is still recorded so the saved history
@@ -1152,39 +1157,23 @@ export class ClientGameRunner {
         if (
           this.isResume &&
           checkpointTicks > this.turnsSeen &&
-          checkpointTicks <= message.turns.length
+          checkpointTicks <= startTotal
         ) {
           this.turnsSeen = checkpointTicks;
         }
 
         // A resumed save replays its history here; hide that run-up and let the
-        // worker drain the backlog as fast as it can before revealing.
-        if (this.isResume && message.turns.length > this.turnsSeen) {
-          this.beginCatchUp(message.turns.length - this.turnsSeen);
+        // worker drain the backlog as fast as it can before revealing. A chunked
+        // resume keeps this total fixed while `turn_chunk` messages arrive.
+        const catchUpTotal = startTotal - this.turnsSeen;
+        if (this.isResume && catchUpTotal > 0) {
+          this.beginCatchUp(catchUpTotal);
         }
 
-        // Hand the whole backlog to the worker in one message. A dense resumed
-        // history is thousands of turns; a postMessage per turn would pay a
-        // structured clone each and bloat this send loop.
-        const backlog: Turn[] = [];
-        for (const turn of message.turns) {
-          this.saveManager.recordTurn(turn);
-          if (turn.turnNumber < this.turnsSeen) {
-            continue;
-          }
-          while (turn.turnNumber - 1 > this.turnsSeen) {
-            const emptyTurn = {
-              turnNumber: this.turnsSeen,
-              intents: [],
-            };
-            backlog.push(emptyTurn);
-            this.saveManager.recordTurn(emptyTurn);
-            this.turnsSeen++;
-          }
-          backlog.push(turn);
-          this.turnsSeen++;
-        }
-        this.worker.sendTurns(backlog);
+        this.ingestServerTurns(message.turns);
+      }
+      if (message.type === "turn_chunk") {
+        this.ingestServerTurns(message.turns);
       }
       if (message.type === "desync") {
         if (this.lobby.gameStartInfo === undefined) {
@@ -1282,6 +1271,37 @@ export class ClientGameRunner {
       this.goToPlayerTimeout = null;
     }
     this.teardownCatchUp();
+  }
+
+  // Feed a run of server turns to the worker and SaveManager, filling any gaps
+  // with empty turns so numbering stays dense. Shared by the start message's
+  // first chunk and the follow-up `turn_chunk` messages of a chunked resume.
+  private ingestServerTurns(turns: Turn[]): void {
+    if (turns.length === 0) {
+      return;
+    }
+    // Hand the whole run to the worker in one message. A dense resumed history
+    // is thousands of turns; a postMessage per turn would pay a structured
+    // clone each and bloat this send loop.
+    const backlog: Turn[] = [];
+    for (const turn of turns) {
+      this.saveManager.recordTurn(turn);
+      if (turn.turnNumber < this.turnsSeen) {
+        continue;
+      }
+      while (turn.turnNumber - 1 > this.turnsSeen) {
+        const emptyTurn = {
+          turnNumber: this.turnsSeen,
+          intents: [],
+        };
+        backlog.push(emptyTurn);
+        this.saveManager.recordTurn(emptyTurn);
+        this.turnsSeen++;
+      }
+      backlog.push(turn);
+      this.turnsSeen++;
+    }
+    this.worker.sendTurns(backlog);
   }
 
   // Start hiding a resumed save's history replay. `total` is the number of

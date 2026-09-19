@@ -201,6 +201,32 @@ export function checkpointFitsTransferBudget(
   return projectCheckpointBytes(checkpoint) <= MAX_CHECKPOINT_TRANSFER_BYTES;
 }
 
+/**
+ * Projected encoded size of a map's raw typed arrays: the main map plus its 4x
+ * minimap, each terrain (Uint8) and state (Uint16), base64-encoded. This is the
+ * fixed floor of a checkpoint, known before any capture, so the worker can skip
+ * allocating a checkpoint on maps that can never fit one.
+ */
+export function projectMapStateBytes(width: number, height: number): number {
+  const miniWidth = Math.ceil(width / 4);
+  const miniHeight = Math.ceil(height / 4);
+  const tiles = width * height;
+  const miniTiles = miniWidth * miniHeight;
+  return base64Length((tiles + miniTiles) * 3);
+}
+
+/**
+ * True when a map's fixed state alone fits the transfer cap. Large maps return
+ * false and deliberately rely on (chunked) full-history replay instead of
+ * capturing a checkpoint that could never be sent.
+ */
+export function mapStateFitsTransferBudget(
+  width: number,
+  height: number,
+): boolean {
+  return projectMapStateBytes(width, height) <= MAX_CHECKPOINT_TRANSFER_BYTES;
+}
+
 /** Serialize a checkpoint to its tagged-JSON wire/store form. */
 export function encodeCheckpoint(checkpoint: GameCheckpoint): string {
   return JSON.stringify(checkpoint, replacer);

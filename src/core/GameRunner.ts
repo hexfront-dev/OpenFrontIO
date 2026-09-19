@@ -93,6 +93,10 @@ export async function createGameRunner(
 }
 
 export class GameRunner {
+  // Phase 5: executed turns are dead weight. Drop them in batches this size
+  // rather than copying the queue on every tick.
+  private static readonly TURN_BUFFER_TRIM_AT = 1024;
+
   private turns: Turn[] = [];
   private currTurn = 0;
   private isExecuting = false;
@@ -173,6 +177,7 @@ export class GameRunner {
       ...this.execManager.createExecs(this.turns[this.currTurn]),
     );
     this.currTurn++;
+    this.trimExecutedTurns();
 
     const wasInSpawnPhase = this.game.inSpawnPhase();
     let updates: GameUpdates;
@@ -251,6 +256,17 @@ export class GameRunner {
 
   public pendingTurns(): number {
     return Math.max(0, this.turns.length - this.currTurn);
+  }
+
+  // Phase 5: drop the executed prefix so the worker retains only the unexecuted
+  // backlog (docs/SaveResumeLongGames.md D5). Amortized: one copy per
+  // TURN_BUFFER_TRIM_AT executed turns, not one per tick.
+  private trimExecutedTurns(): void {
+    if (this.currTurn < GameRunner.TURN_BUFFER_TRIM_AT) {
+      return;
+    }
+    this.turns = this.turns.slice(this.currTurn);
+    this.currTurn = 0;
   }
 
   public playerBuildables(

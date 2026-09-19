@@ -350,3 +350,81 @@ describe("GameServer checkpoint resume", () => {
     expect(game.snapshot()!.checkpoint).toBeUndefined();
   });
 });
+
+// Phase 4: a long resume backlog is delivered as a small `start` plus a stream
+// of `turn_chunk` frames instead of one oversized start frame.
+describe("GameServer chunked resume", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("streams a long backlog in chunks", async () => {
+    const game = makeGame({ creatorPersistentID: "host-pid" });
+    const host = makeClient({
+      clientID: cid("host"),
+      persistentID: "host-pid",
+    });
+    const p2 = makeClient({ clientID: cid("p2"), persistentID: "p2-pid" });
+    game.joinClient(host);
+    game.joinClient(p2);
+    startGame(game);
+    await vi.advanceTimersByTimeAsync(1200 * TURN_MS);
+    const snap = game.snapshot()!;
+    const total = snap.turns.length;
+    expect(total).toBeGreaterThanOrEqual(1200);
+
+    // Parse first: `snapshot()` aliases the live server turn array, which keeps
+    // growing while the restored game waits out its countdown.
+    const restored = makeGame({ restore: SavedLobbySchema.parse(snap) });
+    const joiner = makeClient({
+      clientID: cid("new"),
+      persistentID: "new-pid",
+    });
+    expect(restored.joinClient(joiner, cid("p2"))).toBe("joined");
+    // The restored game holds a start countdown before sending history.
+    vi.advanceTimersByTime(GameServer.RESUME_START_DELAY_MS + 1);
+    // Flush the chunk pump's timers.
+    await vi.advanceTimersByTimeAsync(50);
+
+    const ctx = createGameWireContext(snap.gameStartInfo!.players);
+    const frames = mockWsOf(joiner).sent(ctx);
+    const start = frames.find((m) => m.type === "start");
+    expect(start?.type).toBe("start");
+    if (start?.type !== "start") return;
+
+    expect(start.chunkSize).toBe(GameServer.RESUME_CHUNK_TURNS);
+    expect(start.numTurns).toBe(total);
+    expect(start.turns).toHaveLength(GameServer.RESUME_CHUNK_TURNS);
+
+    const chunks = frames.filter((m) => m.type === "turn_chunk");
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      if (chunk.type !== "turn_chunk") continue;
+      expect(chunk.turns.length).toBeLessThanOrEqual(
+        GameServer.RESUME_CHUNK_TURNS,
+      );
+    }
+    // Exactly the last chunk is marked final.
+    const finalFlags = chunks.map((c) =>
+      c.type === "turn_chunk" ? c.final : true,
+    );
+    expect(finalFlags.filter((f) => f)).toHaveLength(1);
+    expect(finalFlags[finalFlags.length - 1]).toBe(true);
+
+    // The first chunk plus every streamed chunk reconstructs the full dense
+    // history, in order, with nothing mangled by the wire codec.
+    const streamed = chunks.flatMap((c) =>
+      c.type === "turn_chunk" ? c.turns : [],
+    );
+    const all = [...start.turns, ...streamed];
+    expect(all).toHaveLength(total);
+    expect(all.map((t) => t.turnNumber)).toEqual(
+      Array.from({ length: total }, (_, i) => i),
+    );
+  });
+});

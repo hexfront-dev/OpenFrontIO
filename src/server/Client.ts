@@ -10,6 +10,11 @@ export class Client {
 
   public reportedWinner: Winner | null = null;
 
+  // True while the server is streaming this client's catch-up chunks. Live turn
+  // broadcasts are withheld until it catches up to the head so it never sees a
+  // turn out of order.
+  public catchingUp: boolean = false;
+
   constructor(
     // Mutable because a client joining a restored save may claim one of the
     // saved nations' clientIDs rather than a freshly generated one.

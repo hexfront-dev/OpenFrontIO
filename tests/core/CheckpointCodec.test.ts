@@ -4,8 +4,10 @@ import {
   checkpointFitsTransferBudget,
   decodeCheckpoint,
   encodeCheckpoint,
+  mapStateFitsTransferBudget,
   MAX_CHECKPOINT_TRANSFER_BYTES,
   projectCheckpointBytes,
+  projectMapStateBytes,
 } from "../../src/core/CheckpointCodec";
 
 // A structurally valid checkpoint (isGameCheckpoint only inspects version,
@@ -139,6 +141,16 @@ describe("CheckpointCodec", () => {
 
     it("accepts a small checkpoint", () => {
       expect(checkpointFitsTransferBudget(sampleCheckpoint())).toBe(true);
+    });
+
+    it("classifies map sizes for the worker capture guard", () => {
+      // A small test-sized map fits; a World-sized one cannot and must not be
+      // captured at all.
+      expect(mapStateFitsTransferBudget(200, 200)).toBe(true);
+      expect(mapStateFitsTransferBudget(2000, 1000)).toBe(false);
+      expect(projectMapStateBytes(2000, 1000)).toBeGreaterThan(
+        MAX_CHECKPOINT_TRANSFER_BYTES,
+      );
     });
   });
 });

@@ -126,6 +126,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | ServerTurnMessage
+  | ServerTurnChunkMessage
   | ServerStartGameMessage
   | ServerPingMessage
   | ServerDesyncMessage
@@ -135,6 +136,9 @@ export type ServerMessage =
   | ServerNewLobbyMessage;
 
 export type ServerTurnMessage = z.infer<typeof ServerTurnMessageSchema>;
+export type ServerTurnChunkMessage = z.infer<
+  typeof ServerTurnChunkMessageSchema
+>;
 export type ServerStartGameMessage = z.infer<
   typeof ServerStartGameMessageSchema
 >;
@@ -1004,7 +1008,9 @@ export const ServerPrestartMessageSchema = z.object({
 export const ServerStartGameMessageSchema = z.object({
   type: z.literal("start"),
   // Turns the client missed if they are late to the game. When `checkpoint` is
-  // present this is only the suffix after `checkpoint.ticks`.
+  // present this is only the suffix after `checkpoint.ticks`. When `chunkSize`
+  // is present this is only the first chunk and the rest follow as
+  // `turn_chunk` messages (Phase 4, docs/SaveResumeLongGames.md).
   turns: TurnSchema.array(),
   gameStartInfo: GameStartInfoSchema,
   lobbyCreatedAt: zb.uint(),
@@ -1015,6 +1021,20 @@ export const ServerStartGameMessageSchema = z.object({
   // `checkpoint.ticks`, letting the client restore instead of replaying from
   // turn 0. Present only on a server-hosted resume whose host uploaded one.
   checkpoint: z.string().optional(),
+  // Phase 4: set when the backlog is being streamed in chunks. `numTurns` is
+  // the authoritative turn count the client should catch up to (the server
+  // holds back live turns from this connection until it has them all).
+  chunkSize: zb.uint().optional(),
+  numTurns: zb.uint().optional(),
+});
+
+// Phase 4: a range of a resumed game's history, sent while
+// `GameServer.CHUNKED_RESUME` is on; `final` marks the last chunk. Keeping the
+// backlog out of a single `start` frame removes the resume-size cliff.
+export const ServerTurnChunkMessageSchema = z.object({
+  type: z.literal("turn_chunk"),
+  turns: TurnSchema.array(),
+  final: z.boolean(),
 });
 
 export const ServerDesyncSchema = z.object({
@@ -1058,6 +1078,9 @@ export const ServerMessageSchema = zb.discriminatedUnion("type", [
   ServerErrorSchema,
   ServerLobbyInfoMessageSchema,
   ServerNewLobbyMessageSchema,
+  // Phase 4: appended last so existing variant indices (and therefore the wire
+  // encoding of every other server message) are unchanged.
+  ServerTurnChunkMessageSchema,
 ]);
 
 //
