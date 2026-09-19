@@ -1480,12 +1480,6 @@ export class GameImpl implements Game {
    * caches — is intentionally omitted and rebuilt by restoreFromCheckpoint().
    */
   checkpoint(): GameCheckpoint | undefined {
-    if (this._railNetwork.stationManager().count() > 1) {
-      // Railroads are rebuilt from construction events and are not yet part of
-      // the checkpoint format; refuse rather than silently desync.
-      return undefined;
-    }
-
     const executions: ExecutionCheckpoint[] = [];
     for (const exec of this.execs) {
       // An inactive execution is never ticked again (it is dropped by
@@ -1552,6 +1546,7 @@ export class GameImpl implements Game {
         tradeShipStagger: tradeShipStagger.snapshot(),
         transportShipStagger: transportShipStagger.snapshot(),
       },
+      railNetwork: this._railNetwork.checkpoint(),
     };
   }
 
@@ -1705,6 +1700,12 @@ export class GameImpl implements Game {
       player._tiles.forEach((tile) => {
         if (this.isBorder(tile)) player._borderTiles.add(tile);
       });
+    }
+
+    // Rail network: rebuild before executions so restored train executions can
+    // resolve their stations and railroad segments.
+    if (cp.railNetwork !== undefined) {
+      this._railNetwork.restoreFromCheckpoint(cp.railNetwork);
     }
 
     // Executions: active ones re-enter the tick loop in order, pending ones go

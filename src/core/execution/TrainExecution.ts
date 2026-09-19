@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint, TrainExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
@@ -300,6 +301,70 @@ export class TrainExecution implements Execution {
 
   isActive(): boolean {
     return this.active;
+  }
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "train",
+      data: {
+        playerId: this.player.id(),
+        numCars: this.numCars,
+        active: this.active,
+        trainUnitId: this.train?.id() ?? null,
+        carUnitIds: this.cars.map((c) => c.id()),
+        hasCargo: this.hasCargo,
+        currentTile: this.currentTile,
+        spacing: this.spacing,
+        usedTiles: [...this.usedTiles],
+        stationIds: this.stations.map((s) => s.id),
+        sourceStationId: this.source.id,
+        destinationStationId: this.destination.id,
+        speed: this.speed,
+        tradeStopsVisited: this._tradeStopsVisited,
+        pathTiles: [...this.pathTiles],
+        pathIndex: this.pathIndex,
+      } satisfies TrainExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this train's state. Never re-runs `init`. */
+  restoreCheckpoint(game: Game, data: TrainExecutionCheckpoint): boolean {
+    this.mg = game;
+    this.active = data.active;
+    this.numCars = data.numCars;
+    this.hasCargo = data.hasCargo;
+    this.currentTile = data.currentTile;
+    this.spacing = data.spacing;
+    this.speed = data.speed;
+    this._tradeStopsVisited = data.tradeStopsVisited;
+    this.usedTiles = [...data.usedTiles];
+    this.pathTiles = [...data.pathTiles];
+    this.pathIndex = data.pathIndex;
+
+    this.train =
+      data.trainUnitId === null ? null : (game.unit(data.trainUnitId) ?? null);
+    const cars: Unit[] = [];
+    for (const carId of data.carUnitIds) {
+      const car = game.unit(carId);
+      if (car === undefined) return false;
+      cars.push(car);
+    }
+    this.cars = cars;
+
+    const stationManager = game.railNetwork().stationManager();
+    const stations: TrainStation[] = [];
+    for (const stationId of data.stationIds) {
+      const station = stationManager.getById(stationId);
+      if (station === undefined) return false;
+      stations.push(station);
+    }
+    this.stations = stations;
+    this.currentRailroad =
+      stations.length > 1
+        ? getOrientedRailroad(stations[0], stations[1])
+        : null;
+
+    return true;
   }
 
   activeDuringSpawnPhase(): boolean {

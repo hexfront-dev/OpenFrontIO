@@ -1,4 +1,8 @@
-import { ExecutionCheckpoint } from "../Checkpoint";
+import {
+  ExecutionCheckpoint,
+  TrainExecutionCheckpoint,
+  TrainStationExecutionCheckpoint,
+} from "../Checkpoint";
 import { Execution, Game, UnitType } from "../game/Game";
 import { PseudoRandomState } from "../PseudoRandom";
 import { AttackExecution, AttackExecutionCheckpoint } from "./AttackExecution";
@@ -47,6 +51,8 @@ import {
   TradeShipExecution,
   TradeShipExecutionCheckpoint,
 } from "./TradeShipExecution";
+import { TrainExecution } from "./TrainExecution";
+import { TrainStationExecution } from "./TrainStationExecution";
 import {
   TransportShipExecution,
   TransportShipExecutionCheckpoint,
@@ -110,6 +116,32 @@ export function restoreExecution(
       const exec = new RecomputeRailClusterExecution(game.railNetwork());
       if (initialize) exec.init(game, ticks);
       exec.restoreCheckpoint({});
+      return exec;
+    }
+    case "train_station": {
+      const data = cp.data as TrainStationExecutionCheckpoint;
+      const unit = game.unit(data.unitId);
+      if (unit === undefined) return undefined;
+      const exec = new TrainStationExecution(unit, data.spawnTrains);
+      if (initialize) exec.init(game, ticks);
+      exec.restoreCheckpoint(game, data);
+      return exec;
+    }
+    case "train": {
+      const data = cp.data as TrainExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const stationManager = game.railNetwork().stationManager();
+      const source = stationManager.getById(data.sourceStationId);
+      const destination = stationManager.getById(data.destinationStationId);
+      if (source === undefined || destination === undefined) return undefined;
+      const exec = new TrainExecution(
+        game.railNetwork(),
+        game.player(data.playerId),
+        source,
+        destination,
+        data.numCars,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
       return exec;
     }
     case "city": {

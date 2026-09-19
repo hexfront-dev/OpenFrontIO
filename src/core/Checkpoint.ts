@@ -113,6 +113,65 @@ export interface AllianceCheckpoint {
   extensionRequestedRecipient: boolean;
 }
 
+export interface TrainStationCheckpoint {
+  id: number;
+  unitId: number;
+}
+
+export interface RailroadCheckpoint {
+  id: number;
+  fromStationId: number;
+  toStationId: number;
+  tiles: TileRef[];
+}
+
+/**
+ * B2: the rail network's authoritative state. The station/railroad objects are
+ * rebuilt on restore from these ids; the cluster partition is stored explicitly
+ * because it can temporarily disagree with pure railroad connectivity (removing
+ * a station marks its cluster dirty until RecomputeRailClusterExecution splits
+ * it).
+ */
+export interface RailNetworkCheckpoint {
+  nextStationId: number;
+  nextRailroadId: number;
+  stations: TrainStationCheckpoint[];
+  railroads: RailroadCheckpoint[];
+  /** Station ids per cluster; `dirtyClusterIndices` indexes into this array. */
+  clusters: number[][];
+  dirtyClusterIndices: number[];
+}
+
+export interface TrainStationExecutionCheckpoint {
+  unitId: number;
+  spawnTrains: boolean;
+  active: boolean;
+  stationId: number | null;
+  numCars: number;
+  lastSpawnTick: number;
+  ticksCooldown: number;
+  random: PseudoRandomState | null;
+}
+
+export interface TrainExecutionCheckpoint {
+  playerId: PlayerID;
+  numCars: number;
+  active: boolean;
+  trainUnitId: number | null;
+  carUnitIds: number[];
+  hasCargo: boolean;
+  currentTile: number;
+  spacing: number;
+  usedTiles: TileRef[];
+  stationIds: number[];
+  sourceStationId: number;
+  destinationStationId: number;
+  speed: number;
+  tradeStopsVisited: number;
+  pathTiles: TileRef[];
+  pathIndex: number;
+}
+
 export interface PlayerCheckpoint {
   id: PlayerID;
   smallID: number;
@@ -200,6 +259,8 @@ export interface GameCheckpoint {
   execsCount: number;
   /** Optional for checkpoints written before pathfinder statics were captured. */
   pathfinderStatics?: PathfinderStaticsCheckpoint;
+  /** Optional for checkpoints written before the rail network was captured. */
+  railNetwork?: RailNetworkCheckpoint;
 }
 
 /** Serialized form of a `PlayerStats` record (bigints survive structured clone). */

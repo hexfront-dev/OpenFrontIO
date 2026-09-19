@@ -1,3 +1,7 @@
+import {
+  ExecutionCheckpoint,
+  TrainStationExecutionCheckpoint,
+} from "../Checkpoint";
 import { Execution, Game, Unit, UnitType } from "../game/Game";
 import { TrainStation } from "../game/TrainStation";
 import { PseudoRandom } from "../PseudoRandom";
@@ -95,6 +99,36 @@ export class TrainStationExecution implements Execution {
       ),
     );
     this.lastSpawnTick = currentTick;
+  }
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "train_station",
+      data: {
+        unitId: this.unit.id(),
+        spawnTrains: this.spawnTrains ?? false,
+        active: this.active,
+        stationId: this.station?.id ?? null,
+        numCars: this.numCars,
+        lastSpawnTick: this.lastSpawnTick,
+        ticksCooldown: this.ticksCooldown,
+        random: this.spawnTrains ? this.random.state() : null,
+      } satisfies TrainStationExecutionCheckpoint,
+    };
+  }
+
+  restoreCheckpoint(game: Game, data: TrainStationExecutionCheckpoint): void {
+    this.active = data.active;
+    this.numCars = data.numCars;
+    this.lastSpawnTick = data.lastSpawnTick;
+    this.ticksCooldown = data.ticksCooldown;
+    this.station =
+      data.stationId === null
+        ? null
+        : (game.railNetwork().stationManager().getById(data.stationId) ?? null);
+    if (this.spawnTrains && data.random !== null) {
+      this.random.setState(data.random);
+    }
   }
 
   activeDuringSpawnPhase(): boolean {

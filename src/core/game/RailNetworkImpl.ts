@@ -1,3 +1,4 @@
+import { RailNetworkCheckpoint, TrainStationCheckpoint } from "../Checkpoint";
 import { PathFinding } from "../pathfinding/PathFinder";
 import { Game, Unit, UnitType } from "./Game";
 import { TileRef } from "./GameMap";
@@ -55,6 +56,24 @@ export class StationManagerImpl implements StationManager {
   count(): number {
     return this.nextId;
   }
+
+  /**
+   * B2: replace the whole station set from a checkpoint, preserving the ids
+   * (and the next-id counter) assigned in the original run.
+   */
+  restoreStations(
+    stations: { id: number; station: TrainStation }[],
+    nextId: number,
+  ): void {
+    this.stations.clear();
+    this.stationsById = [];
+    this.nextId = nextId;
+    for (const { id, station } of stations) {
+      station.id = id;
+      this.stationsById[id] = station;
+      this.stations.add(station);
+    }
+  }
 }
 
 export interface RailPathFinderService {
@@ -98,6 +117,99 @@ export class RailNetworkImpl implements RailNetwork {
 
   stationManager(): StationManager {
     return this._stationManager;
+  }
+
+  /** B2: capture the stations, railroads, clusters and id counters. */
+  checkpoint(): RailNetworkCheckpoint {
+    const clusterIndex = new Map<Cluster, number>();
+    const clusters: number[][] = [];
+    const stations: TrainStationCheckpoint[] = [];
+    const allStations = [...this._stationManager.getAll()];
+    for (const station of allStations) {
+      const cluster = station.getCluster();
+      if (cluster !== null && !clusterIndex.has(cluster)) {
+        clusterIndex.set(cluster, clusters.length);
+        clusters.push([...cluster.stations].map((s) => s.id));
+      }
+      stations.push({ id: station.id, unitId: station.unit.id() });
+    }
+
+    const railroadList: Railroad[] = [];
+    const seen = new Set<Railroad>();
+    for (const station of allStations) {
+      for (const railroad of station.getRailroads()) {
+        if (!seen.has(railroad)) {
+          seen.add(railroad);
+          railroadList.push(railroad);
+        }
+      }
+    }
+
+    return {
+      nextStationId: this._stationManager.count(),
+      nextRailroadId: this.nextId,
+      stations,
+      railroads: railroadList.map((r) => ({
+        id: r.id,
+        fromStationId: r.from.id,
+        toStationId: r.to.id,
+        tiles: [...r.tiles],
+      })),
+      clusters,
+      dirtyClusterIndices: [...this.dirtyClusters]
+        .map((c) => clusterIndex.get(c))
+        .filter((i): i is number => i !== undefined),
+    };
+  }
+
+  /** B2: overwrite this network's state from a checkpoint. */
+  restoreFromCheckpoint(cp: RailNetworkCheckpoint): void {
+    const stationManager = this._stationManager as StationManagerImpl;
+    const stationByCheckpointId = new Map<number, TrainStation>();
+    const stations: { id: number; station: TrainStation }[] = [];
+    for (const scp of cp.stations) {
+      const unit = this.game.unit(scp.unitId);
+      if (unit === undefined) {
+        throw new Error(
+          `checkpoint is missing rail station unit ${scp.unitId}`,
+        );
+      }
+      const station = new TrainStation(this.game, unit);
+      stationByCheckpointId.set(scp.id, station);
+      stations.push({ id: scp.id, station });
+    }
+    stationManager.restoreStations(stations, cp.nextStationId);
+
+    this.railGrid = new RailSpatialGrid(this.game, this.gridCellSize);
+    this.nextId = cp.nextRailroadId;
+    for (const rcp of cp.railroads) {
+      const from = stationByCheckpointId.get(rcp.fromStationId);
+      const to = stationByCheckpointId.get(rcp.toStationId);
+      if (from === undefined || to === undefined) {
+        throw new Error(
+          `checkpoint railroad ${rcp.id} references a missing station`,
+        );
+      }
+      const railroad = new Railroad(from, to, [...rcp.tiles], rcp.id);
+      from.addRailroad(railroad);
+      to.addRailroad(railroad);
+      this.railGrid.register(railroad);
+    }
+
+    this.dirtyClusters = new Set();
+    const clusterByIndex = new Map<number, Cluster>();
+    cp.clusters.forEach((stationIds, index) => {
+      const cluster = new Cluster();
+      clusterByIndex.set(index, cluster);
+      for (const stationId of stationIds) {
+        const station = stationByCheckpointId.get(stationId);
+        if (station !== undefined) cluster.addStation(station);
+      }
+    });
+    for (const index of cp.dirtyClusterIndices) {
+      const cluster = clusterByIndex.get(index);
+      if (cluster !== undefined) this.dirtyClusters.add(cluster);
+    }
   }
 
   connectStation(station: TrainStation) {

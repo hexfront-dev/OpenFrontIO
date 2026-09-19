@@ -1,3 +1,4 @@
+import { RailNetworkCheckpoint } from "../Checkpoint";
 import { Unit, UnitType } from "./Game";
 import { TileRef } from "./GameMap";
 import { StationManager } from "./RailNetworkImpl";
@@ -11,4 +12,8 @@ export interface RailNetwork {
   overlappingRailroads(unitType: UnitType, tile: TileRef): TileRef[];
   computeGhostRailPaths(unitType: UnitType, tile: TileRef): TileRef[][];
   recomputeClusters(): void;
+  /** B2: capture this network's authoritative state. */
+  checkpoint(): RailNetworkCheckpoint;
+  /** B2: overwrite this network's state from a checkpoint. */
+  restoreFromCheckpoint(cp: RailNetworkCheckpoint): void;
 }
