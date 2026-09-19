@@ -9,7 +9,12 @@ import {
   DeleteUnitExecution,
   DeleteUnitExecutionCheckpoint,
 } from "./DeleteUnitExecution";
+import {
+  DoomsdayClockExecution,
+  DoomsdayClockExecutionCheckpoint,
+} from "./DoomsdayClockExecution";
 import { FactoryExecution } from "./FactoryExecution";
+import { MirvExecution, MirvExecutionCheckpoint } from "./MIRVExecution";
 import {
   MissileDefenseShipExecution,
   MissileDefenseShipExecutionCheckpoint,
@@ -354,6 +359,20 @@ export function restoreExecution(
         data.waitTicks,
         data.rocketDirectionUp,
       );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "doomsday_clock": {
+      const data = cp.data as DoomsdayClockExecutionCheckpoint;
+      const exec = new DoomsdayClockExecution();
+      if (initialize) exec.init(game, ticks);
+      exec.restoreCheckpoint(game, data);
+      return exec;
+    }
+    case "mirv": {
+      const data = cp.data as MirvExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const exec = new MirvExecution(game.player(data.playerId), data.dst);
       if (!exec.restoreCheckpoint(game, data)) return undefined;
       return exec;
     }

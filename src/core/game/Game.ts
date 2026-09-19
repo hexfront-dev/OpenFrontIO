@@ -414,6 +414,12 @@ export interface Execution {
    * to checkpoint and the caller falls back to replaying from turn 0.
    */
   checkpoint?(): ExecutionCheckpoint;
+  /**
+   * B2: re-link references to other executions after a checkpoint restore has
+   * rebuilt them all (e.g. a MIRV tracking the warhead executions it spawned).
+   * Called once per restored execution, after every execution exists.
+   */
+  linkCheckpoint?(game: Game): void;
 }
 
 export interface Attack {
@@ -951,6 +957,7 @@ export interface Game extends GameMap {
   ): Array<{ unit: Unit; distSquared: number }>;
 
   addExecution(...exec: Execution[]): void;
+  executions(): Execution[];
   displayMessage(
     message: string,
     type: MessageType,

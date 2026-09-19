@@ -118,6 +118,11 @@ export class NukeExecution implements Execution {
     return this.mg.owner(this.dst);
   }
 
+  /** The destination tile this missile was launched at. */
+  public dstTile(): TileRef {
+    return this.dst;
+  }
+
   private tilesToDestroy(): Set<TileRef> {
     if (this.tilesToDestroyCache !== undefined) {
       return this.tilesToDestroyCache;

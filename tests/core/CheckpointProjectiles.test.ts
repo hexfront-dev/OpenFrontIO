@@ -1,3 +1,4 @@
+import { MirvExecution } from "../../src/core/execution/MIRVExecution";
 import { NukeExecution } from "../../src/core/execution/NukeExecution";
 import { SAMLauncherExecution } from "../../src/core/execution/SAMLauncherExecution";
 import { ShellExecution } from "../../src/core/execution/ShellExecution";
@@ -23,9 +24,9 @@ interface BuiltGame {
   betaId: string;
 }
 
-/** Two spawned humans on the half-land/half-ocean map (deterministic). */
-async function buildGame(): Promise<BuiltGame> {
-  const game = (await setup("half_land_half_ocean", {
+/** Two spawned humans on a deterministic map. */
+async function buildGame(mapName = "half_land_half_ocean"): Promise<BuiltGame> {
+  const game = (await setup(mapName, {
     infiniteGold: true,
     instantBuild: true,
     infiniteTroops: true,
@@ -95,6 +96,44 @@ describe("B2 projectile checkpoints", () => {
     const { game: restored } = await buildGame();
     restored.restoreFromCheckpoint(checkpoint!);
     expect(restored.units(UnitType.AtomBomb)).toHaveLength(1);
+
+    const actualHashes = drainHashes(restored, 40);
+    expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  test("restores an in-flight MIRV and its warheads identically", async () => {
+    // The MIRV separation point sits far above the target, so it needs a map
+    // tall enough to hold it (half_land_half_ocean is only 16 tiles high).
+    const { game: original, alphaId, betaId } = await buildGame("plains");
+    const alpha = original.player(alphaId);
+    const beta = original.player(betaId);
+
+    alpha.conquer(original.ref(0, 1));
+    alpha.conquer(original.ref(1, 1));
+    constructionExecution(original, alpha, 0, 1, UnitType.MissileSilo);
+
+    const target = original.ref(0, 15);
+    expect(original.owner(target)).toBe(beta);
+    original.addExecution(new MirvExecution(alpha, target));
+
+    // Fly the carrier until it has staged and spawned its warheads, while it is
+    // still active (it separates a few ticks after spawning them).
+    for (let i = 0; i < 40; i++) {
+      original.executeNextTick();
+      if (original.units(UnitType.MIRVWarhead).length > 0) break;
+    }
+    expect(original.units(UnitType.MIRV)).toHaveLength(1);
+    expect(original.units(UnitType.MIRVWarhead).length).toBeGreaterThan(0);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 40);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildGame("plains");
+    restored.restoreFromCheckpoint(checkpoint!);
+    expect(restored.units(UnitType.MIRVWarhead).length).toBeGreaterThan(0);
 
     const actualHashes = drainHashes(restored, 40);
     expect(actualHashes).toEqual(expectedHashes);

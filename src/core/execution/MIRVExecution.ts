@@ -1,8 +1,10 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
   MessageType,
   Player,
+  PlayerID,
   TerraNullius,
   Unit,
   UnitType,
@@ -11,13 +13,33 @@ import { TileRef } from "../game/GameMap";
 import { UniversalPathFinding } from "../pathfinding/PathFinder";
 import {
   ParabolaUniversalPathFinder,
+  ParabolaUniversalPathFinderSnapshot,
   getParabolaControlPoints,
 } from "../pathfinding/PathFinder.Parabola";
 import { PathStatus } from "../pathfinding/types";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { DistanceBasedBezierCurve } from "../utilities/Line";
 import { NukeExecution } from "./NukeExecution";
+
+export interface MirvExecutionCheckpoint {
+  playerId: PlayerID;
+  dst: TileRef;
+  active: boolean;
+  random: PseudoRandomState;
+  nukeId: number | null;
+  /** null before the carrier has been built. */
+  pathFinder: ParabolaUniversalPathFinderSnapshot | null;
+  fullPath: TileRef[];
+  pathIndex: number;
+  stagedTargets: TileRef[];
+  warheadsSpawned: boolean;
+  /** Destination tiles of the spawned warheads, used to re-link them on restore. */
+  warheadDsts: TileRef[];
+  separateDst: TileRef | null;
+  spawnTile: TileRef | null;
+  speed: number;
+}
 
 export class MirvExecution implements Execution {
   private active = true;
@@ -55,11 +77,90 @@ export class MirvExecution implements Execution {
   private stagedTargets: TileRef[] = [];
   private warheadsSpawned = false;
   private warheadExecutions: NukeExecution[] = [];
+  /** Set on restore so linkCheckpoint() can find this MIRV's warheads. */
+  private warheadDsts: TileRef[] = [];
 
   constructor(
     private player: Player,
     private dst: TileRef,
   ) {}
+
+  /** B2: capture the carrier flight, staged warhead targets and PRNG. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "mirv",
+      data: {
+        playerId: this.player.id(),
+        dst: this.dst,
+        active: this.active,
+        random: this.random.state(),
+        nukeId: this.nuke?.id() ?? null,
+        pathFinder: this.nuke !== null ? this.pathFinder.snapshot() : null,
+        fullPath: [...this.fullPath],
+        pathIndex: this.pathIndex,
+        stagedTargets: [...this.stagedTargets],
+        warheadsSpawned: this.warheadsSpawned,
+        warheadDsts: this.warheadExecutions.map((e) => e.dstTile()),
+        separateDst: this.separateDst ?? null,
+        spawnTile: this.spawnTile ?? null,
+        speed: this.speed,
+      } satisfies MirvExecutionCheckpoint,
+    };
+  }
+
+  /**
+   * B2: overwrite this execution from a checkpoint. Does not re-run `init`
+   * (which breaks alliances); the warhead list is re-linked by linkCheckpoint().
+   * Returns false when the carrier unit is missing.
+   */
+  restoreCheckpoint(game: Game, data: MirvExecutionCheckpoint): boolean {
+    this.mg = game;
+    this.active = data.active;
+    this.targetPlayer = game.owner(data.dst);
+    this.baseX = game.x(data.dst);
+    this.baseY = game.y(data.dst);
+    this.random = new PseudoRandom(0);
+    this.random.setState(data.random);
+    this.fullPath = [...data.fullPath];
+    this.pathIndex = data.pathIndex;
+    this.stagedTargets = [...data.stagedTargets];
+    this.warheadsSpawned = data.warheadsSpawned;
+    this.warheadDsts = [...data.warheadDsts];
+    this.warheadExecutions = [];
+    this.separateDst = data.separateDst as TileRef;
+    this.spawnTile = data.spawnTile as TileRef;
+    this.speed = data.speed;
+    if (data.nukeId === null) {
+      this.nuke = null;
+    } else {
+      const nuke = game.unit(data.nukeId);
+      if (nuke === undefined) return false;
+      this.nuke = nuke;
+    }
+    if (data.pathFinder !== null) {
+      this.pathFinder = UniversalPathFinding.Parabola(game, {
+        increment: this.speed,
+      });
+      this.pathFinder.restore(data.pathFinder);
+    }
+    return true;
+  }
+
+  /** B2: re-resolve the warhead executions this MIRV spawned. */
+  linkCheckpoint(game: Game): void {
+    if (this.warheadDsts.length === 0) return;
+    const wanted = new Set(this.warheadDsts);
+    this.warheadExecutions = [];
+    for (const exec of game.executions()) {
+      if (
+        exec instanceof NukeExecution &&
+        wanted.has(exec.dstTile()) &&
+        exec.owner() === this.player
+      ) {
+        this.warheadExecutions.push(exec);
+      }
+    }
+  }
 
   init(mg: Game, ticks: number): void {
     this.random = new PseudoRandom(mg.ticks() + simpleHash(this.player.id()));

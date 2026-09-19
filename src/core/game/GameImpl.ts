@@ -1488,10 +1488,15 @@ export class GameImpl implements Game {
 
     const executions: ExecutionCheckpoint[] = [];
     for (const exec of this.execs) {
+      // An inactive execution is never ticked again (it is dropped by
+      // removeInactiveExecutions), so it cannot affect the suffix. Skipping it
+      // avoids an unnecessary full replay when e.g. an intent handler failed
+      // validation in its init and lingers for one tick.
+      if (!exec.isActive()) continue;
       if (exec.checkpoint === undefined) return undefined;
       executions.push(exec.checkpoint());
     }
-    const execsCount = this.execs.length;
+    const execsCount = executions.length;
     for (const exec of this.unInitExecs) {
       if (exec.checkpoint === undefined) return undefined;
       executions.push(exec.checkpoint());
@@ -1717,6 +1722,11 @@ export class GameImpl implements Game {
         this.unInitExecs.push(exec);
       }
     });
+    // Second pass: let executions re-link references to other executions that
+    // were rebuilt after they were (e.g. a MIRV tracking its warheads).
+    for (const exec of [...this.execs, ...this.unInitExecs]) {
+      exec.linkCheckpoint?.(this);
+    }
 
     (this._stats as StatsImpl).restoreFromCheckpoint({
       data: cp.stats,

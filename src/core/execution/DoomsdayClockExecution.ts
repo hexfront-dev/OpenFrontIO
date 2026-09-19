@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   doomsdayClockDrain,
   doomsdayClockRequiredTiles,
@@ -76,6 +77,14 @@ class LowestN {
   }
 }
 
+export interface DoomsdayClockExecutionCheckpoint {
+  active: boolean;
+  rotState: [
+    number,
+    { since: number; held: number; front: [TileRef, number][] },
+  ][];
+}
+
 export class DoomsdayClockExecution implements Execution {
   private active = true;
   private mg: Game | null = null;
@@ -86,6 +95,40 @@ export class DoomsdayClockExecution implements Execution {
     number,
     { since: number; held: number; front: Map<TileRef, number> }
   >();
+
+  /** B2: capture rot progress so a resumed clock keeps decaying from the same front. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "doomsday_clock",
+      data: {
+        active: this.active,
+        rotState: [...this.rotState.entries()].map(([id, state]) => [
+          id,
+          {
+            since: state.since,
+            held: state.held,
+            front: [...state.front.entries()],
+          },
+        ]),
+      } satisfies DoomsdayClockExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite the rot state from a checkpoint. */
+  restoreCheckpoint(game: Game, data: DoomsdayClockExecutionCheckpoint): void {
+    this.mg = game;
+    this.active = data.active;
+    this.rotState = new Map(
+      data.rotState.map(([id, state]) => [
+        id,
+        {
+          since: state.since,
+          held: state.held,
+          front: new Map(state.front),
+        },
+      ]),
+    );
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

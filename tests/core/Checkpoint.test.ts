@@ -1,3 +1,4 @@
+import { DoomsdayClockExecution } from "../../src/core/execution/DoomsdayClockExecution";
 import { NationExecution } from "../../src/core/execution/NationExecution";
 import { SpawnExecution } from "../../src/core/execution/SpawnExecution";
 import { TribeExecution } from "../../src/core/execution/TribeExecution";
@@ -193,6 +194,26 @@ describe("B2 core checkpoints", () => {
 
     const actualHashes = drainHashes(restored, 35);
     expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  test("doomsday clock rot state round-trips", async () => {
+    const { game } = await buildGame();
+    const exec = new DoomsdayClockExecution();
+    exec.init(game, 0);
+    // Inject a rot front directly: reaching rot through the sim takes minutes.
+    (exec as any).rotState = new Map([
+      [1, { since: 5, held: 10, front: new Map([[3, 2]]) }],
+    ]);
+
+    const checkpoint = exec.checkpoint();
+    const restored = new DoomsdayClockExecution();
+    restored.init(game, 0);
+    (restored as any).restoreCheckpoint(game, checkpoint.data);
+
+    const state = (restored as any).rotState.get(1);
+    expect(state.since).toBe(5);
+    expect(state.held).toBe(10);
+    expect(state.front.get(3)).toBe(2);
   });
 
   test("refuses to checkpoint when an active execution cannot serialize", async () => {
