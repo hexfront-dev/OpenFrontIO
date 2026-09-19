@@ -38,13 +38,22 @@ export class AllianceRequestImpl implements AllianceRequest {
     this.game.rejectAllianceRequest(this);
   }
 
-  /** B2: capture the pending request. Only pending requests are checkpointed. */
+  /** B2: capture the request, including whether it was already resolved. */
   checkpoint(): AllianceRequestCheckpoint {
     return {
       requestorId: this.requestor_.id(),
       recipientId: this.recipient_.id(),
       createdAt: this.tickCreated,
+      status: this.status_,
     };
+  }
+
+  /**
+   * B2: overwrite this request's resolution status from a checkpoint. The
+   * requestor/recipient/tick are constructor arguments, not restored here.
+   */
+  restoreFromCheckpoint(cp: AllianceRequestCheckpoint): void {
+    this.status_ = cp.status ?? "pending";
   }
 
   toUpdate(): AllianceRequestUpdate {

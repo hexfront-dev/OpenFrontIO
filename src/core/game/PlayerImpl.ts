@@ -9,6 +9,8 @@ import {
   toInt,
   within,
 } from "../Util";
+import { AllianceImpl } from "./AllianceImpl";
+import { AllianceRequestImpl } from "./AllianceRequestImpl";
 import { AttackImpl } from "./AttackImpl";
 import {
   Alliance,
@@ -2045,6 +2047,12 @@ export class PlayerImpl implements Player {
         tick: d.tick,
       })),
       pseudoRandom: this._pseudo_random.state(),
+      pastOutgoingAllianceRequests: this.pastOutgoingAllianceRequests.map((r) =>
+        (r as AllianceRequestImpl).checkpoint(),
+      ),
+      expiredAlliances: this._expiredAlliances.map((a) =>
+        (a as AllianceImpl).checkpoint(),
+      ),
     };
   }
 
@@ -2132,7 +2140,32 @@ export class PlayerImpl implements Player {
     this.largestClusterBoundingBox = null;
     this._tileChangeVersion = 0;
     this._myUnitsVersion = 0;
-    this.pastOutgoingAllianceRequests = [];
-    this._expiredAlliances = [];
+
+    // Alliance history. These objects are not re-linked elsewhere, so rebuild
+    // them here from their checkpoints (see AllianceRequestImpl /
+    // AllianceImpl `restoreFromCheckpoint`).
+    this.pastOutgoingAllianceRequests = (
+      cp.pastOutgoingAllianceRequests ?? []
+    ).map((rcp) => {
+      const request = new AllianceRequestImpl(
+        this.mg.player(rcp.requestorId),
+        this.mg.player(rcp.recipientId),
+        rcp.createdAt,
+        this.mg,
+      );
+      request.restoreFromCheckpoint(rcp);
+      return request;
+    });
+    this._expiredAlliances = (cp.expiredAlliances ?? []).map((acp) => {
+      const alliance = new AllianceImpl(
+        this.mg,
+        this.mg.player(acp.requestorId),
+        this.mg.player(acp.recipientId),
+        acp.createdAt,
+        acp.id,
+      );
+      alliance.restoreFromCheckpoint(acp);
+      return alliance;
+    });
   }
 }

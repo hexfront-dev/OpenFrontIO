@@ -97,10 +97,18 @@ export interface AttackCheckpoint {
   retreated: boolean;
 }
 
+export type AllianceRequestStatus = "pending" | "accepted" | "rejected";
+
 export interface AllianceRequestCheckpoint {
   requestorId: PlayerID;
   recipientId: PlayerID;
   createdAt: number;
+  /**
+   * Only meaningful for a resolved request kept in a player's outgoing history.
+   * Absent in checkpoints written before history was captured (treated as
+   * pending). Pending requests are restored via `GameImpl.allianceRequests`.
+   */
+  status?: AllianceRequestStatus;
 }
 
 export interface AllianceCheckpoint {
@@ -210,6 +218,18 @@ export interface PlayerCheckpoint {
   outgoingQuickChats: [number, number][];
   sentDonations: { recipientId: PlayerID; tick: number }[];
   pseudoRandom: PseudoRandomState;
+  /**
+   * Resolved alliance requests this player sent, in insertion order. Drives the
+   * per-recipient request cooldown in `canSendAllianceRequest`, so it is part of
+   * the deterministic state. Optional for checkpoints written before the
+   * history was captured.
+   */
+  pastOutgoingAllianceRequests?: AllianceRequestCheckpoint[];
+  /**
+   * Alliances this player was once part of, in insertion order. Optional for
+   * checkpoints written before the history was captured.
+   */
+  expiredAlliances?: AllianceCheckpoint[];
 }
 
 export interface ExecutionCheckpoint {

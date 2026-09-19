@@ -14,6 +14,7 @@ import {
 } from "../../src/core/game/Game";
 import { GameImpl } from "../../src/core/game/GameImpl";
 import { GameUpdateType } from "../../src/core/game/GameUpdates";
+import { PlayerImpl } from "../../src/core/game/PlayerImpl";
 import { GameID } from "../../src/core/Schemas";
 import { setup } from "../util/Setup";
 import { constructionExecution, executeTicks } from "../util/utils";
@@ -172,6 +173,68 @@ describe("B2 core checkpoints", () => {
     expect(after.troops()).toBe(before.troops());
     expect(after.numTilesOwned()).toBe(before.numTilesOwned());
     expect(after.hasSpawned()).toBe(true);
+  });
+
+  test("restores the outgoing alliance-request cooldown", async () => {
+    const { game: original, alpha, beta } = await buildGame();
+    executeTicks(original, 30);
+
+    const requestor = original.player(alpha);
+    const recipient = original.player(beta);
+    const request = requestor.createAllianceRequest(recipient);
+    expect(request).not.toBeNull();
+    request!.reject();
+
+    expect((requestor as PlayerImpl).pastOutgoingAllianceRequests).toHaveLength(
+      1,
+    );
+    expect(requestor.canSendAllianceRequest(recipient)).toBe(false);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const { game: restored } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+
+    const restoredRequestor = restored.player(alpha);
+    const restoredRecipient = restored.player(beta);
+    const history = (restoredRequestor as PlayerImpl)
+      .pastOutgoingAllianceRequests;
+    expect(history).toHaveLength(1);
+    expect(history[0].recipient().id()).toBe(restoredRecipient.id());
+    expect(history[0].status()).toBe("rejected");
+    // The cooldown still applies, so a resumed game cannot resend immediately.
+    expect(restoredRequestor.canSendAllianceRequest(restoredRecipient)).toBe(
+      false,
+    );
+  });
+
+  test("restores expired alliance history", async () => {
+    const { game: original, alpha, beta } = await buildGame();
+    executeTicks(original, 20);
+
+    const requestor = original.player(alpha);
+    const recipient = original.player(beta);
+    const request = requestor.createAllianceRequest(recipient)!;
+    request.accept();
+    const alliance = requestor.allianceWith(recipient)!;
+    original.expireAlliance(alliance);
+    // `expireAlliance` detaches the alliance but does not archive it yet; seed
+    // the history to exercise the checkpoint round-trip.
+    (requestor as any)._expiredAlliances.push(alliance);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const { game: restored } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+
+    const restoredRequestor = restored.player(alpha);
+    const restoredRecipient = restored.player(beta);
+    const expired = restoredRequestor.expiredAlliances();
+    expect(expired).toHaveLength(1);
+    expect(expired[0].requestor().id()).toBe(restoredRequestor.id());
+    expect(expired[0].recipient().id()).toBe(restoredRecipient.id());
   });
 
   test("restores a live structure execution", async () => {
