@@ -10,6 +10,14 @@ import {
   DeleteUnitExecutionCheckpoint,
 } from "./DeleteUnitExecution";
 import { FactoryExecution } from "./FactoryExecution";
+import {
+  MissileDefenseShipExecution,
+  MissileDefenseShipExecutionCheckpoint,
+} from "./MissileDefenseShipExecution";
+import {
+  MissileShipExecution,
+  MissileShipExecutionCheckpoint,
+} from "./MissileShipExecution";
 import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NationExecution, NationExecutionCheckpoint } from "./NationExecution";
 import { PlayerExecution } from "./PlayerExecution";
@@ -29,6 +37,10 @@ import {
   TransportShipExecutionCheckpoint,
 } from "./TransportShipExecution";
 import { TribeExecution, TribeExecutionCheckpoint } from "./TribeExecution";
+import {
+  WarshipExecution,
+  WarshipExecutionCheckpoint,
+} from "./WarshipExecution";
 import { WinCheckExecution } from "./WinCheckExecution";
 
 /**
@@ -247,6 +259,33 @@ export function restoreExecution(
         data.troops,
         data.escort,
       );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "warship": {
+      const data = cp.data as WarshipExecutionCheckpoint;
+      if (data.warshipId === null) return undefined;
+      const warship = game.unit(data.warshipId);
+      if (warship === undefined) return undefined;
+      const exec = new WarshipExecution(warship);
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "missile_ship": {
+      const data = cp.data as MissileShipExecutionCheckpoint;
+      if (data.warshipId === null) return undefined;
+      const warship = game.unit(data.warshipId);
+      if (warship === undefined) return undefined;
+      const exec = new MissileShipExecution(warship);
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "missile_defense_ship": {
+      const data = cp.data as MissileDefenseShipExecutionCheckpoint;
+      if (data.warshipId === null) return undefined;
+      const warship = game.unit(data.warshipId);
+      if (warship === undefined) return undefined;
+      const exec = new MissileDefenseShipExecution(warship);
       if (!exec.restoreCheckpoint(game, data)) return undefined;
       return exec;
     }

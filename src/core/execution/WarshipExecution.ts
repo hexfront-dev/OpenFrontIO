@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
@@ -8,11 +9,26 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { WaterPathFinder } from "../pathfinding/PathFinder";
+import {
+  WaterPathFinder,
+  WaterPathFinderSnapshot,
+} from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { findMinimumBy } from "../Util";
 import { ShellExecution } from "./ShellExecution";
+
+export interface WarshipExecutionCheckpoint {
+  warshipId: number | null;
+  random: PseudoRandomState;
+  lastShellAttack: number;
+  alreadySentShellIds: number[];
+  lastManualMoveTickRetreatDisabled: number;
+  lastObservedPatrolTile: TileRef | null;
+  activeHealingRemainder: number;
+  lastEmittedCombat: boolean;
+  pathfinder: WaterPathFinderSnapshot;
+}
 
 export class WarshipExecution implements Execution {
   private random: PseudoRandom;
@@ -29,6 +45,54 @@ export class WarshipExecution implements Execution {
   constructor(
     private input: (UnitParams<UnitType.Warship> & OwnerComp) | Unit,
   ) {}
+
+  /** B2: capture the warship's patrol/combat state and cached route. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "warship",
+      data: {
+        warshipId: this.warship?.id() ?? null,
+        random: this.random.state(),
+        lastShellAttack: this.lastShellAttack,
+        alreadySentShellIds: [...this.alreadySentShell].map((u) => u.id()),
+        lastManualMoveTickRetreatDisabled:
+          this.lastManualMoveTickRetreatDisabled,
+        lastObservedPatrolTile: this.lastObservedPatrolTile ?? null,
+        activeHealingRemainder: this.activeHealingRemainder,
+        lastEmittedCombat: this.lastEmittedCombat,
+        pathfinder: this.pathfinder.snapshot(),
+      } satisfies WarshipExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this execution from a checkpoint. Returns false when the warship is missing. */
+  restoreCheckpoint(game: Game, data: WarshipExecutionCheckpoint): boolean {
+    if (data.warshipId === null) return false;
+    const warship = game.unit(data.warshipId);
+    if (warship === undefined) return false;
+    this.mg = game;
+    this.warship = warship;
+    this.random = new PseudoRandom(0);
+    this.random.setState(data.random);
+    this.pathfinder = new WaterPathFinder(
+      game,
+      data.pathfinder.stagger,
+      data.pathfinder.memoized,
+    );
+    this.pathfinder.restore(data.pathfinder);
+    this.lastShellAttack = data.lastShellAttack;
+    this.alreadySentShell = new Set(
+      data.alreadySentShellIds
+        .map((id) => game.unit(id))
+        .filter((u): u is Unit => u !== undefined),
+    );
+    this.lastManualMoveTickRetreatDisabled =
+      data.lastManualMoveTickRetreatDisabled;
+    this.lastObservedPatrolTile = data.lastObservedPatrolTile ?? undefined;
+    this.activeHealingRemainder = data.activeHealingRemainder;
+    this.lastEmittedCombat = data.lastEmittedCombat;
+    return true;
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

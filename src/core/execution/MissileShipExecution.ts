@@ -1,8 +1,27 @@
-import { Execution, Game, OwnerComp, Unit, UnitParams, UnitType, isUnit } from "../game/Game";
-import { WaterPathFinder } from "../pathfinding/PathFinder";
+import { ExecutionCheckpoint } from "../Checkpoint";
+import {
+  Execution,
+  Game,
+  OwnerComp,
+  Unit,
+  UnitParams,
+  UnitType,
+  isUnit,
+} from "../game/Game";
+import {
+  WaterPathFinder,
+  WaterPathFinderSnapshot,
+} from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { shipMoveInterval } from "./FleetFormation";
+
+export interface MissileShipExecutionCheckpoint {
+  warshipId: number | null;
+  active: boolean;
+  random: PseudoRandomState;
+  pathfinder: WaterPathFinderSnapshot;
+}
 
 export class MissileShipExecution implements Execution {
   private active = true;
@@ -14,6 +33,38 @@ export class MissileShipExecution implements Execution {
   constructor(
     private input: (UnitParams<UnitType.MissileShip> & OwnerComp) | Unit,
   ) {}
+
+  /** B2: capture the missile ship's patrol state and cached route. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "missile_ship",
+      data: {
+        warshipId: this.warship?.id() ?? null,
+        active: this.active,
+        random: this.random.state(),
+        pathfinder: this.pathfinder.snapshot(),
+      } satisfies MissileShipExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this execution from a checkpoint. Returns false when the ship is missing. */
+  restoreCheckpoint(game: Game, data: MissileShipExecutionCheckpoint): boolean {
+    if (data.warshipId === null) return false;
+    const warship = game.unit(data.warshipId);
+    if (warship === undefined) return false;
+    this.mg = game;
+    this.warship = warship;
+    this.active = data.active;
+    this.random = new PseudoRandom(0);
+    this.random.setState(data.random);
+    this.pathfinder = new WaterPathFinder(
+      game,
+      data.pathfinder.stagger,
+      data.pathfinder.memoized,
+    );
+    this.pathfinder.restore(data.pathfinder);
+    return true;
+  }
 
   init(mg: Game): void {
     this.mg = mg;
@@ -82,7 +133,10 @@ export class MissileShipExecution implements Execution {
     if (target === undefined) return;
 
     const result = this.pathfinder.next(this.warship.tile(), target);
-    if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
+    if (
+      result.status === PathStatus.NEXT ||
+      result.status === PathStatus.COMPLETE
+    ) {
       this.warship.move(result.node);
     }
     if (result.status === PathStatus.COMPLETE) {
@@ -99,7 +153,10 @@ export class MissileShipExecution implements Execution {
     if (moveRate > 1 && this.mg.ticks() % moveRate !== 0) return;
 
     const result = this.pathfinder.next(this.warship.tile(), patrolTile);
-    if (result.status === PathStatus.NEXT || result.status === PathStatus.COMPLETE) {
+    if (
+      result.status === PathStatus.NEXT ||
+      result.status === PathStatus.COMPLETE
+    ) {
       this.warship.move(result.node);
     }
   }

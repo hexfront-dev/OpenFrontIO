@@ -1,6 +1,9 @@
+import { MissileDefenseShipExecution } from "../../src/core/execution/MissileDefenseShipExecution";
+import { MissileShipExecution } from "../../src/core/execution/MissileShipExecution";
 import { SpawnExecution } from "../../src/core/execution/SpawnExecution";
 import { TradeShipExecution } from "../../src/core/execution/TradeShipExecution";
 import { TransportShipExecution } from "../../src/core/execution/TransportShipExecution";
+import { WarshipExecution } from "../../src/core/execution/WarshipExecution";
 import { WinCheckExecution } from "../../src/core/execution/WinCheckExecution";
 import {
   Game,
@@ -130,6 +133,95 @@ describe("B2 ship checkpoints", () => {
     const { game: restored } = await buildGame();
     restored.restoreFromCheckpoint(checkpoint!);
     expect(restored.units(UnitType.TransportShip)).toHaveLength(1);
+
+    const actualHashes = drainHashes(restored, 40);
+    expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  /** A player with a coastal port, ready for its warship family to spawn. */
+  async function buildPortGame() {
+    const built = await buildGame();
+    const alpha = built.game.player(built.alphaId);
+    alpha.conquer(built.game.ref(7, 2));
+    alpha.conquer(built.game.ref(7, 3));
+    alpha.buildUnit(UnitType.Port, built.game.ref(7, 2), {});
+    return { ...built, alpha };
+  }
+
+  test("restores a live warship and replays its patrol identically", async () => {
+    const { game: original, alphaId } = await buildPortGame();
+    const alpha = original.player(alphaId);
+
+    original.addExecution(
+      new WarshipExecution({ owner: alpha, patrolTile: original.ref(8, 2) }),
+    );
+    executeTicks(original, 8);
+    expect(original.units(UnitType.Warship)).toHaveLength(1);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 40);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored, alphaId: ra } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+    expect(restored.units(UnitType.Warship)).toHaveLength(1);
+    expect(restored.player(ra).units(UnitType.Port)).toHaveLength(1);
+
+    const actualHashes = drainHashes(restored, 40);
+    expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  test("restores a live missile ship and replays its patrol identically", async () => {
+    const { game: original, alphaId } = await buildPortGame();
+    const alpha = original.player(alphaId);
+
+    original.addExecution(
+      new MissileShipExecution({
+        owner: alpha,
+        patrolTile: original.ref(8, 2),
+      }),
+    );
+    executeTicks(original, 8);
+    expect(original.units(UnitType.MissileShip)).toHaveLength(1);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 40);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+    expect(restored.units(UnitType.MissileShip)).toHaveLength(1);
+
+    const actualHashes = drainHashes(restored, 40);
+    expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  test("restores a live missile defense ship and replays its patrol identically", async () => {
+    const { game: original, alphaId } = await buildPortGame();
+    const alpha = original.player(alphaId);
+
+    original.addExecution(
+      new MissileDefenseShipExecution({
+        owner: alpha,
+        patrolTile: original.ref(8, 2),
+      }),
+    );
+    executeTicks(original, 8);
+    expect(original.units(UnitType.MissileDefenseShip)).toHaveLength(1);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 40);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+    expect(restored.units(UnitType.MissileDefenseShip)).toHaveLength(1);
 
     const actualHashes = drainHashes(restored, 40);
     expect(actualHashes).toEqual(expectedHashes);

@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Execution,
   Game,
@@ -8,12 +9,26 @@ import {
   UnitType,
   isUnit,
 } from "../game/Game";
-import { WaterPathFinder } from "../pathfinding/PathFinder";
+import {
+  WaterPathFinder,
+  WaterPathFinderSnapshot,
+} from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { shipMoveInterval } from "./FleetFormation";
-import { SAMTargetingSystem } from "./SAMLauncherExecution";
+import {
+  SAMTargetingSystem,
+  SAMTargetingSystemCheckpoint,
+} from "./SAMLauncherExecution";
 import { SAMMissileExecution } from "./SAMMissileExecution";
+
+export interface MissileDefenseShipExecutionCheckpoint {
+  warshipId: number | null;
+  active: boolean;
+  random: PseudoRandomState;
+  pathfinder: WaterPathFinderSnapshot;
+  targetingSystem: SAMTargetingSystemCheckpoint | null;
+}
 
 export class MissileDefenseShipExecution implements Execution {
   private active = true;
@@ -28,6 +43,48 @@ export class MissileDefenseShipExecution implements Execution {
   constructor(
     private input: (UnitParams<UnitType.MissileDefenseShip> & OwnerComp) | Unit,
   ) {}
+
+  /** B2: capture the anti-air ship's patrol/cooldown state and cached route. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "missile_defense_ship",
+      data: {
+        warshipId: this.warship?.id() ?? null,
+        active: this.active,
+        random: this.random.state(),
+        pathfinder: this.pathfinder.snapshot(),
+        targetingSystem: this.targetingSystem
+          ? this.targetingSystem.snapshot()
+          : null,
+      } satisfies MissileDefenseShipExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite this execution from a checkpoint. Returns false when the ship is missing. */
+  restoreCheckpoint(
+    game: Game,
+    data: MissileDefenseShipExecutionCheckpoint,
+  ): boolean {
+    if (data.warshipId === null) return false;
+    const warship = game.unit(data.warshipId);
+    if (warship === undefined) return false;
+    this.mg = game;
+    this.warship = warship;
+    this.active = data.active;
+    this.random = new PseudoRandom(0);
+    this.random.setState(data.random);
+    this.pathfinder = new WaterPathFinder(
+      game,
+      data.pathfinder.stagger,
+      data.pathfinder.memoized,
+    );
+    this.pathfinder.restore(data.pathfinder);
+    if (data.targetingSystem !== null) {
+      this.targetingSystem = new SAMTargetingSystem(game, warship);
+      this.targetingSystem.restore(data.targetingSystem);
+    }
+    return true;
+  }
 
   init(mg: Game): void {
     this.mg = mg;

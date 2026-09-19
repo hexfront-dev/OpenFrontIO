@@ -14,12 +14,16 @@ type InterceptionTile = {
   tick: number;
 };
 
-type CachedInterception = {
+export type CachedInterception = {
   tick: number; // >= 0: scheduled launch tick, -1: unreachable at current upgrade, -2: permanently out of reach
   tile: TileRef;
   minDistSq: number;
   lastSeenTick: number;
 };
+
+export interface SAMTargetingSystemCheckpoint {
+  precomputedNukes: [number, CachedInterception][];
+}
 
 /**
  * Smart SAM targeting system preshoting nukes so its range is strictly enforced
@@ -36,6 +40,23 @@ export class SAMTargetingSystem {
   ) {
     this.missileSpeed = this.mg.config().defaultSamMissileSpeed();
     this.isTargetableNearbyUnit = this.isTargetableNearbyUnit.bind(this);
+  }
+
+  /** B2: capture the cached interception plan (affects the next launch decision). */
+  snapshot(): SAMTargetingSystemCheckpoint {
+    return {
+      precomputedNukes: Array.from(this.precomputedNukes.entries()).map(
+        ([id, cached]) => [id, { ...cached }],
+      ),
+    };
+  }
+
+  /** B2: install a snapshot captured by snapshot(). */
+  restore(checkpoint: SAMTargetingSystemCheckpoint): void {
+    this.precomputedNukes.clear();
+    for (const [id, cached] of checkpoint.precomputedNukes) {
+      this.precomputedNukes.set(id, { ...cached });
+    }
   }
 
   onLevelUp(): void {
