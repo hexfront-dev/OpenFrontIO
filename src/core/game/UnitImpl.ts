@@ -1,3 +1,4 @@
+import { UnitCheckpoint } from "../Checkpoint";
 import { simpleHash, toInt, withinInt } from "../Util";
 import {
   AllUnitParams,
@@ -72,6 +73,9 @@ export class UnitImpl implements Unit {
     private _id: number,
     public _owner: PlayerImpl,
     params: AllUnitParams = {},
+    // B2 checkpoints reconstruct units and then overwrite every field from the
+    // snapshot, so the constructor must not record a fresh "built" stat.
+    recordBuildStat: boolean = true,
   ) {
     this._lastTile = _tile;
     this._health = toInt(this.mg.unitInfo(_type).maxHealth ?? 1);
@@ -117,19 +121,103 @@ export class UnitImpl implements Unit {
       "loaded" in params ? (params.loaded ?? undefined) : undefined;
     this._trainType = "trainType" in params ? params.trainType : undefined;
 
-    switch (this._type) {
-      case UnitType.Warship:
-      case UnitType.Port:
-      case UnitType.MissileSilo:
-      case UnitType.DefensePost:
-      case UnitType.SAMLauncher:
-      case UnitType.City:
-      case UnitType.Factory:
-      case UnitType.Tollhouse:
-      case UnitType.MissileShip:
-      case UnitType.MissileDefenseShip:
-        this.mg.stats().unitBuild(_owner, this._type);
+    if (recordBuildStat) {
+      switch (this._type) {
+        case UnitType.Warship:
+        case UnitType.Port:
+        case UnitType.MissileSilo:
+        case UnitType.DefensePost:
+        case UnitType.SAMLauncher:
+        case UnitType.City:
+        case UnitType.Factory:
+        case UnitType.Tollhouse:
+        case UnitType.MissileShip:
+        case UnitType.MissileDefenseShip:
+          this.mg.stats().unitBuild(_owner, this._type);
+      }
     }
+  }
+
+  /** B2: capture every authoritative field of this unit. */
+  checkpoint(): UnitCheckpoint {
+    return {
+      id: this._id,
+      type: this._type,
+      ownerId: this._owner.id(),
+      tile: this._tile,
+      lastTile: this._lastTile,
+      active: this._active,
+      targetTile: this._targetTile ?? null,
+      targetPlayerId:
+        this._targetPlayer !== undefined && this._targetPlayer.isPlayer()
+          ? this._targetPlayer.id()
+          : null,
+      targetIsTerraNullius:
+        this._targetPlayer !== undefined && !this._targetPlayer.isPlayer(),
+      targetUnitId: this._targetUnit?.id() ?? null,
+      health: this._health,
+      troops: this._troops,
+      lastSetSafeFromPirates: this._lastSetSafeFromPirates,
+      transportShipState: this._transportShipState ?? null,
+      warshipState: this._warshipState ?? null,
+      nukeState: this._nukeState ?? null,
+      reachedTarget: this._reachedTarget,
+      underConstruction: this._underConstruction,
+      lastOwnerId: this._lastOwner?.id() ?? null,
+      missileTimerQueue: [...this._missileTimerQueue],
+      hasTrainStation: this._hasTrainStation,
+      fleetId: this._fleetId ?? null,
+      level: this._level,
+      targetable: this._targetable,
+      loaded: this._loaded ?? null,
+      trainType: this._trainType ?? null,
+      deletionAt: this._deletionAt,
+      samLauncherState: this._samLauncherState ?? null,
+      defensePostUpgradeFinishTick: this._defensePostUpgradeFinishTick,
+      tollTicks: [...this._tollTicks],
+      tolls: this._tolls.map((t) => ({ ...t })),
+    };
+  }
+
+  /** B2: overwrite this unit's state from a checkpoint. */
+  restoreFromCheckpoint(cp: UnitCheckpoint): void {
+    this._tile = cp.tile;
+    this._lastTile = cp.lastTile;
+    this._owner = this.mg.player(cp.ownerId) as PlayerImpl;
+    this._active = cp.active;
+    this._targetTile = cp.targetTile ?? undefined;
+    this._targetPlayer =
+      cp.targetPlayerId !== null
+        ? (this.mg.player(cp.targetPlayerId) as PlayerImpl)
+        : cp.targetIsTerraNullius
+          ? this.mg.terraNullius()
+          : undefined;
+    this._targetUnit =
+      cp.targetUnitId !== null ? this.mg.unit(cp.targetUnitId) : undefined;
+    this._health = cp.health;
+    this._troops = cp.troops;
+    this._lastSetSafeFromPirates = cp.lastSetSafeFromPirates;
+    this._transportShipState = cp.transportShipState ?? undefined;
+    this._warshipState = cp.warshipState ?? undefined;
+    this._nukeState = cp.nukeState ?? undefined;
+    this._reachedTarget = cp.reachedTarget;
+    this._underConstruction = cp.underConstruction;
+    this._lastOwner =
+      cp.lastOwnerId !== null
+        ? (this.mg.player(cp.lastOwnerId) as PlayerImpl)
+        : null;
+    this._missileTimerQueue = [...cp.missileTimerQueue];
+    this._hasTrainStation = cp.hasTrainStation;
+    this._fleetId = cp.fleetId ?? undefined;
+    this._level = cp.level;
+    this._targetable = cp.targetable;
+    this._loaded = cp.loaded ?? undefined;
+    this._trainType = cp.trainType ?? undefined;
+    this._deletionAt = cp.deletionAt;
+    this._samLauncherState = cp.samLauncherState ?? undefined;
+    this._defensePostUpgradeFinishTick = cp.defensePostUpgradeFinishTick;
+    this._tollTicks = [...cp.tollTicks];
+    this._tolls = cp.tolls.map((t) => ({ ...t }));
   }
 
   setTargetable(targetable: boolean): void {
@@ -565,7 +653,16 @@ export class UnitImpl implements Unit {
   }
 
   hash(): number {
-    return this.tile() + simpleHash(this.type()) * this._id;
+    // Stronger than the original tile+type+id: folded into the desync detector
+    // and the B2 checkpoint golden test, so include the mutable combat state
+    // that most often diverges (health, troops, level, targeting).
+    let h = (this.tile() + simpleHash(this.type()) * (this._id + 1)) | 0;
+    h = (h + Number(this._health % 1000000007n)) | 0;
+    h = (h + this._troops + this._level + this._missileTimerQueue.length) | 0;
+    h = (h + (this._targetTile ?? 0) + (this._targetUnit?.id() ?? 0)) | 0;
+    h = (h + (this._targetPlayer?.smallID() ?? 0) * 131) | 0;
+    h = (h + (this._fleetId ?? 0) + (this._hasTrainStation ? 1 : 0)) | 0;
+    return h;
   }
 
   toString(): string {

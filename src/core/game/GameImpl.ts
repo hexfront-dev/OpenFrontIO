@@ -1,6 +1,15 @@
 import { renderNumber } from "../../client/Utils";
 import { UnitView } from "../../client/view";
+import {
+  AllianceCheckpoint,
+  AttackCheckpoint,
+  CHECKPOINT_VERSION,
+  CheckpointWinner,
+  ExecutionCheckpoint,
+  GameCheckpoint,
+} from "../Checkpoint";
 import { Config } from "../configuration/Config";
+import { restoreExecution } from "../execution/ExecutionCheckpoints";
 import { SharedWaterCache } from "../execution/nation/SharedWaterCache";
 import { AbstractGraph } from "../pathfinding/algorithms/AbstractGraph";
 import { PathFinder } from "../pathfinding/types";
@@ -9,6 +18,7 @@ import { ATTACK_INDEX_SENT } from "../StatsSchemas";
 import { simpleHash } from "../Util";
 import { AllianceImpl } from "./AllianceImpl";
 import { AllianceRequestImpl } from "./AllianceRequestImpl";
+import { AttackImpl } from "./AttackImpl";
 import {
   Alliance,
   AllianceRequest,
@@ -39,7 +49,7 @@ import {
   UnitInfo,
   UnitType,
 } from "./Game";
-import { GameMap, TileRef } from "./GameMap";
+import { GameMap, GameMapImpl, TileRef } from "./GameMap";
 import { GameUpdate, GameUpdateType } from "./GameUpdates";
 import { MotionPlanRecord, packMotionPlans } from "./MotionPlans";
 import { PlayerImpl } from "./PlayerImpl";
@@ -50,6 +60,7 @@ import { StatsImpl } from "./StatsImpl";
 import { assignTeams } from "./TeamAssignment";
 import { TerraNulliusImpl } from "./TerraNulliusImpl";
 import { UnitGrid, UnitPredicate } from "./UnitGrid";
+import { UnitImpl } from "./UnitImpl";
 import { WaterManager } from "./WaterManager";
 
 export function createGame(
@@ -649,9 +660,16 @@ export class GameImpl implements Game {
   }
 
   private hash(): number {
+    // Player.hash() covers gold/troops/tilesOwned and its units; fold in the
+    // actual tile ownership map, which the count alone does not capture. This
+    // is the value the desync detector compares, so a mis-owned tile must show
+    // up even when every player's tile count is unchanged.
     let hash = 1;
     this._players.forEach((p) => {
-      hash += p.hash();
+      hash = (hash + p.hash()) | 0;
+      (p as PlayerImpl)._tiles.forEach((tile) => {
+        hash = (hash + simpleHash(tile * (p.smallID() + 1))) | 0;
+      });
     });
     return hash;
   }
@@ -1436,6 +1454,270 @@ export class GameImpl implements Game {
       conqueredId: conquered.id(),
       gold: goldCaptured,
     });
+  }
+
+  private checkpointWinner(): CheckpointWinner {
+    if (this._winner === null) return null;
+    if (typeof this._winner === "string") {
+      return { kind: "team", team: this._winner };
+    }
+    return { kind: "player", id: this._winner.id() };
+  }
+
+  /**
+   * B2: capture the full deterministic state of this game.
+   *
+   * Returns undefined when some active execution (or the rail network) cannot
+   * be captured, so the caller falls back to replaying the whole history.
+   * Derived state — unit spatial grid, border tiles, pathfinder and water
+   * caches — is intentionally omitted and rebuilt by restoreFromCheckpoint().
+   */
+  checkpoint(): GameCheckpoint | undefined {
+    if (this._railNetwork.stationManager().count() > 1) {
+      // Railroads are rebuilt from construction events and are not yet part of
+      // the checkpoint format; refuse rather than silently desync.
+      return undefined;
+    }
+
+    const executions: ExecutionCheckpoint[] = [];
+    for (const exec of this.execs) {
+      if (exec.checkpoint === undefined) return undefined;
+      executions.push(exec.checkpoint());
+    }
+    const execsCount = this.execs.length;
+    for (const exec of this.unInitExecs) {
+      if (exec.checkpoint === undefined) return undefined;
+      executions.push(exec.checkpoint());
+    }
+
+    const attacks: AttackCheckpoint[] = [];
+    for (const player of this._playersBySmallID as PlayerImpl[]) {
+      for (const attack of player._outgoingAttacks) {
+        attacks.push((attack as AttackImpl).checkpoint());
+      }
+    }
+
+    const alliances: AllianceCheckpoint[] = [];
+    const seenAlliances = new Set<AllianceImpl>();
+    for (const player of this._playersBySmallID as PlayerImpl[]) {
+      for (const alliance of player._alliances) {
+        const impl = alliance as AllianceImpl;
+        if (!seenAlliances.has(impl)) {
+          seenAlliances.add(impl);
+          alliances.push(impl.checkpoint());
+        }
+      }
+    }
+
+    const stats = (this._stats as StatsImpl).checkpoint();
+
+    return {
+      version: CHECKPOINT_VERSION,
+      ticks: this._ticks,
+      startTick: this.startTick,
+      isPaused: this._isPaused,
+      winner: this.checkpointWinner(),
+      nextPlayerID: this.nextPlayerID,
+      nextUnitID: this._nextUnitID,
+      nextFleetId: this._nextFleetId,
+      nextAllianceID: this.nextAllianceID,
+      unitsVersion: this._unitsVersion,
+      territoryVersion: this._territoryVersion,
+      map: (this._map as GameMapImpl).exportMapState(),
+      miniMap: (this.miniGameMap as GameMapImpl).exportMapState(),
+      players: this._playersBySmallID.map((p) =>
+        (p as PlayerImpl).checkpoint(),
+      ),
+      units: this.units().map((u) => (u as UnitImpl).checkpoint()),
+      attacks,
+      allianceRequests: this.allianceRequests.map((r) => r.checkpoint()),
+      alliances,
+      stats: stats.data,
+      numMirvsLaunched: stats.numMirvLaunched,
+      executions,
+      execsCount,
+    };
+  }
+
+  /**
+   * B2: overwrite this game's state from a checkpoint. Must be called on a game
+   * built with the same GameStartInfo (same map, roster and config); it never
+   * re-runs the constructor. Mutates in place so callers keep their references.
+   */
+  restoreFromCheckpoint(cp: GameCheckpoint): void {
+    if (cp.version !== CHECKPOINT_VERSION) {
+      throw new Error(
+        `unsupported checkpoint version ${cp.version} (expected ${CHECKPOINT_VERSION})`,
+      );
+    }
+
+    this._ticks = cp.ticks;
+    this.startTick = cp.startTick;
+    this._isPaused = cp.isPaused;
+    this.nextPlayerID = cp.nextPlayerID;
+    this._nextUnitID = cp.nextUnitID;
+    this._nextFleetId = cp.nextFleetId;
+    this.nextAllianceID = cp.nextAllianceID;
+    this._winner =
+      cp.winner === null
+        ? null
+        : cp.winner.kind === "team"
+          ? cp.winner.team
+          : this.player(cp.winner.id);
+
+    // Terrain/state first: everything below reads the restored map.
+    (this._map as GameMapImpl).importMapState(cp.map);
+    (this.miniGameMap as GameMapImpl).importMapState(cp.miniMap);
+
+    // Water structures are derived from minimap terrain; rebuild them.
+    this._waterManager = new WaterManager(
+      this._map,
+      this.miniGameMap,
+      this._config.disableNavMesh(),
+    );
+    this._sharedWaterCache = new SharedWaterCache(this);
+
+    const playerCpById = new Map(cp.players.map((p) => [p.id, p]));
+    const players: PlayerImpl[] = [];
+    for (const raw of this._playersBySmallID) {
+      const player = raw as PlayerImpl;
+      const pcp = playerCpById.get(player.id());
+      if (pcp === undefined) {
+        throw new Error(`checkpoint is missing player ${player.id()}`);
+      }
+      player.restoreFromCheckpoint(pcp);
+      players.push(player);
+    }
+
+    // Units: rebuild spatially and re-link ownership.
+    this._unitMap = new Map();
+    this.unitGrid = new UnitGrid(this._map);
+    const unitCpById = new Map(cp.units.map((u) => [u.id, u]));
+    for (const player of players) {
+      const pcp = playerCpById.get(player.id())!;
+      for (const unitId of pcp.unitIds) {
+        const ucp = unitCpById.get(unitId);
+        if (ucp === undefined) {
+          throw new Error(`checkpoint is missing unit ${unitId}`);
+        }
+        const unit = new UnitImpl(
+          ucp.type,
+          this,
+          ucp.tile,
+          ucp.id,
+          player,
+          {},
+          false,
+        );
+        unit.restoreFromCheckpoint(ucp);
+        player._units.push(unit);
+        this.addUnit(unit);
+      }
+    }
+
+    // Attacks (shared between attacker and defender lists).
+    const attackById = new Map<string, AttackImpl>();
+    for (const acp of cp.attacks) {
+      const target =
+        acp.targetId !== null ? this.player(acp.targetId) : this.terraNullius();
+      const attacker = this.player(acp.attackerId);
+      const attack = new AttackImpl(
+        acp.id,
+        target,
+        attacker,
+        acp.troops,
+        acp.sourceTile,
+        new Set(acp.border),
+        this,
+      );
+      attack.restoreFromCheckpoint(acp);
+      attackById.set(acp.id, attack);
+    }
+    for (const player of players) {
+      const pcp = playerCpById.get(player.id())!;
+      for (const id of pcp.outgoingAttackIds) {
+        const attack = attackById.get(id);
+        if (attack !== undefined) player._outgoingAttacks.push(attack);
+      }
+      for (const id of pcp.incomingAttackIds) {
+        const attack = attackById.get(id);
+        if (attack !== undefined) player._incomingAttacks.push(attack);
+      }
+    }
+
+    // Alliances (shared between both participants).
+    const allianceById = new Map<number, AllianceImpl>();
+    for (const acp of cp.alliances) {
+      const alliance = new AllianceImpl(
+        this,
+        this.player(acp.requestorId),
+        this.player(acp.recipientId),
+        acp.createdAt,
+        acp.id,
+      );
+      alliance.restoreFromCheckpoint(acp);
+      allianceById.set(acp.id, alliance);
+    }
+    for (const player of players) {
+      const pcp = playerCpById.get(player.id())!;
+      for (const id of pcp.allianceIds) {
+        const alliance = allianceById.get(id);
+        if (alliance !== undefined) player._alliances.push(alliance);
+      }
+    }
+
+    this.allianceRequests = cp.allianceRequests.map(
+      (r) =>
+        new AllianceRequestImpl(
+          this.player(r.requestorId),
+          this.player(r.recipientId),
+          r.createdAt,
+          this,
+        ),
+    );
+
+    // Border tiles are derived from ownership; rebuild them.
+    for (const player of players) {
+      player._tiles.forEach((tile) => {
+        if (this.isBorder(tile)) player._borderTiles.add(tile);
+      });
+    }
+
+    // Executions: active ones re-enter the tick loop in order, pending ones go
+    // back to the pending queue.
+    this.execs = [];
+    this.unInitExecs = [];
+    cp.executions.forEach((ecp, i) => {
+      const exec = restoreExecution(this, ecp, cp.ticks, i < cp.execsCount);
+      if (exec === undefined) {
+        throw new Error(`cannot restore execution kind ${ecp.kind}`);
+      }
+      if (i < cp.execsCount) {
+        this.execs.push(exec);
+      } else {
+        this.unInitExecs.push(exec);
+      }
+    });
+
+    (this._stats as StatsImpl).restoreFromCheckpoint({
+      data: cp.stats,
+      numMirvLaunched: cp.numMirvsLaunched,
+    });
+
+    // Transient per-tick buffers and memoised derived data.
+    this.updates = createGameUpdatesMap();
+    this.tileUpdatePairs = [];
+    this.playerStatsQuads = [];
+    this.attackTroopsQuads = [];
+    this.motionPlanRecords = [];
+    this.planDrivenUnitIds = new Set();
+    this._nukeImpactQueue = [];
+    this.unitsByTypeMemo.clear();
+    this.unitCountMemo.clear();
+
+    // Set after addUnit() bumped them during the rebuild.
+    this._unitsVersion = cp.unitsVersion;
+    this._territoryVersion = cp.territoryVersion;
   }
 }
 

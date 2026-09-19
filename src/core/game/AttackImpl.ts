@@ -1,3 +1,4 @@
+import { AttackCheckpoint } from "../Checkpoint";
 import { Attack, Player, TerraNullius } from "./Game";
 import { GameImpl } from "./GameImpl";
 import { TileRef } from "./GameMap";
@@ -95,6 +96,38 @@ export class AttackImpl implements Attack {
       this._borderSize -= 1;
       this._border.delete(tile);
     }
+  }
+
+  /** B2: capture the attack's mutable state. */
+  checkpoint(): AttackCheckpoint {
+    return {
+      id: this._id,
+      attackerId: this._attacker.id(),
+      targetId: this._target.isPlayer() ? (this._target as Player).id() : null,
+      troops: this._troops,
+      sourceTile: this._sourceTile,
+      border: Array.from(this._border),
+      active: this._isActive,
+      retreating: this._retreating,
+      retreated: this._retreated,
+    };
+  }
+
+  /** B2: overwrite this attack from a checkpoint. */
+  restoreFromCheckpoint(cp: AttackCheckpoint): void {
+    this._id = cp.id;
+    this._target =
+      cp.targetId !== null
+        ? this._mg.player(cp.targetId)
+        : this._mg.terraNullius();
+    this._attacker = this._mg.player(cp.attackerId);
+    this._troops = cp.troops;
+    this._sourceTile = cp.sourceTile;
+    this._border = new Set(cp.border);
+    this._borderSize = this._border.size;
+    this._isActive = cp.active;
+    this._retreating = cp.retreating;
+    this._retreated = cp.retreated;
   }
 
   // Returns the top 2 clustered positions of the attack's border.

@@ -1,3 +1,14 @@
+/**
+ * Serializable snapshot of a PseudoRandom's 32-bit sfc32 state. Checkpoints
+ * capture this so a restored simulation continues the exact same stream.
+ */
+export interface PseudoRandomState {
+  s0: number;
+  s1: number;
+  s2: number;
+  s3: number;
+}
+
 export class PseudoRandom {
   // sfc32 state. All operations are 32-bit integer ops, so sequences are
   // identical across platforms.
@@ -29,6 +40,21 @@ export class PseudoRandom {
     for (let i = 0; i < 12; i++) {
       this.next();
     }
+  }
+
+  // Captures the raw sfc32 state. Pair with setState() on a fresh instance to
+  // resume the stream exactly where it left off.
+  state(): PseudoRandomState {
+    return { s0: this.s0, s1: this.s1, s2: this.s2, s3: this.s3 };
+  }
+
+  // Restores a state captured by state(). Overwrites the warmed-up state, so
+  // the next call to next() yields the same value the captured instance would.
+  setState(state: PseudoRandomState): void {
+    this.s0 = state.s0 | 0;
+    this.s1 = state.s1 | 0;
+    this.s2 = state.s2 | 0;
+    this.s3 = state.s3 | 0;
   }
 
   // Generates the next pseudorandom number between 0 and 1.

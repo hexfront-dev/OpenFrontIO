@@ -161,6 +161,44 @@ export class GameMapImpl implements GameMap {
     return this._numTilesWithFallout;
   }
 
+  exportMapState(): {
+    terrain: Uint8Array;
+    state: Uint16Array;
+    numLandTiles: number;
+    numTilesWithFallout: number;
+    waterVersion: number;
+  } {
+    return {
+      terrain: this.terrain.slice(),
+      state: this.state.slice(),
+      numLandTiles: this.numLandTiles_,
+      numTilesWithFallout: this._numTilesWithFallout,
+      waterVersion: this.waterVersion_,
+    };
+  }
+
+  importMapState(state: {
+    terrain: Uint8Array;
+    state: Uint16Array;
+    numLandTiles: number;
+    numTilesWithFallout: number;
+    waterVersion: number;
+  }): void {
+    if (
+      state.terrain.length !== this.terrain.length ||
+      state.state.length !== this.state.length
+    ) {
+      throw new Error(
+        `map state buffer size mismatch: terrain ${state.terrain.length}/${this.terrain.length}, state ${state.state.length}/${this.state.length}`,
+      );
+    }
+    this.terrain.set(state.terrain);
+    this.state.set(state.state);
+    this.numLandTiles_ = state.numLandTiles;
+    this._numTilesWithFallout = state.numTilesWithFallout;
+    this.waterVersion_ = state.waterVersion;
+  }
+
   ref(x: number, y: number): TileRef {
     if (!this.isValidCoord(x, y)) {
       throw new Error(`Invalid coordinates: ${x},${y}`);

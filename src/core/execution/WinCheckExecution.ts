@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { GameEvent } from "../EventBus";
 import {
   ColoredTeams,
@@ -26,6 +27,24 @@ export class WinCheckExecution implements Execution {
   private static readonly HARD_TIME_LIMIT_SECONDS = 170 * 60;
 
   constructor() {}
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "wincheck",
+      data: {
+        active: this.active,
+        checkedRankedSpawns: this.checkedRankedSpawns,
+      },
+    };
+  }
+
+  restoreCheckpoint(data: {
+    active: boolean;
+    checkedRankedSpawns: boolean;
+  }): void {
+    this.active = data.active;
+    this.checkedRankedSpawns = data.checkedRankedSpawns;
+  }
 
   init(mg: Game, ticks: number) {
     this.mg = mg;

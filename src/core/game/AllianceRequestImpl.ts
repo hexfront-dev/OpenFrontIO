@@ -1,3 +1,4 @@
+import { AllianceRequestCheckpoint } from "../Checkpoint";
 import { AllianceRequest, Player, Tick } from "./Game";
 import { GameImpl } from "./GameImpl";
 import { AllianceRequestUpdate, GameUpdateType } from "./GameUpdates";
@@ -35,6 +36,15 @@ export class AllianceRequestImpl implements AllianceRequest {
   reject(): void {
     this.status_ = "rejected";
     this.game.rejectAllianceRequest(this);
+  }
+
+  /** B2: capture the pending request. Only pending requests are checkpointed. */
+  checkpoint(): AllianceRequestCheckpoint {
+    return {
+      requestorId: this.requestor_.id(),
+      recipientId: this.recipient_.id(),
+      createdAt: this.tickCreated,
+    };
   }
 
   toUpdate(): AllianceRequestUpdate {

@@ -144,6 +144,28 @@ describe("PseudoRandom", () => {
     expect(hits).toBeLessThan(10);
   });
 
+  test("state captures and setState resumes the exact stream", () => {
+    const source = new PseudoRandom(2024);
+    for (let i = 0; i < 37; i++) source.next();
+    const captured = source.state();
+
+    const resumed = new PseudoRandom(999); // seed is irrelevant after setState
+    resumed.setState(captured);
+
+    for (let i = 0; i < 500; i++) {
+      expect(resumed.next()).toBe(source.next());
+    }
+  });
+
+  test("setState round-trips an arbitrary state", () => {
+    const r = new PseudoRandom(5);
+    const before = r.state();
+    const expected = r.next();
+    const restored = new PseudoRandom(0);
+    restored.setState(before);
+    expect(restored.next()).toBe(expected);
+  });
+
   test("shuffleArray returns a permutation and leaves the input unchanged", () => {
     const r = new PseudoRandom(55);
     const input = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];

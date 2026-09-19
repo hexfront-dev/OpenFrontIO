@@ -1,3 +1,4 @@
+import { PlayerCheckpoint } from "../Checkpoint";
 import { PseudoRandom } from "../PseudoRandom";
 import { ClientID } from "../Schemas";
 import {
@@ -1990,5 +1991,148 @@ export class PlayerImpl implements Player {
 
   bestTransportShipSpawn(targetTile: TileRef): TileRef | false {
     return bestShoreDeploymentSource(this.mg, this, targetTile) ?? false;
+  }
+
+  /** B2: capture every authoritative field of this player. */
+  checkpoint(): PlayerCheckpoint {
+    return {
+      id: this.playerInfo.id,
+      smallID: this._smallID,
+      gold: this._gold,
+      troops: this._troops,
+      tradeGold: this._tradeGold,
+      trainGold: this._trainGold,
+      piracyGold: this._piracyGold,
+      goldEarned: this._goldEarned,
+      numUnitsConstructed: Object.entries(this.numUnitsConstructed) as [
+        UnitType,
+        number,
+      ][],
+      tiles: Array.from(this._tiles.values()),
+      avoidedTiles: Array.from(this._avoidedTiles),
+      unitIds: this._units.map((u) => u.id()),
+      allianceIds: this._alliances.map((a) => a.id()),
+      outgoingAttackIds: this._outgoingAttacks.map((a) => a.id()),
+      incomingAttackIds: this._incomingAttacks.map((a) => a.id()),
+      spawnTile: this._spawnTile ?? null,
+      isDisconnected: this._isDisconnected,
+      markedTraitorTick: this.markedTraitorTick,
+      markedDoomsdayClockTick: this.markedDoomsdayClockTick,
+      rottedAtTick: this.rottedAtTick,
+      betrayalCount: this._betrayalCount,
+      universalTollRate: this.universalTollRateValue,
+      lastDeleteUnitTick: this.lastDeleteUnitTick,
+      lastEmbargoAllTick: this.lastEmbargoAllTick,
+      lastTileChange: this._lastTileChange,
+      relations: Array.from(this.relations.entries()).map(([p, v]) => [
+        p.smallID(),
+        v,
+      ]),
+      tollRates: Array.from(this.tollRates.entries()),
+      embargoes: Array.from(this.embargoes.entries()).map(([id, e]) => ({
+        targetId: id,
+        createdAt: e.createdAt,
+        isTemporary: e.isTemporary,
+      })),
+      targets: this.targets_.map((t) => ({
+        tick: t.tick,
+        targetId: t.target.id(),
+      })),
+      outgoingEmojis: this.outgoingEmojis_.map((e) => ({ ...e })),
+      outgoingQuickChats: Array.from(this.outgoingQuickChats_.entries()),
+      sentDonations: this.sentDonations.map((d) => ({
+        recipientId: d.recipient.id(),
+        tick: d.tick,
+      })),
+      pseudoRandom: this._pseudo_random.state(),
+    };
+  }
+
+  /**
+   * B2: overwrite this player's state from a checkpoint. Units and attacks are
+   * rebuilt separately by GameImpl, which owns the cross-player object graph.
+   */
+  restoreFromCheckpoint(cp: PlayerCheckpoint): void {
+    this._gold = cp.gold;
+    this._troops = cp.troops;
+    this._tradeGold = cp.tradeGold;
+    this._trainGold = cp.trainGold;
+    this._piracyGold = cp.piracyGold;
+    this._goldEarned = cp.goldEarned;
+
+    this.numUnitsConstructed = {};
+    for (const [type, count] of cp.numUnitsConstructed) {
+      this.numUnitsConstructed[type] = count;
+    }
+
+    this._tiles = new TileSet(cp.tiles);
+    this._borderTiles = new TileSet();
+    this._avoidedTiles = new Set(cp.avoidedTiles);
+    this._units = [];
+    // Units, attacks and alliances are re-linked by GameImpl, which owns the
+    // cross-player object graph.
+    this._outgoingAttacks = [];
+    this._incomingAttacks = [];
+    this._alliances = [];
+    this._spawnTile = cp.spawnTile ?? undefined;
+    this._isDisconnected = cp.isDisconnected;
+    this.markedTraitorTick = cp.markedTraitorTick;
+    this.markedDoomsdayClockTick = cp.markedDoomsdayClockTick;
+    this.rottedAtTick = cp.rottedAtTick;
+    this._betrayalCount = cp.betrayalCount;
+    this.universalTollRateValue = cp.universalTollRate;
+    this.lastDeleteUnitTick = cp.lastDeleteUnitTick;
+    this.lastEmbargoAllTick = cp.lastEmbargoAllTick;
+    this._lastTileChange = cp.lastTileChange;
+
+    this.relations = new Map();
+    for (const [smallId, value] of cp.relations) {
+      const other = this.mg.playerBySmallID(smallId);
+      if (other.isPlayer()) {
+        this.relations.set(other, value);
+      }
+    }
+
+    this.tollRates = new Map(cp.tollRates);
+
+    this.embargoes = new Map();
+    for (const e of cp.embargoes) {
+      if (this.mg.hasPlayer(e.targetId)) {
+        this.embargoes.set(e.targetId, {
+          createdAt: e.createdAt,
+          isTemporary: e.isTemporary,
+          target: this.mg.player(e.targetId),
+        });
+      }
+    }
+
+    this.targets_ = cp.targets.map((t) => ({
+      tick: t.tick,
+      target: this.mg.player(t.targetId),
+    }));
+
+    this.outgoingEmojis_ = cp.outgoingEmojis.map((e) => ({ ...e }));
+    this.outgoingQuickChats_ = new Map(cp.outgoingQuickChats);
+    this.sentDonations = cp.sentDonations.map((d) => ({
+      recipient: this.mg.player(d.recipientId),
+      tick: d.tick,
+    }));
+
+    this._pseudo_random = new PseudoRandom(0);
+    this._pseudo_random.setState(cp.pseudoRandom);
+
+    // Derived/cache state: drop so it is rebuilt lazily from the restored
+    // authoritative fields.
+    this._borderTiles.clear();
+    this.myUnitsMemo.clear();
+    this.myUnitCountMemo.clear();
+    this.myUnitsOwnedMemo.clear();
+    this.nearbyMemo = null;
+    this.lastSentUpdate = undefined;
+    this.largestClusterBoundingBox = null;
+    this._tileChangeVersion = 0;
+    this._myUnitsVersion = 0;
+    this.pastOutgoingAllianceRequests = [];
+    this._expiredAlliances = [];
   }
 }

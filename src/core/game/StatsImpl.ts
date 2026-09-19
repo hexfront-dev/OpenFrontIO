@@ -59,6 +59,26 @@ export class StatsImpl implements Stats {
     return this._numMirvLaunched;
   }
 
+  /** B2: deep-copy all accumulated stats so a checkpoint is not aliased. */
+  checkpoint(): { data: AllPlayersStats; numMirvLaunched: bigint } {
+    return {
+      data: structuredClone(this.data),
+      numMirvLaunched: this._numMirvLaunched,
+    };
+  }
+
+  /** B2: overwrite the running stats with a checkpoint's copy. */
+  restoreFromCheckpoint(cp: {
+    data: AllPlayersStats;
+    numMirvLaunched: bigint;
+  }): void {
+    for (const key of Object.keys(this.data)) {
+      delete this.data[key];
+    }
+    Object.assign(this.data, cp.data);
+    this._numMirvLaunched = cp.numMirvLaunched;
+  }
+
   getPlayerStats(player: Player): PlayerStats {
     const clientID = player.clientID();
     if (clientID === null) return undefined;

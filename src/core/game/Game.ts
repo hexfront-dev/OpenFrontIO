@@ -1,3 +1,4 @@
+import type { ExecutionCheckpoint } from "../Checkpoint";
 import { Config } from "../configuration/Config";
 import { AbstractGraph } from "../pathfinding/algorithms/AbstractGraph";
 import { PathFinder } from "../pathfinding/types";
@@ -407,6 +408,12 @@ export interface Execution {
   activeDuringSpawnPhase(): boolean;
   init(mg: Game, ticks: number): void;
   tick(ticks: number): void;
+  /**
+   * B2: serialize this execution's mutable state so a checkpoint can resume it.
+   * Return undefined when the state cannot be captured; the game then refuses
+   * to checkpoint and the caller falls back to replaying from turn 0.
+   */
+  checkpoint?(): ExecutionCheckpoint;
 }
 
 export interface Attack {

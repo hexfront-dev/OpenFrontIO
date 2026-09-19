@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Config } from "../configuration/Config";
 import {
   Cell,
@@ -32,6 +33,26 @@ export class PlayerExecution implements Execution {
 
   activeDuringSpawnPhase(): boolean {
     return false;
+  }
+
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "player",
+      data: {
+        playerId: this.player.id(),
+        lastCalc: this.lastCalc,
+        active: this.active,
+      },
+    };
+  }
+
+  restoreCheckpoint(data: {
+    playerId: string;
+    lastCalc: number;
+    active: boolean;
+  }): void {
+    this.lastCalc = data.lastCalc;
+    this.active = data.active;
   }
 
   init(mg: Game, ticks: number) {

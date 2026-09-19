@@ -1,3 +1,4 @@
+import { AllianceCheckpoint } from "../Checkpoint";
 import { Game, MutableAlliance, Player, Tick } from "./Game";
 import { GameUpdateType } from "./GameUpdates";
 
@@ -87,5 +88,25 @@ export class AllianceImpl implements MutableAlliance {
 
   expiresAt(): Tick {
     return this.expiresAt_;
+  }
+
+  /** B2: capture extension flags and deadline. */
+  checkpoint(): AllianceCheckpoint {
+    return {
+      id: this.id_,
+      requestorId: this.requestor_.id(),
+      recipientId: this.recipient_.id(),
+      createdAt: this.createdAt_,
+      expiresAt: this.expiresAt_,
+      extensionRequestedRequestor: this.extensionRequestedRequestor_,
+      extensionRequestedRecipient: this.extensionRequestedRecipient_,
+    };
+  }
+
+  /** B2: overwrite this alliance from a checkpoint. */
+  restoreFromCheckpoint(cp: AllianceCheckpoint): void {
+    this.expiresAt_ = cp.expiresAt;
+    this.extensionRequestedRequestor_ = cp.extensionRequestedRequestor;
+    this.extensionRequestedRecipient_ = cp.extensionRequestedRecipient;
   }
 }
