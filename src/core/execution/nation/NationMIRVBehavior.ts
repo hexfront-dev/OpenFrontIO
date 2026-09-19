@@ -23,6 +23,10 @@ import {
 // 30 seconds at 10 ticks/second
 const MIRV_COOLDOWN_TICKS = 300;
 
+export interface NationMIRVBehaviorCheckpoint {
+  recentMirvTargets: [PlayerID, Tick][];
+}
+
 export class NationMIRVBehavior {
   // Shared across all NationMIRVBehavior instances.
   // Tracks the last tick a MIRV was sent at each player, so multiple nations don't pile-on the same target.
@@ -35,6 +39,23 @@ export class NationMIRVBehavior {
     private player: Player,
     private emojiBehavior: NationEmojiBehavior,
   ) {}
+
+  /**
+   * B2: capture the cross-nation MIRV cooldown table. It is static (shared by
+   * every instance in the worker), so the worker hosts exactly one game and the
+   * captured map can be installed wholesale on restore.
+   */
+  checkpoint(): NationMIRVBehaviorCheckpoint {
+    return { recentMirvTargets: [...NationMIRVBehavior.recentMirvTargets] };
+  }
+
+  /** B2: overwrite the shared MIRV cooldown table from a checkpoint. */
+  restoreCheckpoint(data: NationMIRVBehaviorCheckpoint): void {
+    NationMIRVBehavior.recentMirvTargets.clear();
+    for (const [id, tick] of data.recentMirvTargets) {
+      NationMIRVBehavior.recentMirvTargets.set(id, tick);
+    }
+  }
 
   private get hesitationOdds(): number {
     const { difficulty } = this.game.config().gameConfig();

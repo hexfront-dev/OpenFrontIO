@@ -1,4 +1,5 @@
 import { getCdnBase } from "../AssetUrls";
+import { GameCheckpoint } from "../Checkpoint";
 import {
   BuildableUnit,
   Cell,
@@ -32,10 +33,12 @@ export class WorkerClient {
   private gameUpdateCallback?: (
     update: GameUpdateViewData | ErrorUpdate,
   ) => void;
+  private checkpointCallback?: (checkpoint: GameCheckpoint) => void;
 
   constructor(
     private gameStartInfo: GameStartInfo,
     private clientID: ClientID | undefined,
+    private checkpoint?: GameCheckpoint,
   ) {
     this.messageHandlers = new Map();
   }
@@ -55,6 +58,9 @@ export class WorkerClient {
             this.gameUpdateCallback(gu);
           }
         }
+        break;
+      case "checkpoint":
+        this.checkpointCallback?.(message.checkpoint);
         break;
       case "game_error":
         if (this.gameUpdateCallback && message.error) {
@@ -94,6 +100,7 @@ export class WorkerClient {
         gameStartInfo: this.gameStartInfo,
         clientID: this.clientID,
         cdnBase: getCdnBase(),
+        checkpoint: this.checkpoint,
       });
 
       setTimeout(() => {
@@ -110,6 +117,11 @@ export class WorkerClient {
       throw new Error("Failed to initialize pathfinder");
     }
     this.gameUpdateCallback = gameUpdate;
+  }
+
+  /** B2: receive periodic core checkpoints for the autosave head. */
+  setCheckpointCallback(callback: (checkpoint: GameCheckpoint) => void) {
+    this.checkpointCallback = callback;
   }
 
   sendTurn(turn: Turn) {

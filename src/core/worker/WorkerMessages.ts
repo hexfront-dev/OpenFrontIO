@@ -1,3 +1,4 @@
+import { GameCheckpoint } from "../Checkpoint";
 import {
   BuildableUnit,
   PlayerActions,
@@ -15,6 +16,7 @@ export type WorkerMessageType =
   | "initialized"
   | "turn"
   | "turns"
+  | "checkpoint"
   | "game_update"
   | "game_update_batch"
   | "game_error"
@@ -43,6 +45,8 @@ export interface InitMessage extends BaseWorkerMessage {
   gameStartInfo: GameStartInfo;
   clientID: ClientID | undefined;
   cdnBase: string;
+  /** B2: restore this checkpoint before executing any turns (resume path). */
+  checkpoint?: GameCheckpoint;
 }
 
 export interface TurnMessage extends BaseWorkerMessage {
@@ -71,6 +75,12 @@ export interface GameUpdateMessage extends BaseWorkerMessage {
 export interface GameUpdateBatchMessage extends BaseWorkerMessage {
   type: "game_update_batch";
   gameUpdates: GameUpdateViewData[];
+}
+
+/** B2: a periodic core checkpoint the main thread caches for autosaves. */
+export interface CheckpointMessage extends BaseWorkerMessage {
+  type: "checkpoint";
+  checkpoint: GameCheckpoint;
 }
 
 export interface GameErrorMessage extends BaseWorkerMessage {
@@ -163,6 +173,7 @@ export type WorkerMessage =
   | InitializedMessage
   | GameUpdateMessage
   | GameUpdateBatchMessage
+  | CheckpointMessage
   | GameErrorMessage
   | PlayerActionsResultMessage
   | PlayerBuildablesResultMessage

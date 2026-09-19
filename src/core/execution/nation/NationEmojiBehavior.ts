@@ -4,6 +4,7 @@ import {
   Game,
   GameMode,
   Player,
+  PlayerID,
   PlayerType,
   Relation,
   Tick,
@@ -44,6 +45,11 @@ export const EMOJI_DONATION_OK = (["👍"] as const).map(emojiId);
 export const EMOJI_DONATION_TOO_SMALL = (["❓", "🥱"] as const).map(emojiId);
 export const EMOJI_GREET = (["👋"] as const).map(emojiId);
 
+export interface NationEmojiBehaviorCheckpoint {
+  lastEmojiSent: [PlayerID, Tick][];
+  gameOver: boolean;
+}
+
 export class NationEmojiBehavior {
   private readonly lastEmojiSent = new Map<Player, Tick>();
   private gameOver = false;
@@ -53,6 +59,28 @@ export class NationEmojiBehavior {
     private game: Game,
     private player: Player,
   ) {}
+
+  /** B2: capture the emoji throttle and the game-over latch. */
+  checkpoint(): NationEmojiBehaviorCheckpoint {
+    return {
+      lastEmojiSent: [...this.lastEmojiSent].map(([other, tick]) => [
+        other.id(),
+        tick,
+      ]),
+      gameOver: this.gameOver,
+    };
+  }
+
+  /** B2: overwrite the emoji throttle and game-over latch from a checkpoint. */
+  restoreCheckpoint(data: NationEmojiBehaviorCheckpoint): void {
+    this.lastEmojiSent.clear();
+    for (const [id, tick] of data.lastEmojiSent) {
+      if (this.game.hasPlayer(id)) {
+        this.lastEmojiSent.set(this.game.player(id), tick);
+      }
+    }
+    this.gameOver = data.gameOver;
+  }
 
   maybeSendCasualEmoji() {
     if (this.gameOver) return;

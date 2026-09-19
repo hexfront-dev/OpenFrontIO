@@ -36,6 +36,10 @@ import { closestTwoTiles } from "../Util";
 // Reusable neighbor buffer for hot loops; the simulation is single-threaded.
 const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
 
+export interface AiAttackBehaviorCheckpoint {
+  botAttackTroopsSent: number;
+}
+
 export class AiAttackBehavior {
   private botAttackTroopsSent: number = 0;
 
@@ -49,6 +53,16 @@ export class AiAttackBehavior {
     private allianceBehavior?: NationAllianceBehavior,
     private emojiBehavior?: NationEmojiBehavior,
   ) {}
+
+  /** B2: capture the mutable attack-budget state. */
+  checkpoint(): AiAttackBehaviorCheckpoint {
+    return { botAttackTroopsSent: this.botAttackTroopsSent };
+  }
+
+  /** B2: overwrite the mutable attack-budget state from a checkpoint. */
+  restoreCheckpoint(data: AiAttackBehaviorCheckpoint): void {
+    this.botAttackTroopsSent = data.botAttackTroopsSent;
+  }
 
   maybeAttack() {
     if (this.player === null || this.allianceBehavior === undefined) {

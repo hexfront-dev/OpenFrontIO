@@ -1,7 +1,12 @@
+import { NationExecution } from "../../src/core/execution/NationExecution";
 import { SpawnExecution } from "../../src/core/execution/SpawnExecution";
+import { TribeExecution } from "../../src/core/execution/TribeExecution";
 import { WinCheckExecution } from "../../src/core/execution/WinCheckExecution";
 import {
+  Cell,
+  Difficulty,
   Game,
+  Nation,
   PlayerInfo,
   PlayerType,
   UnitType,
@@ -66,6 +71,63 @@ function drainHashes(game: Game, ticks: number): number[] {
     }
   }
   return hashes;
+}
+
+/**
+ * A nation on the western landmass of half_land_half_ocean, with the manifest
+ * nation entry passed to `createGame` so restoreExecution can find it.
+ */
+async function buildNationGame(
+  nation: Nation,
+): Promise<{ game: GameImpl; ownerId: string }> {
+  const game = (await setup(
+    "half_land_half_ocean",
+    {
+      infiniteGold: true,
+      instantBuild: true,
+      infiniteTroops: true,
+      difficulty: Difficulty.Hard,
+    },
+    [],
+    undefined,
+    undefined,
+    true,
+    [nation],
+  )) as GameImpl;
+
+  const owner = game.player(nation.playerInfo.id);
+  for (let x = 0; x < 7; x++) {
+    for (let y = 0; y < 8; y++) {
+      const tile = game.ref(x, y);
+      if (game.isLand(tile) && !game.hasOwner(tile)) {
+        owner.conquer(tile);
+      }
+    }
+  }
+  return { game, ownerId: owner.id() };
+}
+
+/** A lone bot tribe on the western landmass. */
+async function buildTribeGame(): Promise<{ game: GameImpl; botId: string }> {
+  const game = (await setup("half_land_half_ocean", {
+    infiniteGold: true,
+    instantBuild: true,
+    infiniteTroops: true,
+    difficulty: Difficulty.Hard,
+  })) as GameImpl;
+
+  const bot = game.addPlayer(
+    new PlayerInfo("bot", PlayerType.Bot, null, "bot_id"),
+  );
+  for (let x = 0; x < 7; x++) {
+    for (let y = 0; y < 8; y++) {
+      const tile = game.ref(x, y);
+      if (game.isLand(tile) && !game.hasOwner(tile)) {
+        bot.conquer(tile);
+      }
+    }
+  }
+  return { game, botId: bot.id() };
 }
 
 describe("B2 core checkpoints", () => {
@@ -144,5 +206,50 @@ describe("B2 core checkpoints", () => {
     });
 
     expect(game.checkpoint()).toBeUndefined();
+  });
+
+  test("restores a nation AI and the attack it is driving", async () => {
+    const nation = new Nation(
+      new Cell(3, 4),
+      new PlayerInfo("nation", PlayerType.Nation, null, "nation_id"),
+    );
+
+    const { game: original } = await buildNationGame(nation);
+    original.addExecution(new NationExecution(gameID, nation));
+    // First tick initializes the behaviors and sends a terra-nullius attack;
+    // the second initializes that AttackExecution.
+    executeTicks(original, 2);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 30);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildNationGame(nation);
+    restored.restoreFromCheckpoint(checkpoint!);
+
+    const actualHashes = drainHashes(restored, 30);
+    expect(actualHashes).toEqual(expectedHashes);
+  });
+
+  test("restores a tribe AI and the attacks it is driving", async () => {
+    const { game: original } = await buildTribeGame();
+    original.addExecution(new TribeExecution(original.player("bot_id")));
+    // TribeExecution only initializes its attack behavior on an attack-rate
+    // tick, so run long enough for it to start expanding.
+    executeTicks(original, 150);
+
+    const checkpoint = original.checkpoint();
+    expect(checkpoint).toBeDefined();
+
+    const expectedHashes = drainHashes(original, 40);
+    expect(expectedHashes.length).toBeGreaterThan(0);
+
+    const { game: restored } = await buildTribeGame();
+    restored.restoreFromCheckpoint(checkpoint!);
+
+    const actualHashes = drainHashes(restored, 40);
+    expect(actualHashes).toEqual(expectedHashes);
   });
 });

@@ -8,6 +8,7 @@ import {
   GameMapType,
   GameMode,
   GameType,
+  Nation,
   PlayerInfo,
   PlayerType,
 } from "../../src/core/game/Game";
@@ -29,6 +30,7 @@ export async function setup(
   currentDir: string = __dirname,
   ConfigClass: typeof TestConfig = TestConfig,
   autoEndSpawnPhase: boolean = true,
+  nations: Nation[] = [],
 ): Promise<Game> {
   // Suppress console.debug for tests.
   console.debug = () => {};
@@ -74,7 +76,7 @@ export async function setup(
   };
   const config = new ConfigClass(gameConfig, new UserSettings(), false);
 
-  const game = createGame(humans, [], gameMap, miniGameMap, config);
+  const game = createGame(humans, nations, gameMap, miniGameMap, config);
   if (autoEndSpawnPhase) game.endSpawnPhase();
   return game;
 }

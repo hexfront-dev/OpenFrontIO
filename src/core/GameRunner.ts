@@ -1,4 +1,5 @@
 import { placeName, placeSpawnName } from "../client/hud/NameBoxCalculator";
+import { GameCheckpoint } from "./Checkpoint";
 import { Config } from "./configuration/Config";
 import { DoomsdayClockExecution } from "./execution/DoomsdayClockExecution";
 import { Executor } from "./execution/ExecutionManager";
@@ -138,6 +139,25 @@ export class GameRunner {
     for (let i = 0; i < turns.length; i++) {
       this.turns.push(turns[i]);
     }
+  }
+
+  /**
+   * B2: capture a checkpoint of the current simulation state, or undefined when
+   * a live execution cannot be serialized.
+   */
+  public checkpoint(): GameCheckpoint | undefined {
+    return this.game.checkpoint?.();
+  }
+
+  /**
+   * B2: restore the simulation from a checkpoint. Call immediately after
+   * construction and before adding any turns; this replaces the fresh
+   * executions that `init()` queued.
+   */
+  public restoreFromCheckpoint(checkpoint: GameCheckpoint): void {
+    this.game.restoreFromCheckpoint?.(checkpoint);
+    this.currTurn = 0;
+    this.turns = [];
   }
 
   public executeNextTick(pendingTurns?: number): boolean {

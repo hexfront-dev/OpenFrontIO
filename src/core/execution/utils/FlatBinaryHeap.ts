@@ -80,4 +80,30 @@ export class FlatBinaryHeap {
 
     this.tiles.length = newCap;
   }
+
+  /**
+   * B2: raw snapshot of the live heap slots. The array layout is preserved
+   * (rather than re-enqueueing) so equal-priority tie-breaking and hence
+   * dequeue order are identical after a restore.
+   */
+  snapshot(): { priorities: number[]; tiles: TileRef[] } {
+    return {
+      priorities: Array.from(this.pri.subarray(0, this.len)),
+      tiles: this.tiles.slice(0, this.len),
+    };
+  }
+
+  /** B2: overwrite the heap from a snapshot() taken by the same build. */
+  restore(snapshot: { priorities: number[]; tiles: TileRef[] }): void {
+    const len = snapshot.tiles.length;
+    if (this.pri.length < len) {
+      this.pri = new Float32Array(len);
+      this.tiles.length = len;
+    }
+    for (let i = 0; i < len; i++) {
+      this.pri[i] = snapshot.priorities[i];
+      this.tiles[i] = snapshot.tiles[i];
+    }
+    this.len = len;
+  }
 }

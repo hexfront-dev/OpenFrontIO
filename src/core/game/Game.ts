@@ -1,4 +1,4 @@
-import type { ExecutionCheckpoint } from "../Checkpoint";
+import type { ExecutionCheckpoint, GameCheckpoint } from "../Checkpoint";
 import { Config } from "../configuration/Config";
 import { AbstractGraph } from "../pathfinding/algorithms/AbstractGraph";
 import { PathFinder } from "../pathfinding/types";
@@ -1012,6 +1012,19 @@ export interface Game extends GameMap {
 
   /** Drain all tiles from nuke impacts this tick. Called once per tick. */
   drainNukeImpacts(): TileRef[];
+
+  /**
+   * B2: capture the full deterministic simulation state as a checkpoint, or
+   * undefined when some live execution cannot be serialized (the caller then
+   * falls back to replaying from turn 0). See core/Checkpoint.ts.
+   */
+  checkpoint?(): GameCheckpoint | undefined;
+
+  /**
+   * B2: overwrite this game's state from a checkpoint. Must run on a game built
+   * from the same GameStartInfo and before any further turns are executed.
+   */
+  restoreFromCheckpoint?(cp: GameCheckpoint): void;
 }
 
 export interface PlayerActions {

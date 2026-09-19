@@ -1,5 +1,6 @@
 import { html, nothing, TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import type { GameCheckpoint } from "../core/Checkpoint";
 import type { ClientID, SavedGame, SavedGameMeta } from "../core/Schemas";
 import {
   deleteSavedLobby,
@@ -152,6 +153,7 @@ export class SavesModal extends BaseModal {
             startInfo: save.startInfo,
             turns: save.turns,
             myClientID: clientID,
+            checkpoint: save.checkpoint as GameCheckpoint | undefined,
           },
           source: "private",
         } satisfies JoinLobbyEvent,

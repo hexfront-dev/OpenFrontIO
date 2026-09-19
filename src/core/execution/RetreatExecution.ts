@@ -1,6 +1,15 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, Player } from "../game/Game";
 
 const cancelDelay = 20;
+
+export interface RetreatExecutionCheckpoint {
+  playerId: string;
+  attackID: string;
+  active: boolean;
+  retreatOrdered: boolean;
+  startTick: number;
+}
 
 export class RetreatExecution implements Execution {
   private active = true;
@@ -11,6 +20,28 @@ export class RetreatExecution implements Execution {
     private player: Player,
     private attackID: string,
   ) {}
+
+  /** B2: capture the retreat countdown. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "retreat",
+      data: {
+        playerId: this.player.id(),
+        attackID: this.attackID,
+        active: this.active,
+        retreatOrdered: this.retreatOrdered,
+        startTick: this.startTick,
+      } satisfies RetreatExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite the retreat countdown from a checkpoint (never re-init). */
+  restoreCheckpoint(game: Game, data: RetreatExecutionCheckpoint): void {
+    this.mg = game;
+    this.active = data.active;
+    this.retreatOrdered = data.retreatOrdered;
+    this.startTick = data.startTick;
+  }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;

@@ -1293,6 +1293,10 @@ export const SavedGameSchema = z.object({
   gitCommit: z.string(),
   myClientID: ID.optional(),
   startInfo: GameStartInfoSchema,
+  // B2: an opaque core checkpoint (see core/Checkpoint.ts) taken at some turn
+  // boundary, letting a resume restore state and replay only the suffix. It is
+  // structured-cloned with the IndexedDB head; zod stays out of its internals.
+  checkpoint: z.unknown().optional(),
   turns: TurnSchema.array(),
 });
 export type SavedGame = z.infer<typeof SavedGameSchema>;

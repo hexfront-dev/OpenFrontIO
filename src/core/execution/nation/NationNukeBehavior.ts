@@ -34,6 +34,19 @@ const HIGH_DENSITY_NUKE_THRESHOLD = 1 / 75;
 /** Minimum sum of structure levels a player needs to qualify as a high-density nuke target. */
 const MIN_LEVEL_SUM_FOR_HIGH_DENSITY_NUKE = 5;
 
+export interface NationNukeBehaviorCheckpoint {
+  recentlySentNukes: [
+    Tick,
+    TileRef,
+    UnitType.AtomBomb | UnitType.HydrogenBomb,
+  ][];
+  atomBombsLaunched: number;
+  atomBombPerceivedCost: Gold;
+  hydrogenBombsLaunched: number;
+  hydrogenBombPerceivedCost: Gold;
+  isHydroNation: boolean;
+}
+
 export class NationNukeBehavior {
   private readonly recentlySentNukes: [
     Tick,
@@ -45,7 +58,7 @@ export class NationNukeBehavior {
   private hydrogenBombsLaunched = 0;
   private hydrogenBombPerceivedCost = this.cost(UnitType.HydrogenBomb);
   // Make 1/3 of nations "hydro-nations" that only throw hydrogen bombs (to reduce atom bomb spam)
-  private readonly isHydroNation: boolean = this.random.chance(3);
+  private isHydroNation: boolean = this.random.chance(3);
 
   constructor(
     private random: PseudoRandom,
@@ -54,6 +67,31 @@ export class NationNukeBehavior {
     private attackBehavior: AiAttackBehavior,
     private emojiBehavior: NationEmojiBehavior,
   ) {}
+
+  /** B2: capture the nuke spam-control state. */
+  checkpoint(): NationNukeBehaviorCheckpoint {
+    return {
+      recentlySentNukes: this.recentlySentNukes.map((entry) => [...entry]),
+      atomBombsLaunched: this.atomBombsLaunched,
+      atomBombPerceivedCost: this.atomBombPerceivedCost,
+      hydrogenBombsLaunched: this.hydrogenBombsLaunched,
+      hydrogenBombPerceivedCost: this.hydrogenBombPerceivedCost,
+      isHydroNation: this.isHydroNation,
+    };
+  }
+
+  /** B2: overwrite the nuke spam-control state from a checkpoint. */
+  restoreCheckpoint(data: NationNukeBehaviorCheckpoint): void {
+    this.recentlySentNukes.length = 0;
+    for (const entry of data.recentlySentNukes) {
+      this.recentlySentNukes.push([...entry]);
+    }
+    this.atomBombsLaunched = data.atomBombsLaunched;
+    this.atomBombPerceivedCost = data.atomBombPerceivedCost;
+    this.hydrogenBombsLaunched = data.hydrogenBombsLaunched;
+    this.hydrogenBombPerceivedCost = data.hydrogenBombPerceivedCost;
+    this.isHydroNation = data.isHydroNation;
+  }
 
   maybeSendNuke() {
     const silos = this.player.units(UnitType.MissileSilo);

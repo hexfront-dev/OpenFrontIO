@@ -1,4 +1,11 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, MessageType, Player, Unit } from "../game/Game";
+
+export interface DeleteUnitExecutionCheckpoint {
+  playerId: string;
+  unitId: number;
+  active: boolean;
+}
 
 export class DeleteUnitExecution implements Execution {
   private active: boolean = true;
@@ -9,6 +16,25 @@ export class DeleteUnitExecution implements Execution {
     private player: Player,
     private unitId: number,
   ) {}
+
+  /** B2: capture the pending voluntary deletion. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "delete_unit",
+      data: {
+        playerId: this.player.id(),
+        unitId: this.unitId,
+        active: this.active,
+      } satisfies DeleteUnitExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite from a checkpoint (never re-runs init's validation/side effects). */
+  restoreCheckpoint(game: Game, data: DeleteUnitExecutionCheckpoint): void {
+    this.mg = game;
+    this.active = data.active;
+    this.unit = game.unit(data.unitId) ?? null;
+  }
 
   activeDuringSpawnPhase(): boolean {
     return false;

@@ -1,9 +1,11 @@
 import { assetUrl } from "../AssetUrls";
+import { CHECKPOINT_EVERY_TURNS } from "../Checkpoint";
 import { FetchGameMapLoader } from "../game/FetchGameMapLoader";
 import { ErrorUpdate, GameUpdateViewData } from "../game/GameUpdates";
 import { createGameRunner, GameRunner } from "../GameRunner";
 import {
   AttackClusteredPositionsResultMessage,
+  CheckpointMessage,
   InitializedMessage,
   MainThreadMessage,
   PlayerActionsResultMessage,
@@ -17,6 +19,8 @@ import {
 const ctx: Worker = self as any;
 globalThis.__ASSET_MANIFEST__ = __ASSET_MANIFEST__;
 let gameRunner: Promise<GameRunner> | null = null;
+// B2: last tick a checkpoint was emitted, so a no-op drain doesn't resend one.
+let lastCheckpointTick = -1;
 const mapLoader = new FetchGameMapLoader((path) => assetUrl(`maps/${path}`));
 // Yield threshold; not a backlog cap. Used to avoid monopolizing the worker task
 // and flooding the main thread with messages during catch-up. A resumed save can
@@ -94,6 +98,11 @@ async function drain(): Promise<void> {
 
     sendGameUpdateBatch(batch);
 
+    // B2: emit a checkpoint at the configured cadence so the main thread can
+    // attach it to the next autosave. A checkpoint at tick T covers turns
+    // [0, T); the suffix is replayed on resume.
+    maybeSendCheckpoint(gr);
+
     shouldContinue = gr.pendingTurns() > 0;
   } finally {
     tickUpdateSink = null;
@@ -147,6 +156,24 @@ function sendMessage(message: WorkerMessage) {
   ctx.postMessage(message);
 }
 
+function maybeSendCheckpoint(gr: GameRunner): void {
+  const ticks = gr.game.ticks();
+  if (ticks <= 0 || ticks % CHECKPOINT_EVERY_TURNS !== 0) {
+    return;
+  }
+  if (ticks === lastCheckpointTick) {
+    return;
+  }
+  // Mark this tick attempted even on failure: the game state cannot change
+  // between drains at the same tick, so a retry would compute the same answer.
+  lastCheckpointTick = ticks;
+  const checkpoint = gr.checkpoint();
+  if (checkpoint === undefined) {
+    return;
+  }
+  sendMessage({ type: "checkpoint", checkpoint } as CheckpointMessage);
+}
+
 ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
   const message = e.data;
 
@@ -162,6 +189,11 @@ ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
           mapLoader,
           gameUpdate,
         ).then((gr) => {
+          // B2: restore before announcing readiness so no turn is executed
+          // against the fresh state.
+          if (message.checkpoint !== undefined) {
+            gr.restoreFromCheckpoint(message.checkpoint);
+          }
           sendMessage({
             type: "initialized",
             id: message.id,

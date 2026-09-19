@@ -132,6 +132,12 @@ const DEFENSE_POST_RATIO_PER_POST = 0.4;
 // Reusable neighbor buffer for hot loops; the simulation is single-threaded.
 const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
 
+export interface NationStructureBehaviorCheckpoint {
+  lastStructureTick: number | null;
+  placementsCount: number;
+  postSaveUpStartTick: number | null;
+}
+
 export class NationStructureBehavior {
   private reachableStationsCache: Array<{
     tile: TileRef;
@@ -149,6 +155,29 @@ export class NationStructureBehavior {
     private game: Game,
     private player: Player,
   ) {}
+
+  /**
+   * B2: capture the structure pacing state. The reachable-station and shared
+   * water caches are derived and are rebuilt lazily on restore.
+   */
+  checkpoint(): NationStructureBehaviorCheckpoint {
+    return {
+      lastStructureTick: this.lastStructureTick,
+      placementsCount: this.placementsCount,
+      postSaveUpStartTick: this._postSaveUpStartTick,
+    };
+  }
+
+  /** B2: overwrite the structure pacing state from a checkpoint. */
+  restoreCheckpoint(data: NationStructureBehaviorCheckpoint): void {
+    this.lastStructureTick = data.lastStructureTick;
+    this.placementsCount = data.placementsCount;
+    this._postSaveUpStartTick = data.postSaveUpStartTick;
+    // Derived caches are rebuilt on demand.
+    this.reachableStationsCache = null;
+    this._sharedWaterComponents = null;
+    this._hasHighStartingGold = null;
+  }
 
   handleStructures(): boolean {
     // Defense posts are handled outside the normal pacing/counter system:

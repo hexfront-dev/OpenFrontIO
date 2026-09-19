@@ -1,3 +1,4 @@
+import { GameCheckpoint } from "../core/Checkpoint";
 import {
   ClientID,
   GameStartInfo,
@@ -19,6 +20,17 @@ export class SaveManager {
   private dirty = false;
   private disposed = false;
   private listening = false;
+  private checkpointProvider: (() => GameCheckpoint | undefined) | null = null;
+
+  /**
+   * B2: install a provider for the latest core checkpoint. Called once per
+   * autosave; only attached when its tick is within the turns recorded here.
+   */
+  public setCheckpointProvider(
+    provider: (() => GameCheckpoint | undefined) | null,
+  ) {
+    this.checkpointProvider = provider;
+  }
 
   private readonly onPageHide = () => {
     void this.persist();
@@ -70,6 +82,18 @@ export class SaveManager {
     const newTurns = this.turnsSince(this.lastPersistedTurn + 1);
     const persistedThrough = this.turns.length - 1;
     const startInfo = this.startInfo;
+    // B2: attach the most recent core checkpoint, but only if every turn it
+    // already covers is part of this save (otherwise the suffix would be
+    // incomplete on resume).
+    let checkpoint: GameCheckpoint | undefined;
+    try {
+      const candidate = this.checkpointProvider?.();
+      if (candidate !== undefined && candidate.ticks <= this.turns.length) {
+        checkpoint = candidate;
+      }
+    } catch (error) {
+      console.error("Failed to capture checkpoint", error);
+    }
     const head: SavedGameHead = {
       version: SAVED_GAME_VERSION,
       saveId: startInfo.gameID,
@@ -79,6 +103,7 @@ export class SaveManager {
       gitCommit: ClientEnv.gitCommit(),
       myClientID: this.myClientID,
       startInfo,
+      checkpoint,
       numTurns: this.turns.length,
     };
     try {

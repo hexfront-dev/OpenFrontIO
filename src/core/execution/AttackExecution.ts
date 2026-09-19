@@ -1,4 +1,5 @@
 import { renderTroops } from "../../client/Utils";
+import { ExecutionCheckpoint } from "../Checkpoint";
 import { AttackLogicInput } from "../configuration/Config";
 import {
   Attack,
@@ -14,11 +15,25 @@ import {
   UnitType,
 } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { assertNever } from "../Util";
 import { FlatBinaryHeap } from "./utils/FlatBinaryHeap"; // adjust path if needed
 
 const malusForRetreat = 25;
+
+export interface AttackExecutionCheckpoint {
+  startTroops: number | null;
+  ownerId: PlayerID;
+  targetId: PlayerID | null;
+  sourceTile: TileRef | null;
+  removeTroops: boolean;
+  active: boolean;
+  random: PseudoRandomState;
+  /** The `Attack` this execution drives, or null once it has been deleted. */
+  attackId: string | null;
+  toConquer: { priorities: number[]; tiles: TileRef[] };
+}
+
 export class AttackExecution implements Execution {
   private active: boolean = true;
   private toConquer = new FlatBinaryHeap();
@@ -50,6 +65,57 @@ export class AttackExecution implements Execution {
 
   public targetID(): PlayerID | null {
     return this._targetID;
+  }
+
+  /** B2: capture the attack march state (border heap + PRNG + link to Attack). */
+  checkpoint(): ExecutionCheckpoint {
+    const target = this.target as Player | TerraNullius | undefined;
+    return {
+      kind: "attack",
+      data: {
+        startTroops: this.startTroops,
+        ownerId: this._owner.id(),
+        targetId:
+          target === undefined
+            ? this._targetID
+            : target.isPlayer()
+              ? (target as Player).id()
+              : null,
+        sourceTile: this.sourceTile,
+        removeTroops: this.removeTroops,
+        active: this.active,
+        random: this.random.state(),
+        attackId: this.attack?.id() ?? null,
+        toConquer: this.toConquer.snapshot(),
+      } satisfies AttackExecutionCheckpoint,
+    };
+  }
+
+  /**
+   * B2: overwrite this execution from a checkpoint. The `Attack` it drives was
+   * already rebuilt by `GameImpl.restoreFromCheckpoint`; here we re-link to it.
+   * Returns false when the linked attack is missing (fail-safe).
+   */
+  restoreCheckpoint(game: Game, data: AttackExecutionCheckpoint): boolean {
+    this.active = data.active;
+    this.random.setState(data.random);
+    this.toConquer.restore(data.toConquer);
+    this.mg = game;
+    this.map = game.map();
+    this.target =
+      data.targetId === null ? game.terraNullius() : game.player(data.targetId);
+    this.ownerSmallID = this._owner.smallID();
+    this.targetSmallID = this.target.smallID();
+    if (data.attackId === null) {
+      this.attack = null;
+    } else {
+      this.attack =
+        this._owner
+          .outgoingAttacks()
+          .find((attack) => attack.id() === data.attackId) ?? null;
+      if (this.attack === null) return false;
+    }
+    return true;
   }
 
   activeDuringSpawnPhase(): boolean {

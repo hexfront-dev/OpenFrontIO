@@ -16,6 +16,13 @@ import {
   NationEmojiBehavior,
 } from "./NationEmojiBehavior";
 
+export interface NationWarshipBehaviorCheckpoint {
+  trackedTransportShips: number[];
+  trackedTradeShips: number[];
+  trackedIncomingTransportShips: number[];
+  dealtWithTransportShip: number[];
+}
+
 export class NationWarshipBehavior {
   // Track our transport ships we currently own
   private trackedTransportShips: Set<Unit> = new Set();
@@ -32,6 +39,44 @@ export class NationWarshipBehavior {
     private player: Player,
     private emojiBehavior: NationEmojiBehavior,
   ) {}
+
+  /**
+   * B2: capture the tracked-ship sets by unit id. Insertion order is preserved
+   * so the deterministic iteration order survives a restore.
+   */
+  checkpoint(): NationWarshipBehaviorCheckpoint {
+    return {
+      trackedTransportShips: [...this.trackedTransportShips].map((u) => u.id()),
+      trackedTradeShips: [...this.trackedTradeShips].map((u) => u.id()),
+      trackedIncomingTransportShips: [
+        ...this.trackedIncomingTransportShips,
+      ].map((u) => u.id()),
+      dealtWithTransportShip: [...this.dealtWithTransportShip].map((u) =>
+        u.id(),
+      ),
+    };
+  }
+
+  /** B2: overwrite the tracked-ship sets from a checkpoint. */
+  restoreCheckpoint(data: NationWarshipBehaviorCheckpoint): void {
+    this.trackedTransportShips = this.resolveUnits(data.trackedTransportShips);
+    this.trackedTradeShips = this.resolveUnits(data.trackedTradeShips);
+    this.trackedIncomingTransportShips = this.resolveUnits(
+      data.trackedIncomingTransportShips,
+    );
+    this.dealtWithTransportShip = this.resolveUnits(
+      data.dealtWithTransportShip,
+    );
+  }
+
+  private resolveUnits(ids: number[]): Set<Unit> {
+    const units = new Set<Unit>();
+    for (const id of ids) {
+      const unit = this.game.unit(id);
+      if (unit !== undefined) units.add(unit);
+    }
+    return units;
+  }
 
   maybeSpawnWarship(): boolean {
     if (this.player === null) throw new Error("not initialized");

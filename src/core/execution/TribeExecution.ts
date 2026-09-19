@@ -1,9 +1,26 @@
-﻿import { Execution, Game, Player, Structures } from "../game/Game";
-import { PseudoRandom } from "../PseudoRandom";
+﻿import { ExecutionCheckpoint } from "../Checkpoint";
+import { Execution, Game, Player, Structures } from "../game/Game";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
-import { AiAttackBehavior } from "./utils/AiAttackBehavior";
+import {
+  AiAttackBehavior,
+  AiAttackBehaviorCheckpoint,
+} from "./utils/AiAttackBehavior";
+
+export interface TribeExecutionCheckpoint {
+  playerId: string;
+  active: boolean;
+  random: PseudoRandomState;
+  neighborsTerraNullius: boolean;
+  attackBehavior: AiAttackBehaviorCheckpoint | null;
+  attackRate: number;
+  attackTick: number;
+  triggerRatio: number;
+  reserveRatio: number;
+  expandRatio: number;
+}
 
 export class TribeExecution implements Execution {
   private active = true;
@@ -25,6 +42,57 @@ export class TribeExecution implements Execution {
     this.triggerRatio = this.random.nextInt(50, 60) / 100;
     this.reserveRatio = this.random.nextInt(30, 40) / 100;
     this.expandRatio = this.random.nextInt(10, 20) / 100;
+  }
+
+  /** B2: capture the tribe AI's mutable state. */
+  checkpoint(): ExecutionCheckpoint {
+    return {
+      kind: "tribe",
+      data: {
+        playerId: this.tribe.id(),
+        active: this.active,
+        random: this.random.state(),
+        neighborsTerraNullius: this.neighborsTerraNullius,
+        attackBehavior: this.attackBehavior?.checkpoint() ?? null,
+        attackRate: this.attackRate,
+        attackTick: this.attackTick,
+        triggerRatio: this.triggerRatio,
+        reserveRatio: this.reserveRatio,
+        expandRatio: this.expandRatio,
+      } satisfies TribeExecutionCheckpoint,
+    };
+  }
+
+  /** B2: overwrite the tribe AI's mutable state from a checkpoint. */
+  restoreCheckpoint(
+    game: Game,
+    data: TribeExecutionCheckpoint,
+    initialize: boolean,
+  ): void {
+    this.active = data.active;
+    this.neighborsTerraNullius = data.neighborsTerraNullius;
+    this.attackRate = data.attackRate;
+    this.attackTick = data.attackTick;
+    this.triggerRatio = data.triggerRatio;
+    this.reserveRatio = data.reserveRatio;
+    this.expandRatio = data.expandRatio;
+    if (initialize) {
+      this.mg = game;
+      if (data.attackBehavior !== null) {
+        this.attackBehavior = new AiAttackBehavior(
+          this.random,
+          game,
+          this.tribe,
+          this.triggerRatio,
+          this.reserveRatio,
+          this.expandRatio,
+        );
+        this.attackBehavior.restoreCheckpoint(data.attackBehavior);
+      } else {
+        this.attackBehavior = null;
+      }
+    }
+    this.random.setState(data.random);
   }
 
   activeDuringSpawnPhase(): boolean {

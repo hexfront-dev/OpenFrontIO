@@ -1,5 +1,6 @@
 import { Config } from "src/core/configuration/Config";
 import { translateText } from "../client/Utils";
+import { GameCheckpoint } from "../core/Checkpoint";
 import { EventBus } from "../core/EventBus";
 import {
   ClientID,
@@ -99,6 +100,8 @@ export interface ResumeInfo {
   startInfo: GameStartInfo;
   turns: Turn[];
   myClientID: ClientID;
+  /** B2: optional core checkpoint at `turns[checkpoint.ticks]`, so only the suffix replays. */
+  checkpoint?: GameCheckpoint;
 }
 
 export interface LobbyConfig {
@@ -636,7 +639,11 @@ async function createClientGame(
   // Kick off the font-atlas fetch so it overlaps with worker init; the
   // render passes need it parsed before createWebGLView runs.
   const atlasDataLoad = preloadAtlasData();
-  const worker = new WorkerClient(lobbyConfig.gameStartInfo, clientID);
+  const worker = new WorkerClient(
+    lobbyConfig.gameStartInfo,
+    clientID,
+    lobbyConfig.resume?.checkpoint,
+  );
   await worker.initialize();
   await atlasDataLoad;
   const gameView = new GameView(
@@ -847,6 +854,9 @@ export class ClientGameRunner {
   private turnsSeen = 0;
   private lastMousePosition: { x: number; y: number } | null = null;
   private readonly saveManager = new SaveManager();
+  // B2: latest core checkpoint received from the worker (seeded with the one we
+  // resumed from), attached to each autosave.
+  private latestCheckpoint: GameCheckpoint | undefined;
 
   // A resumed save (local IndexedDB or a server-restored lobby) replays its
   // saved history. We catch that history up off-screen and only reveal the
@@ -882,6 +892,7 @@ export class ClientGameRunner {
     this.lastMessageTime = Date.now();
     this.isResume =
       lobby.resume !== undefined || lobby.claimClientID !== undefined;
+    this.latestCheckpoint = lobby.resume?.checkpoint;
   }
 
   /**
@@ -944,6 +955,12 @@ export class ClientGameRunner {
     ) {
       this.saveManager.begin(this.lobby.gameStartInfo, this.clientID);
     }
+    // B2: cache the worker's periodic core checkpoints and attach the latest to
+    // each autosave.
+    this.worker.setCheckpointCallback((checkpoint) => {
+      this.latestCheckpoint = checkpoint;
+    });
+    this.saveManager.setCheckpointProvider(() => this.latestCheckpoint);
     setTimeout(() => {
       this.connectionCheckInterval = setInterval(
         () => this.onConnectionCheck(),
@@ -1068,10 +1085,23 @@ export class ClientGameRunner {
           goToPlayer();
         }
 
-        // A resumed save replays its whole history here; hide that run-up and
-        // let the worker drain the backlog as fast as it can before revealing.
-        if (this.isResume && message.turns.length > 0) {
-          this.beginCatchUp(message.turns.length);
+        // B2: when the resume carries a core checkpoint the worker has already
+        // restored state through `checkpoint.ticks`, so it must only execute the
+        // suffix. Every received turn is still recorded so the saved history
+        // stays dense and a later autosave is complete.
+        const checkpointTicks = this.lobby.resume?.checkpoint?.ticks ?? 0;
+        if (
+          this.isResume &&
+          checkpointTicks > this.turnsSeen &&
+          checkpointTicks <= message.turns.length
+        ) {
+          this.turnsSeen = checkpointTicks;
+        }
+
+        // A resumed save replays its history here; hide that run-up and let the
+        // worker drain the backlog as fast as it can before revealing.
+        if (this.isResume && message.turns.length > this.turnsSeen) {
+          this.beginCatchUp(message.turns.length - this.turnsSeen);
         }
 
         // Hand the whole backlog to the worker in one message. A dense resumed
@@ -1079,6 +1109,7 @@ export class ClientGameRunner {
         // structured clone each and bloat this send loop.
         const backlog: Turn[] = [];
         for (const turn of message.turns) {
+          this.saveManager.recordTurn(turn);
           if (turn.turnNumber < this.turnsSeen) {
             continue;
           }
@@ -1092,7 +1123,6 @@ export class ClientGameRunner {
             this.turnsSeen++;
           }
           backlog.push(turn);
-          this.saveManager.recordTurn(turn);
           this.turnsSeen++;
         }
         this.worker.sendTurns(backlog);
@@ -1224,8 +1254,10 @@ export class ClientGameRunner {
         : 100,
     );
     // pendingTurns is the worker's queue *including* the tick just executed, so
-    // <= 1 means this was the last saved turn (or a live tick after it).
-    if ((gu.pendingTurns ?? 0) <= 1 && this.turnsSeen >= this.catchUpTotal) {
+    // <= 1 means this was the last saved turn (or a live tick after it). Count
+    // against catchUpTotal (suffix length when resuming from a checkpoint)
+    // rather than turnsSeen, which now starts past zero.
+    if ((gu.pendingTurns ?? 0) <= 1 && this.catchUpDone >= this.catchUpTotal) {
       this.finishCatchUp();
     }
   }

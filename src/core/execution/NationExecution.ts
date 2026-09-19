@@ -1,3 +1,4 @@
+import { ExecutionCheckpoint } from "../Checkpoint";
 import {
   Difficulty,
   Execution,
@@ -12,17 +13,52 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PseudoRandom } from "../PseudoRandom";
+import { PseudoRandom, PseudoRandomState } from "../PseudoRandom";
 import { GameID } from "../Schemas";
 import { assertNever, simpleHash } from "../Util";
 import { NationAllianceBehavior } from "./nation/NationAllianceBehavior";
-import { NationEmojiBehavior } from "./nation/NationEmojiBehavior";
-import { NationMIRVBehavior } from "./nation/NationMIRVBehavior";
-import { NationNukeBehavior } from "./nation/NationNukeBehavior";
-import { NationStructureBehavior } from "./nation/NationStructureBehavior";
-import { NationWarshipBehavior } from "./nation/NationWarshipBehavior";
+import {
+  NationEmojiBehavior,
+  NationEmojiBehaviorCheckpoint,
+} from "./nation/NationEmojiBehavior";
+import {
+  NationMIRVBehavior,
+  NationMIRVBehaviorCheckpoint,
+} from "./nation/NationMIRVBehavior";
+import {
+  NationNukeBehavior,
+  NationNukeBehaviorCheckpoint,
+} from "./nation/NationNukeBehavior";
+import {
+  NationStructureBehavior,
+  NationStructureBehaviorCheckpoint,
+} from "./nation/NationStructureBehavior";
+import {
+  NationWarshipBehavior,
+  NationWarshipBehaviorCheckpoint,
+} from "./nation/NationWarshipBehavior";
 import { SpawnExecution } from "./SpawnExecution";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
+
+export interface NationExecutionCheckpoint {
+  gameID: GameID;
+  playerId: PlayerID;
+  active: boolean;
+  random: PseudoRandomState;
+  behaviorsInitialized: boolean;
+  spawnExecAdded: boolean;
+  attackRate: number;
+  attackTick: number;
+  triggerRatio: number;
+  reserveRatio: number;
+  expandRatio: number;
+  embargoMalusApplied: PlayerID[];
+  emoji: NationEmojiBehaviorCheckpoint | null;
+  mirv: NationMIRVBehaviorCheckpoint | null;
+  nuke: NationNukeBehaviorCheckpoint | null;
+  structure: NationStructureBehaviorCheckpoint | null;
+  warship: NationWarshipBehaviorCheckpoint | null;
+}
 
 export class NationExecution implements Execution {
   private active = true;
@@ -258,6 +294,73 @@ export class NationExecution implements Execution {
       this.player,
     );
     this.behaviorsInitialized = true;
+  }
+
+  /** B2: capture the nation AI's full mutable state. */
+  checkpoint(): ExecutionCheckpoint {
+    const initialized = this.behaviorsInitialized;
+    return {
+      kind: "nation",
+      data: {
+        gameID: this.gameID,
+        playerId: this.nation.playerInfo.id,
+        active: this.active,
+        random: this.random.state(),
+        behaviorsInitialized: initialized,
+        spawnExecAdded: this.spawnExecAdded,
+        attackRate: this.attackRate,
+        attackTick: this.attackTick,
+        triggerRatio: this.triggerRatio,
+        reserveRatio: this.reserveRatio,
+        expandRatio: this.expandRatio,
+        embargoMalusApplied: [...this.embargoMalusApplied],
+        emoji: initialized ? this.emojiBehavior.checkpoint() : null,
+        mirv: initialized ? this.mirvBehavior.checkpoint() : null,
+        nuke: initialized ? this.nukeBehavior.checkpoint() : null,
+        structure: initialized ? this.structureBehavior.checkpoint() : null,
+        warship: initialized ? this.warshipBehavior.checkpoint() : null,
+      } satisfies NationExecutionCheckpoint,
+    };
+  }
+
+  /**
+   * B2: overwrite the nation AI's mutable state from a checkpoint.
+   *
+   * Behaviors share a single `PseudoRandom`, so its state is installed last,
+   * after `initializeBehaviors()` (which draws from the stream while wiring the
+   * behavior graph) has run.
+   */
+  restoreCheckpoint(
+    game: Game,
+    data: NationExecutionCheckpoint,
+    initialize: boolean,
+  ): void {
+    this.active = data.active;
+    this.spawnExecAdded = data.spawnExecAdded;
+    this.attackRate = data.attackRate;
+    this.attackTick = data.attackTick;
+    this.triggerRatio = data.triggerRatio;
+    this.reserveRatio = data.reserveRatio;
+    this.expandRatio = data.expandRatio;
+    this.embargoMalusApplied.clear();
+    for (const id of data.embargoMalusApplied) {
+      this.embargoMalusApplied.add(id);
+    }
+    if (initialize) {
+      this.mg = game;
+      this.player = game.hasPlayer(data.playerId)
+        ? game.player(data.playerId)
+        : null;
+      if (data.behaviorsInitialized && this.player !== null) {
+        this.initializeBehaviors();
+        this.emojiBehavior.restoreCheckpoint(data.emoji!);
+        this.mirvBehavior.restoreCheckpoint(data.mirv!);
+        this.nukeBehavior.restoreCheckpoint(data.nuke!);
+        this.structureBehavior.restoreCheckpoint(data.structure!);
+        this.warshipBehavior.restoreCheckpoint(data.warship!);
+      }
+    }
+    this.random.setState(data.random);
   }
 
   private randomSpawnLand(): TileRef | null {

@@ -6,6 +6,7 @@ import {
   MemorySaveBackend,
   setSaveBackend,
 } from "../src/client/SaveStore";
+import type { GameCheckpoint } from "../src/core/Checkpoint";
 import {
   Difficulty,
   GameMapSize,
@@ -92,6 +93,33 @@ describe("SaveManager append-only autosave", () => {
     const loaded = await loadSave("GAME0001");
     expect(loaded?.turns).toHaveLength(3);
     expect(loaded?.turns[1]).toEqual({ turnNumber: 1, intents: [] });
+
+    manager.dispose();
+  });
+
+  it("attaches a core checkpoint that is covered by the recorded turns", async () => {
+    const manager = new SaveManager();
+    manager.begin(startInfo(), "CLIENT01");
+    for (let i = 0; i < 10; i++) {
+      manager.recordTurn({ turnNumber: i, intents: [] });
+    }
+    const checkpoint = { ticks: 5 } as unknown as GameCheckpoint;
+    manager.setCheckpointProvider(() => checkpoint);
+    await manager.persist();
+
+    const loaded = await loadSave("GAME0001");
+    expect((loaded?.checkpoint as GameCheckpoint | undefined)?.ticks).toBe(5);
+
+    // A checkpoint ahead of the recorded history is dropped so the suffix can
+    // never be incomplete.
+    manager.setCheckpointProvider(
+      () => ({ ticks: 999 }) as unknown as GameCheckpoint,
+    );
+    manager.recordTurn({ turnNumber: 10, intents: [] });
+    await manager.persist();
+
+    const reloaded = await loadSave("GAME0001");
+    expect(reloaded?.checkpoint).toBeUndefined();
 
     manager.dispose();
   });

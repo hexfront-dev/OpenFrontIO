@@ -1,15 +1,26 @@
 import { ExecutionCheckpoint } from "../Checkpoint";
 import { Execution, Game, UnitType } from "../game/Game";
 import { PseudoRandomState } from "../PseudoRandom";
+import { AttackExecution, AttackExecutionCheckpoint } from "./AttackExecution";
 import { CityExecution } from "./CityExecution";
 import { ConstructionExecution } from "./ConstructionExecution";
 import { DefensePostExecution } from "./DefensePostExecution";
+import {
+  DeleteUnitExecution,
+  DeleteUnitExecutionCheckpoint,
+} from "./DeleteUnitExecution";
 import { FactoryExecution } from "./FactoryExecution";
 import { MissileSiloExecution } from "./MissileSiloExecution";
+import { NationExecution, NationExecutionCheckpoint } from "./NationExecution";
 import { PlayerExecution } from "./PlayerExecution";
 import { PortExecution } from "./PortExecution";
 import { RecomputeRailClusterExecution } from "./RecomputeRailClusterExecution";
+import {
+  RetreatExecution,
+  RetreatExecutionCheckpoint,
+} from "./RetreatExecution";
 import { SpawnTimerExecution } from "./SpawnTimerExecution";
+import { TribeExecution, TribeExecutionCheckpoint } from "./TribeExecution";
 import { WinCheckExecution } from "./WinCheckExecution";
 
 /**
@@ -153,6 +164,56 @@ export function restoreExecution(
       );
       if (initialize) exec.init(game, ticks);
       exec.restoreCheckpoint(data);
+      return exec;
+    }
+    case "nation": {
+      const data = cp.data as NationExecutionCheckpoint;
+      const nation = game
+        .nations()
+        .find((n) => n.playerInfo.id === data.playerId);
+      if (nation === undefined) return undefined;
+      const exec = new NationExecution(data.gameID, nation);
+      exec.restoreCheckpoint(game, data, initialize);
+      return exec;
+    }
+    case "tribe": {
+      const data = cp.data as TribeExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const exec = new TribeExecution(game.player(data.playerId));
+      exec.restoreCheckpoint(game, data, initialize);
+      return exec;
+    }
+    case "attack": {
+      const data = cp.data as AttackExecutionCheckpoint;
+      if (!game.hasPlayer(data.ownerId)) return undefined;
+      const exec = new AttackExecution(
+        data.startTroops,
+        game.player(data.ownerId),
+        data.targetId,
+        data.sourceTile,
+        data.removeTroops,
+      );
+      if (!exec.restoreCheckpoint(game, data)) return undefined;
+      return exec;
+    }
+    case "retreat": {
+      const data = cp.data as RetreatExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const exec = new RetreatExecution(
+        game.player(data.playerId),
+        data.attackID,
+      );
+      exec.restoreCheckpoint(game, data);
+      return exec;
+    }
+    case "delete_unit": {
+      const data = cp.data as DeleteUnitExecutionCheckpoint;
+      if (!game.hasPlayer(data.playerId)) return undefined;
+      const exec = new DeleteUnitExecution(
+        game.player(data.playerId),
+        data.unitId,
+      );
+      exec.restoreCheckpoint(game, data);
       return exec;
     }
     default:
