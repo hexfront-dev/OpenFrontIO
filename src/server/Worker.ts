@@ -77,6 +77,25 @@ export async function startWorker() {
   const gm = new GameManager(log, telemetry, buildHash, saveStore);
   server.on("close", () => telemetry.stop());
 
+  // Graceful shutdown: persist live private games before the process exits so a
+  // restart (dev watcher, deploy, Ctrl+C) does not discard games that have not
+  // hit their creator-leave save. The cluster master forwards its own
+  // SIGINT/SIGTERM here too; the guard makes a double signal a no-op.
+  let shuttingDown = false;
+  const shutdown = async (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info(`received ${signal}, flushing saves before exit`);
+    try {
+      await gm.flushAll();
+    } catch (error) {
+      log.error(`failed to flush saves on ${signal}:`, error);
+    }
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
   // Initialize lobby service (handles WebSocket upgrade routing)
   const lobbyService = new WorkerLobbyService(server, wss, gm, log);
 

@@ -664,19 +664,22 @@ export class GameImpl implements Game {
     return packed;
   }
 
+  // A running XOR over the tile->owner map. Folding this into the periodic hash
+  // catches a mis-owned tile even when every player's tile *count* is unchanged
+  // (Player.hash() only covers the count), without re-scanning every owned tile
+  // each second. XOR is commutative, so the value depends only on the final
+  // ownership set, not on the order tiles changed hands — a restore that rebuilds
+  // tiles from `map.state` reproduces it exactly (see rebuildPlayerTiles).
+  private tileOwnershipChecksum = 0;
+
+  private ownershipTerm(tile: TileRef, ownerSmallID: number): number {
+    return Math.imul(tile + 1, ownerSmallID + 1);
+  }
+
   private hash(): number {
-    // Player.hash() covers gold/troops/tilesOwned and its units; fold in the
-    // actual tile ownership map, which the count alone does not capture. This
-    // is the value the desync detector compares, so a mis-owned tile must show
-    // up even when every player's tile count is unchanged.
-    let hash = 1;
+    let hash = this.tileOwnershipChecksum;
     this._players.forEach((p) => {
       hash = (hash + p.hash()) | 0;
-      (p as PlayerImpl)._tiles.forEach((tile) => {
-        // Numeric mix (simpleHash takes a string) so this stays allocation-free;
-        // the desync detector only needs a stable, collision-resistant value.
-        hash = (hash + Math.imul(tile + 1, p.smallID() + 1)) | 0;
-      });
     });
     return hash;
   }
@@ -824,10 +827,15 @@ export class GameImpl implements Game {
       previousOwner._tileChangeVersion++;
       previousOwner._tiles.delete(tile);
       previousOwner._borderTiles.delete(tile);
+      this.tileOwnershipChecksum ^= this.ownershipTerm(
+        tile,
+        previousOwner.smallID(),
+      );
     }
     this._territoryVersion++;
     this._map.setOwnerID(tile, owner.smallID());
     owner._tiles.add(tile);
+    this.tileOwnershipChecksum ^= this.ownershipTerm(tile, owner.smallID());
     owner._lastTileChange = this._ticks;
     owner._tileChangeVersion++;
     this.updateBorders(tile);
@@ -848,6 +856,10 @@ export class GameImpl implements Game {
     previousOwner._tileChangeVersion++;
     previousOwner._tiles.delete(tile);
     previousOwner._borderTiles.delete(tile);
+    this.tileOwnershipChecksum ^= this.ownershipTerm(
+      tile,
+      previousOwner.smallID(),
+    );
 
     this._territoryVersion++;
     this._map.setOwnerID(tile, 0);
@@ -1288,6 +1300,13 @@ export class GameImpl implements Game {
     return this._map.hasOwner(ref);
   }
   setOwnerID(ref: TileRef, playerId: number): void {
+    const previous = this._map.ownerID(ref);
+    if (previous !== 0) {
+      this.tileOwnershipChecksum ^= this.ownershipTerm(ref, previous);
+    }
+    if (playerId !== 0) {
+      this.tileOwnershipChecksum ^= this.ownershipTerm(ref, playerId);
+    }
     this._territoryVersion++;
     return this._map.setOwnerID(ref, playerId);
   }
@@ -1600,6 +1619,11 @@ export class GameImpl implements Game {
       players.push(player);
     }
 
+    // Owned-tile sets are derived from the restored ownership map rather than
+    // serialized (that dominated large-map checkpoints). Rebuild them now so
+    // every later step — units, border tiles, executions — sees them.
+    this.rebuildPlayerTiles();
+
     // Units: rebuild spatially and re-link ownership. Two passes so a unit's
     // targetUnit can resolve another unit restored later in the loop (a trade
     // ship targets a port owned by a different player, for instance): create
@@ -1755,6 +1779,29 @@ export class GameImpl implements Game {
     // Set after addUnit() bumped them during the rebuild.
     this._unitsVersion = cp.unitsVersion;
     this._territoryVersion = cp.territoryVersion;
+  }
+
+  /**
+   * Rebuild each player's owned-tile set from the authoritative per-tile owner
+   * array. The order is ascending `TileRef`; consumers that used to rely on the
+   * (now absent) captured insertion order are order-independent (see
+   * NationUtils, DoomsdayClockExecution, AttackExecution.handleDeadDefender).
+   */
+  private rebuildPlayerTiles(): void {
+    const map = this._map;
+    const width = map.width();
+    const total = width * map.height();
+    let checksum = 0;
+    for (let ref = 0; ref < total; ref++) {
+      const ownerID = map.ownerID(ref);
+      if (ownerID === 0) continue;
+      const owner = this.playerBySmallID(ownerID) as PlayerImpl;
+      owner._tiles.add(ref);
+      checksum ^= this.ownershipTerm(ref, ownerID);
+    }
+    // The running checksum accumulated by conquer/relinquish is replaced, not
+    // merged: importMapState bypassed those methods, so recompute it here.
+    this.tileOwnershipChecksum = checksum;
   }
 }
 

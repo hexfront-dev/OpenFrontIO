@@ -11,6 +11,7 @@ import {
   saveGameProgress,
   setSaveBackend,
 } from "../src/client/SaveStore";
+import type { GameCheckpoint } from "../src/core/Checkpoint";
 import { CHECKPOINT_VERSION } from "../src/core/Checkpoint";
 import {
   Difficulty,
@@ -213,6 +214,34 @@ describe("SaveStore", () => {
     expect(append.mock.calls[0][1]).toHaveLength(25);
     expect(append.mock.calls[1][1]).toHaveLength(5);
     expect((await loadSave("SAVE0001"))?.turns).toHaveLength(30);
+  });
+
+  it("writes the checkpoint sidecar only when it changes", async () => {
+    const backend = new MemorySaveBackend();
+    setSaveBackend(backend);
+    const head = savedGameHeadFrom(makeSave({ turns: [] }));
+    const turns = [{ turnNumber: 0, intents: [] }];
+    const checkpoint = { ticks: 200 } as unknown as GameCheckpoint;
+
+    await saveGameProgress({ ...head, numTurns: 1, checkpoint }, turns, true);
+    expect(backend.checkpointWrites).toBe(1);
+
+    // Same object, unchanged checkpoint: the sidecar is not rewritten.
+    await saveGameProgress({ ...head, numTurns: 2, checkpoint }, turns, false);
+    expect(backend.checkpointWrites).toBe(1);
+
+    // A new checkpoint object is written once.
+    const next = { ticks: 400 } as unknown as GameCheckpoint;
+    await saveGameProgress(
+      { ...head, numTurns: 3, checkpoint: next },
+      turns,
+      false,
+    );
+    expect(backend.checkpointWrites).toBe(2);
+
+    // A save without a checkpoint clears the sidecar.
+    await saveGameProgress({ ...head, numTurns: 3 }, turns, false);
+    expect((await loadSave("SAVE0001"))?.checkpoint).toBeUndefined();
   });
 
   it("clears stale turns when a progress write resets the save", async () => {

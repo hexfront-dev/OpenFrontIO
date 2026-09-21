@@ -296,6 +296,28 @@ describe("GameServer creator-leave save", () => {
     expect(loaded!.seats.map((s) => s.clientID)).toEqual([cid("host")]);
   });
 
+  it("flushes a live private game on shutdown without a creator leave", async () => {
+    const saveStore = new MemorySaveStore();
+    const game = makeGame({
+      creatorPersistentID: "host-pid",
+      deps: { saveStore },
+    });
+    game.joinClient(
+      makeClient({ clientID: cid("host"), persistentID: "host-pid" }),
+    );
+    startGame(game);
+    await vi.advanceTimersByTimeAsync(25 * TURN_MS);
+
+    // The creator is still connected, so no creator-leave save has run.
+    expect(await saveStore.load(game.id)).toBeNull();
+
+    await game.flushSave();
+
+    const loaded = await saveStore.load(game.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.turns.length).toBeGreaterThanOrEqual(25);
+  });
+
   it("does not save when a non-creator leaves", async () => {
     const saveStore = new MemorySaveStore();
     const game = makeGame({

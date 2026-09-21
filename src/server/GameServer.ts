@@ -216,6 +216,8 @@ export class GameServer {
   private resumeStarted = false;
   private saveInFlight = false;
   private saveQueued = false;
+  // The in-flight persistence promise, so a graceful shutdown can await it.
+  private saveInFlightPromise: Promise<void> | null = null;
   // Index of the last turn already written to the save store. Autosaves append
   // only `turns[lastPersistedTurn + 1 ..]`, so a save costs O(delta). Reset to
   // the restored history length on applyRestore so the first resume autosave
@@ -573,18 +575,33 @@ export class GameServer {
       this.saveQueued = true;
       return;
     }
-    this.persistSave();
+    void this.persistSave();
   }
 
-  private persistSave(): void {
+  /**
+   * Awaitable persistence for graceful shutdown: drain any in-flight/queued save
+   * and then write the current snapshot. Resolves even when the save fails, so a
+   * shutdown never hangs (the error is logged by persistSave).
+   */
+  public async flushSave(): Promise<void> {
+    if (this.isPublic() || this.creatorPersistentID === undefined) {
+      return;
+    }
+    while (this.saveInFlight && this.saveInFlightPromise !== null) {
+      await this.saveInFlightPromise;
+    }
+    await this.persistSave();
+  }
+
+  private persistSave(): Promise<void> {
     const snapshot = this.snapshot();
     if (snapshot === null) {
-      return;
+      return Promise.resolve();
     }
     const fromTurn = this.lastPersistedTurn + 1;
     const persistedThrough = snapshot.turns.length - 1;
     this.saveInFlight = true;
-    void this.deps.saveStore
+    const promise = this.deps.saveStore
       .save(snapshot, fromTurn)
       .then(() => {
         // Advance only on success so a failed append is retried in full.
@@ -600,11 +617,14 @@ export class GameServer {
       })
       .finally(() => {
         this.saveInFlight = false;
+        this.saveInFlightPromise = null;
         if (this.saveQueued) {
           this.saveQueued = false;
-          this.persistSave();
+          void this.persistSave();
         }
       });
+    this.saveInFlightPromise = promise;
+    return promise;
   }
 
   // Whether this game was rebuilt from a save (and so has claimable seats).

@@ -1,4 +1,4 @@
-import cluster from "cluster";
+import cluster, { type Worker as ClusterWorker } from "cluster";
 import crypto from "crypto";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -130,6 +130,10 @@ export async function startMaster() {
 
   log.info(`Instance ID: ${INSTANCE_ID}`);
 
+  // Set while the master is shutting down, so worker exits are not treated as
+  // crashes and restarted.
+  let isShuttingDown = false;
+
   // Fork workers
   for (let i = 0; i < ServerEnv.numWorkers(); i++) {
     const worker = cluster.fork({
@@ -143,6 +147,9 @@ export async function startMaster() {
 
   // Handle worker crashes
   cluster.on("exit", (worker, code, signal) => {
+    if (isShuttingDown) {
+      return;
+    }
     const workerId = (worker as any).process?.env?.WORKER_ID;
     if (workerId === undefined) {
       log.error(`worker crashed could not find id`);
@@ -173,6 +180,36 @@ export async function startMaster() {
   server.listen(PORT, () => {
     log.info(`Master HTTP server listening on port ${PORT}`);
   });
+
+  // Graceful shutdown: ask each worker to persist its live games and wait
+  // (bounded) for them to exit, then quit. A terminal Ctrl+C also reaches the
+  // workers directly; this covers a signal delivered only to the master.
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    log.info(`received ${signal}, stopping workers`);
+    const workers = Object.values(cluster.workers ?? {}).filter(
+      (w): w is ClusterWorker => w !== undefined,
+    );
+    if (workers.length === 0) {
+      process.exit(0);
+    }
+    const timeout = setTimeout(() => process.exit(0), 5000);
+    if (typeof timeout.unref === "function") timeout.unref();
+    let remaining = workers.length;
+    cluster.on("exit", () => {
+      remaining--;
+      if (remaining <= 0) {
+        clearTimeout(timeout);
+        process.exit(0);
+      }
+    });
+    for (const worker of workers) {
+      worker.process.kill("SIGTERM");
+    }
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 app.get("/api/health", (_req, res) => {

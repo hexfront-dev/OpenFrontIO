@@ -72,18 +72,22 @@ IDs are validated with `GAME_ID_REGEX`.
 ### 2.4 Cadence and cost
 
 - Server saves are **creator-leave triggered**: `handleClientDisconnect` calls
-  `scheduleSave()` only when the disconnecting client is the game's creator
-  (`GameServer.handleClientDisconnect`). There is no periodic turn autosave and
-  no join/config/checkpoint-upload save; the only throttle is single-in-flight
-  de-duplication. A server crash/restart therefore loses everything since the
-  creator last left, which is an accepted trade for lower write churn.
+  `scheduleSave()` when the disconnecting client is the game's creator
+  (`GameServer.handleClientDisconnect`). There is no periodic turn autosave; the
+  only other trigger is a **graceful shutdown**: `GameManager.flushAll()` awaits
+  `GameServer.flushSave()` for every live private game, driven by
+  SIGINT/SIGTERM handlers in `Worker.ts` (and forwarded by `Master.ts`). So a dev
+  watcher restart or deploy persists games that have not yet hit a creator leave;
+  only a hard kill (SIGKILL / power loss) loses the interval since the last save.
 - `SaveStore.save(snapshot, fromTurn)` validates/encodes only the head and turns
   `>= fromTurn`, appends the delta to `history.gz`, rewrites `head.json` and
-  `meta.json`, and — whenever `snapshot.checkpoint !== undefined` — re-gzips and
-  rewrites `checkpoint.json.gz` **even if the checkpoint did not change**.
+  `meta.json`, and rewrites `checkpoint.json.gz` **only when the checkpoint
+  changed** (identity tracked by `FilesystemSaveStore.persistedCheckpoints`).
 - Client `SaveManager` records turns and persists every `SAVE_EVERY_TURNS = 25`
   (`SaveManager.ts:12`), plus on `pagehide`/`visibilitychange`, appending only
-  the delta to IndexedDB (`openfront-saves` v2, stores `saves`/`meta`/`turns`).
+  the delta to IndexedDB (`openfront-saves` v3, stores `saves`/`meta`/`turns`/
+  `checkpoints`). The checkpoint blob lives in the `checkpoints` sidecar and is
+  structured-cloned only when it changes (reference check), not on every save.
   `MAX_SAVES = 30` caps the **number** of saves, not bytes.
 
 ### 2.5 Checkpoint capture and transport
@@ -93,6 +97,12 @@ IDs are validated with `GAME_ID_REGEX`.
   `undefined` (→ full-replay fallback) if any live execution cannot serialize.
 - `GameImpl.checkpoint()` (`GameImpl.ts:1482`) copies every player, unit, attack,
   alliance, the whole `map` and `miniMap` state, stats, counters and executions.
+  Owned tiles are **not** serialized: they are redundant with `map.state` and are
+  rebuilt by `GameImpl.rebuildPlayerTiles()` (checkpoint version 2), which also
+  recomputes the incremental tile-ownership checksum used by the periodic hash.
+  Consumers that used to depend on the captured tile insertion order are made
+  order-independent (`AttackExecution.handleDeadDefender`,
+  `DoomsdayClockExecution`, `NationUtils.randTerritoryTile`).
 - `GameCheckpoint.ticks` semantics: a checkpoint at tick T covers turns `[0,T)`.
 - The lobby **creator's** client volunteers the blob:
   `ClientGameRunner.uploadCheckpoint` → `encodeCheckpoint` (tagged JSON, base64
@@ -442,18 +452,18 @@ bytes per game beyond budget.
 
 ## 13. Appendix — constants and references
 
-| Constant                  | Value                      | Location                                    |
-| ------------------------- | -------------------------- | ------------------------------------------- |
-| Spawn turns (private FFA) | 300                        | `Config.numSpawnPhaseTurns`                 |
-| Hard game time            | 170 min                    | `WinCheckExecution.HARD_TIME_LIMIT_SECONDS` |
-| Server max duration       | 3 h (per session)          | `GameServer.ts:157,351`                     |
-| Client autosave           | 25 turns                   | `SaveManager.ts:12`                         |
-| Server save trigger       | Creator leaves (any phase) | `GameServer.handleClientDisconnect`         |
-| Checkpoint cadence        | 200 turns                  | `Checkpoint.ts:36`                          |
-| Checkpoint transfer cap   | 900 000 chars              | `CheckpointCodec.ts:30`                     |
-| WS frame cap              | 1 MiB (inbound)            | `MatchTelemetryConfig.ts:3`, `Worker.ts:62` |
-| Client save cap           | 30 saves                   | `SaveStore.ts:24`                           |
-| Max turns                 | **102 300**                | derived, §3                                 |
+| Constant                  | Value                                | Location                                                    |
+| ------------------------- | ------------------------------------ | ----------------------------------------------------------- |
+| Spawn turns (private FFA) | 300                                  | `Config.numSpawnPhaseTurns`                                 |
+| Hard game time            | 170 min                              | `WinCheckExecution.HARD_TIME_LIMIT_SECONDS`                 |
+| Server max duration       | 3 h (per session)                    | `GameServer.ts:157,351`                                     |
+| Client autosave           | 25 turns                             | `SaveManager.ts:12`                                         |
+| Server save trigger       | Creator leaves, or graceful shutdown | `GameServer.handleClientDisconnect`; `GameManager.flushAll` |
+| Checkpoint cadence        | 200 turns                            | `Checkpoint.ts:36`                                          |
+| Checkpoint transfer cap   | 900 000 chars                        | `CheckpointCodec.ts:30`                                     |
+| WS frame cap              | 1 MiB (inbound)                      | `MatchTelemetryConfig.ts:3`, `Worker.ts:62`                 |
+| Client save cap           | 30 saves                             | `SaveStore.ts:24`                                           |
+| Max turns                 | **102 300**                          | derived, §3                                                 |
 
 **Verification commands**
 

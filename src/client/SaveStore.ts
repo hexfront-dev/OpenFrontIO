@@ -14,13 +14,18 @@ import {
 } from "../core/Schemas";
 
 const DB_NAME = "openfront-saves";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SAVE_STORE = "saves";
 const META_STORE = "meta";
 // B0: turns live in their own store keyed [saveId, turnNumber], so an autosave
 // appends only the turns since the last one instead of rewriting (and
 // re-validating) the whole history.
 const TURNS_STORE = "turns";
+// The core checkpoint is a multi-megabyte blob that only changes every
+// CHECKPOINT_EVERY_TURNS, but the head is rewritten on every autosave. Keeping
+// it in a sidecar keyed by saveId lets an autosave with an unchanged checkpoint
+// skip the structured clone entirely (mirrors the server's checkpoint sidecar).
+const CHECKPOINT_STORE = "checkpoints";
 
 // Keep disk usage bounded: old autosaves are dropped once this many exist.
 export const MAX_SAVES = 30;
@@ -156,6 +161,11 @@ interface StoredTurn extends Turn {
 
 class IndexedDbSaveBackend implements SaveBackend {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  // Identity of the checkpoint last written to the sidecar, so an autosave whose
+  // checkpoint is unchanged skips the multi-megabyte structured clone. The
+  // provider reuses the same object between captures, so reference equality is
+  // exact; a reload just costs one redundant write per save.
+  private readonly lastCheckpoint = new Map<string, unknown>();
 
   private open(): Promise<IDBDatabase> {
     this.dbPromise ??= new Promise((resolve, reject) => {
@@ -174,6 +184,9 @@ class IndexedDbSaveBackend implements SaveBackend {
           });
           turns.createIndex("bySave", "saveId");
         }
+        if (!db.objectStoreNames.contains(CHECKPOINT_STORE)) {
+          db.createObjectStore(CHECKPOINT_STORE, { keyPath: "saveId" });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -182,10 +195,29 @@ class IndexedDbSaveBackend implements SaveBackend {
   }
 
   async putHead(head: SavedGameHead, meta: SavedGameMeta): Promise<void> {
+    // The checkpoint lives in its own store so the small head can be rewritten
+    // every autosave without re-cloning the blob.
+    const { checkpoint, ...withoutCheckpoint } = head;
     const db = await this.open();
-    const tx = db.transaction([SAVE_STORE, META_STORE], "readwrite");
-    tx.objectStore(SAVE_STORE).put(head);
+    const tx = db.transaction(
+      [SAVE_STORE, META_STORE, CHECKPOINT_STORE],
+      "readwrite",
+    );
+    tx.objectStore(SAVE_STORE).put(withoutCheckpoint);
     tx.objectStore(META_STORE).put(meta);
+    if (checkpoint !== undefined) {
+      if (this.lastCheckpoint.get(head.saveId) !== checkpoint) {
+        tx.objectStore(CHECKPOINT_STORE).put({
+          saveId: head.saveId,
+          checkpoint,
+        });
+        this.lastCheckpoint.set(head.saveId, checkpoint);
+      }
+    } else {
+      // A save without a checkpoint must not resurrect a stale sidecar.
+      this.lastCheckpoint.delete(head.saveId);
+      tx.objectStore(CHECKPOINT_STORE).delete(head.saveId);
+    }
     await transactionDone(tx);
   }
 
@@ -216,7 +248,10 @@ class IndexedDbSaveBackend implements SaveBackend {
 
   async get(saveId: string): Promise<SavedGame | undefined> {
     const db = await this.open();
-    const tx = db.transaction([SAVE_STORE, TURNS_STORE], "readonly");
+    const tx = db.transaction(
+      [SAVE_STORE, TURNS_STORE, CHECKPOINT_STORE],
+      "readonly",
+    );
     const raw = await request<SavedGame | SavedGameHead | undefined>(
       tx.objectStore(SAVE_STORE).get(saveId),
     );
@@ -234,8 +269,18 @@ class IndexedDbSaveBackend implements SaveBackend {
         .index("bySave")
         .getAll(IDBKeyRange.only(saveId)),
     );
-    const { numTurns, ...rest } = head;
-    return { ...rest, turns: densifyTurns(rows, numTurns) } as SavedGame;
+    const sidecar = await request<
+      { saveId: string; checkpoint?: unknown } | undefined
+    >(tx.objectStore(CHECKPOINT_STORE).get(saveId));
+    // v3 keeps the checkpoint in a sidecar; fall back to a v2 inline one.
+    const checkpoint = sidecar?.checkpoint ?? head.checkpoint;
+    const { numTurns, checkpoint: _inline, ...rest } = head;
+    void _inline;
+    return {
+      ...rest,
+      ...(checkpoint !== undefined ? { checkpoint } : {}),
+      turns: densifyTurns(rows, numTurns),
+    } as SavedGame;
   }
 
   async listMeta(): Promise<SavedGameMeta[]> {
@@ -247,11 +292,12 @@ class IndexedDbSaveBackend implements SaveBackend {
   async delete(saveId: string): Promise<void> {
     const db = await this.open();
     const tx = db.transaction(
-      [SAVE_STORE, META_STORE, TURNS_STORE],
+      [SAVE_STORE, META_STORE, TURNS_STORE, CHECKPOINT_STORE],
       "readwrite",
     );
     tx.objectStore(SAVE_STORE).delete(saveId);
     tx.objectStore(META_STORE).delete(saveId);
+    tx.objectStore(CHECKPOINT_STORE).delete(saveId);
     tx.objectStore(TURNS_STORE).delete(
       IDBKeyRange.bound(
         [saveId, Number.MIN_SAFE_INTEGER],
@@ -259,6 +305,7 @@ class IndexedDbSaveBackend implements SaveBackend {
       ),
     );
     await transactionDone(tx);
+    this.lastCheckpoint.delete(saveId);
   }
 }
 
@@ -266,10 +313,26 @@ export class MemorySaveBackend implements SaveBackend {
   private heads = new Map<string, SavedGameHead>();
   private metas = new Map<string, SavedGameMeta>();
   private turns = new Map<string, Map<number, Turn>>();
+  // Checkpoints in a sidecar, deduped by reference like the IDB backend.
+  private checkpoints = new Map<string, unknown>();
+  private readonly lastCheckpoint = new Map<string, unknown>();
+  /** Number of checkpoint sidecar writes performed (telemetry/tests). */
+  public checkpointWrites = 0;
 
   async putHead(head: SavedGameHead, meta: SavedGameMeta): Promise<void> {
-    this.heads.set(head.saveId, structuredClone(head));
+    const { checkpoint, ...withoutCheckpoint } = head;
+    this.heads.set(head.saveId, structuredClone(withoutCheckpoint));
     this.metas.set(meta.saveId, structuredClone(meta));
+    if (checkpoint !== undefined) {
+      if (this.lastCheckpoint.get(head.saveId) !== checkpoint) {
+        this.checkpoints.set(head.saveId, structuredClone(checkpoint));
+        this.lastCheckpoint.set(head.saveId, checkpoint);
+        this.checkpointWrites++;
+      }
+    } else {
+      this.checkpoints.delete(head.saveId);
+      this.lastCheckpoint.delete(head.saveId);
+    }
   }
 
   async appendTurns(saveId: string, turns: Turn[]): Promise<void> {
@@ -291,8 +354,14 @@ export class MemorySaveBackend implements SaveBackend {
     }
     const stored = this.turns.get(saveId);
     const rows = stored === undefined ? [] : [...stored.values()];
-    const { numTurns, ...rest } = structuredClone(head);
-    return { ...rest, turns: densifyTurns(rows, numTurns) };
+    const checkpoint = this.checkpoints.get(saveId);
+    const { numTurns, checkpoint: _inline, ...rest } = structuredClone(head);
+    void _inline;
+    return {
+      ...rest,
+      ...(checkpoint !== undefined ? { checkpoint } : {}),
+      turns: densifyTurns(rows, numTurns),
+    } as SavedGame;
   }
 
   async listMeta(): Promise<SavedGameMeta[]> {
@@ -303,6 +372,8 @@ export class MemorySaveBackend implements SaveBackend {
     this.heads.delete(saveId);
     this.metas.delete(saveId);
     this.turns.delete(saveId);
+    this.checkpoints.delete(saveId);
+    this.lastCheckpoint.delete(saveId);
   }
 }
 

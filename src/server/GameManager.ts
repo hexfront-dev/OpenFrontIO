@@ -161,6 +161,17 @@ export class GameManager {
     return this.games.size;
   }
 
+  /**
+   * Persist every live private game. Called on graceful shutdown so a restart
+   * (e.g. a dev watcher) does not discard in-memory games that have not yet hit
+   * their creator-leave save. Best-effort: a failing game never blocks the rest.
+   */
+  public async flushAll(): Promise<void> {
+    await Promise.allSettled(
+      [...this.games.values()].map((game) => game.flushSave()),
+    );
+  }
+
   activeClients(): number {
     let totalClients = 0;
     this.games.forEach((game: GameServer) => {
