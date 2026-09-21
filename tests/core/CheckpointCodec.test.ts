@@ -66,6 +66,39 @@ function sampleCheckpoint(ticks = 42): GameCheckpoint {
   };
 }
 
+async function gunzipForTest(bytes: Uint8Array): Promise<Uint8Array> {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  }).pipeThrough(
+    // Same runtime contract (and same cast) as the codec's gunzip helper.
+    new DecompressionStream("gzip") as unknown as ReadableWritablePair<
+      Uint8Array<ArrayBuffer>,
+      Uint8Array<ArrayBufferLike>
+    >,
+  );
+  const reader = stream.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value !== undefined) {
+      parts.push(value);
+      total += value.length;
+    }
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
 describe("CheckpointCodec", () => {
   it("round-trips bigints and typed arrays", () => {
     const original = sampleCheckpoint();
@@ -133,6 +166,39 @@ describe("CheckpointCodec", () => {
       expect(decoded).toBeDefined();
       expect(Array.from(decoded!.map.terrain)).toEqual([0, 1, 2, 255]);
       expect(decoded!.numMirvsLaunched).toBe(12345678901234567890n);
+    });
+
+    it("gzip payload is binary (GZCP magic), not base64 JSON", async () => {
+      const wire = await encodeCheckpointGzip(sampleCheckpoint());
+      const bytes = Uint8Array.from(atob(wire.slice("gz:".length)), (c) =>
+        c.charCodeAt(0),
+      );
+      const payload = await gunzipForTest(bytes);
+      expect(String.fromCharCode(...payload.slice(0, 4))).toBe("GZCP");
+    });
+
+    it("round-trips a large map's raw typed arrays exactly", async () => {
+      const original = sampleCheckpoint();
+      const n = 5000;
+      original.map.terrain = Uint8Array.from({ length: n }, (_, i) => i % 256);
+      original.map.state = Uint16Array.from(
+        { length: n },
+        (_, i) => (i * 7) % 65536,
+      );
+      original.miniMap.terrain = new Uint8Array([1, 2, 3]);
+      original.miniMap.state = new Uint16Array([40000, 65535]);
+
+      const decoded = await decodeCheckpointWire(
+        await encodeCheckpointGzip(original),
+      );
+      expect(decoded).toBeDefined();
+      expect(decoded!.map.terrain.length).toBe(n);
+      expect(decoded!.map.state.length).toBe(n);
+      expect(decoded!.map.terrain[255]).toBe(255);
+      expect(Array.from(decoded!.map.state.slice(0, 5))).toEqual([
+        0, 7, 14, 21, 28,
+      ]);
+      expect(Array.from(decoded!.miniMap.state)).toEqual([40000, 65535]);
     });
 
     it("decodes a plaintext wire checkpoint through the same entry point", async () => {

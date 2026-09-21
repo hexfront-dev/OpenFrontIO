@@ -55,6 +55,24 @@ export const MAX_CHECKPOINT_CAPTURE_BYTES = 64 * 1024 * 1024;
 // while still capping the worst case.
 export const MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES = 256 * 1024 * 1024;
 
+// Phase 8: the compressed form no longer base64-encodes the map into tagged JSON
+// before gzipping. Instead the payload is `magic | version | lengths | small
+// tagged-JSON body (everything but the map arrays) | raw map typed-array bytes`,
+// so building a multi-megabyte base64 string is avoided. The decoder still
+// accepts the old tagged-JSON-gzip payloads (the body then starts with "{").
+const BINARY_MAGIC = 0x475a4350; // "GZCP"
+const BINARY_VERSION = 1;
+// magic(4) + version(1) + flags(1) + five uint32 lengths (body, main
+// terrain/state, mini terrain/state). A flags bit marks each typed array
+// present; an absent one stays in the JSON body untouched.
+const BINARY_HEADER_BYTES = 26;
+const SLOT_MAIN_TERRAIN = 1 << 0;
+const SLOT_MAIN_STATE = 1 << 1;
+const SLOT_MINI_TERRAIN = 1 << 2;
+const SLOT_MINI_STATE = 1 << 3;
+const SLOT_KNOWN_MASK =
+  SLOT_MAIN_TERRAIN | SLOT_MAIN_STATE | SLOT_MINI_TERRAIN | SLOT_MINI_STATE;
+
 /** True when a wire checkpoint is a `gz:`-prefixed gzip payload. */
 export function isCompressedCheckpoint(serialized: string): boolean {
   return serialized.startsWith(CHECKPOINT_COMPRESSED_PREFIX);
@@ -352,16 +370,180 @@ async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
   return await collectStream(stream);
 }
 
+// Enqueue each part as its own chunk so the raw map buffers are gzipped in
+// place (no extra concatenation copy, and no base64 of the map).
+function partsToStream(parts: Uint8Array[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) {
+        controller.enqueue(part);
+      }
+      controller.close();
+    },
+  });
+}
+
+/** Byte view of a typed array, or null when the field is absent/another type. */
+function typedArrayBytes(
+  value: unknown,
+  kind: "u8" | "u16",
+): Uint8Array | null {
+  if (kind === "u8" && value instanceof Uint8Array) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (kind === "u16" && value instanceof Uint16Array) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return null;
+}
+
+/**
+ * Split a checkpoint into the binary payload: a small tagged-JSON body (every
+ * field except the map typed arrays) followed by the raw map bytes. A typed
+ * array is moved to the binary section and marked in the flags; anything else
+ * (including a structurally-minimal `map: {}`) stays in the body so the JSON
+ * semantics are unchanged.
+ */
+function buildBinaryParts(checkpoint: GameCheckpoint): Uint8Array[] {
+  const main = checkpoint.map as MapStateCheckpoint;
+  const mini = checkpoint.miniMap as MapStateCheckpoint | undefined;
+  const mapRest: Record<string, unknown> = { ...main };
+  const miniRest: Record<string, unknown> | undefined =
+    mini === undefined ? undefined : { ...mini };
+  const slots: (Uint8Array | null)[] = [
+    typedArrayBytes(main.terrain, "u8"),
+    typedArrayBytes(main.state, "u16"),
+    typedArrayBytes(mini?.terrain, "u8"),
+    typedArrayBytes(mini?.state, "u16"),
+  ];
+  const fields = ["terrain", "state"] as const;
+  let flags = 0;
+  slots.forEach((bytes, i) => {
+    if (bytes === null) return;
+    flags |= 1 << i;
+    const target = i < 2 ? mapRest : miniRest;
+    if (target !== undefined) delete target[fields[i % 2]];
+  });
+  const bodyObj: Record<string, unknown> = { ...checkpoint, map: mapRest };
+  if (miniRest !== undefined) bodyObj.miniMap = miniRest;
+  const body = new TextEncoder().encode(JSON.stringify(bodyObj, replacer));
+
+  const [mainTerrain, mainState, miniTerrain, miniState] = slots;
+  const header = new Uint8Array(BINARY_HEADER_BYTES);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, BINARY_MAGIC);
+  view.setUint8(4, BINARY_VERSION);
+  view.setUint8(5, flags);
+  view.setUint32(6, body.length);
+  view.setUint32(10, mainTerrain?.length ?? 0);
+  view.setUint32(14, mainState?.length ?? 0);
+  view.setUint32(18, miniTerrain?.length ?? 0);
+  view.setUint32(22, miniState?.length ?? 0);
+  return [
+    header,
+    body,
+    ...slots.filter((bytes): bytes is Uint8Array => bytes !== null),
+  ];
+}
+
+function isBinaryCheckpoint(payload: Uint8Array): boolean {
+  if (payload.byteLength < BINARY_HEADER_BYTES) return false;
+  const view = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  );
+  return (
+    view.getUint32(0) === BINARY_MAGIC && view.getUint8(4) === BINARY_VERSION
+  );
+}
+
+function decodeBinaryCheckpoint(
+  payload: Uint8Array,
+): GameCheckpoint | undefined {
+  if (!isBinaryCheckpoint(payload)) return undefined;
+  const view = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  );
+  const flags = view.getUint8(5);
+  let offset = 6;
+  const bodyLen = view.getUint32(offset);
+  offset += 4;
+  const lens: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    lens.push(view.getUint32(offset));
+    offset += 4;
+  }
+  const arrayBytes = lens.reduce((sum, len) => sum + len, 0);
+  if (
+    (flags & ~SLOT_KNOWN_MASK) !== 0 ||
+    lens[1] % 2 !== 0 ||
+    lens[3] % 2 !== 0 ||
+    BINARY_HEADER_BYTES + bodyLen + arrayBytes > payload.byteLength
+  ) {
+    return undefined;
+  }
+  const bodyBytes = payload.subarray(offset, offset + bodyLen);
+  offset += bodyLen;
+  const slots: (Uint8Array | null)[] = [];
+  for (let i = 0; i < 4; i++) {
+    const present = (flags & (1 << i)) !== 0;
+    if (present !== lens[i] > 0) return undefined;
+    if (!present) {
+      slots.push(null);
+      continue;
+    }
+    // A copy makes a zero-offset buffer, so the Uint16 views below are aligned
+    // and own their memory.
+    slots.push(payload.slice(offset, offset + lens[i]));
+    offset += lens[i];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bodyBytes), reviver);
+  } catch {
+    return undefined;
+  }
+  if (!isGameCheckpoint(parsed)) return undefined;
+  const map = parsed.map as MapStateCheckpoint;
+  if (slots[0] !== null) map.terrain = slots[0];
+  if (slots[1] !== null) {
+    map.state = new Uint16Array(
+      slots[1].buffer,
+      slots[1].byteOffset,
+      slots[1].length / 2,
+    );
+  }
+  const mini = parsed.miniMap as MapStateCheckpoint | undefined;
+  if (slots[2] !== null) {
+    if (mini === undefined) return undefined;
+    mini.terrain = slots[2];
+  }
+  if (slots[3] !== null) {
+    if (mini === undefined) return undefined;
+    mini.state = new Uint16Array(
+      slots[3].buffer,
+      slots[3].byteOffset,
+      slots[3].length / 2,
+    );
+  }
+  return parsed;
+}
+
 /**
  * Serialize a checkpoint to a `gz:`-prefixed base64 gzip payload. Used when the
  * plain tagged-JSON would exceed the single-frame transfer cap; the server can
- * reassemble the chunked payload and hand it back verbatim on resume.
+ * reassemble the chunked payload and hand it back verbatim on resume. The map
+ * typed arrays are gzipped as raw bytes rather than base64-in-JSON, which was
+ * the dominant encode cost on large maps.
  */
 export async function encodeCheckpointGzip(
   checkpoint: GameCheckpoint,
 ): Promise<string> {
-  const bytes = new TextEncoder().encode(encodeCheckpoint(checkpoint));
-  const stream = bytesToStream(bytes).pipeThrough(
+  const stream = partsToStream(buildBinaryParts(checkpoint)).pipeThrough(
     new CompressionStream("gzip") as unknown as GzipTransform,
   );
   const compressed = await collectStream(stream);
@@ -370,8 +552,9 @@ export async function encodeCheckpointGzip(
 
 /**
  * Decode a wire checkpoint that is either plain tagged-JSON or a `gz:`-prefixed
- * gzip payload. Unknown/hostile input (or an environment without
- * DecompressionStream) yields undefined so the caller falls back to replay.
+ * gzip payload (Phase 8 binary, or a legacy tagged-JSON body). Unknown/hostile
+ * input (or an environment without DecompressionStream) yields undefined so the
+ * caller falls back to replay.
  */
 export async function decodeCheckpointWire(
   serialized: string,
@@ -382,14 +565,22 @@ export async function decodeCheckpointWire(
   if (typeof DecompressionStream === "undefined") {
     return undefined;
   }
-  let json: string;
+  let payload: Uint8Array;
   try {
     const bytes = base64ToBytes(
       serialized.slice(CHECKPOINT_COMPRESSED_PREFIX.length),
     );
-    json = new TextDecoder().decode(await gunzip(bytes));
+    payload = await gunzip(bytes);
   } catch {
     return undefined;
   }
-  return decodeCheckpoint(json);
+  if (isBinaryCheckpoint(payload)) {
+    return decodeBinaryCheckpoint(payload);
+  }
+  // Legacy: the pre-Phase-8 payload was the tagged-JSON checkpoint itself.
+  try {
+    return decodeCheckpoint(new TextDecoder().decode(payload));
+  } catch {
+    return undefined;
+  }
 }

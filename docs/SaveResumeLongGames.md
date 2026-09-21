@@ -92,7 +92,7 @@ IDs are validated with `GAME_ID_REGEX`.
 
 ### 2.5 Checkpoint capture and transport
 
-- Worker captures at `CHECKPOINT_EVERY_TURNS = 200`
+- Worker captures at `CHECKPOINT_EVERY_TURNS = 500`
   (`Worker.worker.ts:159-175`) by calling `GameImpl.checkpoint()`, which returns
   `undefined` (→ full-replay fallback) if any live execution cannot serialize.
 - `GameImpl.checkpoint()` (`GameImpl.ts:1482`) copies every player, unit, attack,
@@ -105,11 +105,14 @@ IDs are validated with `GAME_ID_REGEX`.
   `DoomsdayClockExecution`, `NationUtils.randTerritoryTile`).
 - `GameCheckpoint.ticks` semantics: a checkpoint at tick T covers turns `[0,T)`.
 - The lobby **creator's** client volunteers the blob:
-  `ClientGameRunner.uploadCheckpoint` → `encodeCheckpoint` (tagged JSON, base64
-  for typed arrays) → `Transport.sendCheckpoint` → server
-  `handleClientCheckpoint` (`GameServer.ts:1102`), accepted only if private +
-  creator + `<= MAX_CHECKPOINT_TRANSFER_BYTES` (900 000 chars) + decodes +
-  `0 <= ticks <= turns.length` + not older than the held one.
+  `ClientGameRunner.uploadCheckpoint` → `encodeCheckpointGzip` → gzip →
+  `Transport.sendCheckpoint` → server `handleClientCheckpoint`
+  (`GameServer.ts:1102`), accepted only if private + creator +
+  `<= MAX_CHECKPOINT_TRANSFER_BYTES` (900 000 chars) + decodes +
+  `0 <= ticks <= turns.length` + not older than the held one. Phase 8: the gzip
+  payload is binary (`GZCP`: a small tagged-JSON body plus the raw map typed
+  arrays), so the multi-megabyte base64/JSON expansion of the map is gone — the
+  encoded size of a large checkpoint dropped ~8× in the encode+gzip step.
 - On resume, `GameServer.sendStartGameMsg` (`GameServer.ts:1603`) sends the
   checkpoint plus turns `checkpoint.ticks..end`; otherwise it sends the whole
   history from `lastTurn`. Client `beginCatchUp` hides the replay off-screen.
@@ -239,7 +242,7 @@ Severity: H = can break or block long games; M = degrades; L = hygiene.
 - **H — Checkpoint encode before the size check.** `uploadCheckpoint`
   (`ClientGameRunner.ts:936-940`) builds the full tagged-JSON string, then tests
   `> 900_000`. On any real map that is a multi-MB (up to ~40 MB) allocation every
-  200 ticks, discarded.
+  500 ticks, discarded.
 - **M — `latestCheckpoint` retained all game** (one full checkpoint).
 - **M — IndexedDB quota.** `MAX_SAVES = 30` caps count, not bytes; long saves can
   raise `QuotaExceededError` and never persist.
@@ -459,7 +462,7 @@ bytes per game beyond budget.
 | Server max duration       | 3 h (per session)                    | `GameServer.ts:157,351`                                     |
 | Client autosave           | 25 turns                             | `SaveManager.ts:12`                                         |
 | Server save trigger       | Creator leaves, or graceful shutdown | `GameServer.handleClientDisconnect`; `GameManager.flushAll` |
-| Checkpoint cadence        | 200 turns                            | `Checkpoint.ts:36`                                          |
+| Checkpoint cadence        | 500 turns                            | `Checkpoint.ts:36`                                          |
 | Checkpoint transfer cap   | 900 000 chars                        | `CheckpointCodec.ts:30`                                     |
 | WS frame cap              | 1 MiB (inbound)                      | `MatchTelemetryConfig.ts:3`, `Worker.ts:62`                 |
 | Client save cap           | 30 saves                             | `SaveStore.ts:24`                                           |
