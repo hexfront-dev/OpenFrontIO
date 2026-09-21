@@ -237,7 +237,7 @@ describe("GameServer restore", () => {
   });
 });
 
-describe("GameServer autosave", () => {
+describe("GameServer creator-leave save", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(T0);
@@ -247,7 +247,56 @@ describe("GameServer autosave", () => {
     vi.useRealTimers();
   });
 
-  it("checkpoints a started private game every SAVE_EVERY_TURNS turns", async () => {
+  it("saves a started private game only when the creator leaves", async () => {
+    const saveStore = new MemorySaveStore();
+    const game = makeGame({
+      creatorPersistentID: "host-pid",
+      deps: { saveStore },
+    });
+    const host = makeClient({
+      clientID: cid("host"),
+      persistentID: "host-pid",
+    });
+    game.joinClient(host);
+    startGame(game);
+
+    // There is no periodic autosave: 25 turns with the creator present writes
+    // nothing.
+    await vi.advanceTimersByTimeAsync(25 * TURN_MS);
+    expect(await saveStore.load(game.id)).toBeNull();
+
+    // The creator's socket closing is the save trigger.
+    await mockWsOf(host).trigger("close");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const loaded = await saveStore.load(game.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.stage).toBe("started");
+    expect(loaded!.turns.length).toBeGreaterThanOrEqual(25);
+  });
+
+  it("saves an unstarted lobby when the creator leaves", async () => {
+    const saveStore = new MemorySaveStore();
+    const game = makeGame({
+      creatorPersistentID: "host-pid",
+      deps: { saveStore },
+    });
+    const host = makeClient({
+      clientID: cid("host"),
+      persistentID: "host-pid",
+    });
+    game.joinClient(host);
+
+    await mockWsOf(host).trigger("close");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const loaded = await saveStore.load(game.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.stage).toBe("lobby");
+    expect(loaded!.seats.map((s) => s.clientID)).toEqual([cid("host")]);
+  });
+
+  it("does not save when a non-creator leaves", async () => {
     const saveStore = new MemorySaveStore();
     const game = makeGame({
       creatorPersistentID: "host-pid",
@@ -256,14 +305,15 @@ describe("GameServer autosave", () => {
     game.joinClient(
       makeClient({ clientID: cid("host"), persistentID: "host-pid" }),
     );
+    const p2 = makeClient({ clientID: cid("p2"), persistentID: "p2-pid" });
+    game.joinClient(p2);
     startGame(game);
-
-    // 25 turns triggers the first checkpoint; async writes settle between ticks.
     await vi.advanceTimersByTimeAsync(25 * TURN_MS);
 
-    const loaded = await saveStore.load(game.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.turns.length).toBeGreaterThanOrEqual(25);
+    await mockWsOf(p2).trigger("close");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await saveStore.load(game.id)).toBeNull();
   });
 });
 

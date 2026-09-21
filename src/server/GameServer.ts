@@ -91,10 +91,8 @@ const KICK_REASON_ADMIN = "kick_reason.admin";
 const KICK_REASON_HOST_LEFT = "kick_reason.host_left";
 const KICK_REASON_MATCH_CANCELLED = "kick_reason.match_cancelled";
 
-// Autosave cadence for resumable private games (turns). The store write is
-// throttled further by SAVE_MIN_INTERVAL_MS, so a fast game saves less often.
-const SAVE_EVERY_TURNS = 25;
-const SAVE_MIN_INTERVAL_MS = 3000;
+// Resumable private games are persisted only when their creator leaves (see
+// handleClientDisconnect): there is no periodic autosave and no other trigger.
 
 export interface GameServerOptions {
   id: string;
@@ -218,7 +216,6 @@ export class GameServer {
   private resumeStarted = false;
   private saveInFlight = false;
   private saveQueued = false;
-  private lastSaveAt = 0;
   // Index of the last turn already written to the save store. Autosaves append
   // only `turns[lastPersistedTurn + 1 ..]`, so a save costs O(delta). Reset to
   // the restored history length on applyRestore so the first resume autosave
@@ -563,23 +560,16 @@ export class GameServer {
     }));
   }
 
-  // Fire-and-forget persistence, de-duplicated and rate limited so a burst of
-  // roster/config changes cannot queue a write per event. The sim is never
-  // blocked on the store.
-  public scheduleSave(force = false): void {
+  // Fire-and-forget persistence, de-duplicated so overlapping leaves cannot
+  // queue a write per event. Called only when the game's creator leaves; the
+  // sim is never blocked on the store.
+  public scheduleSave(): void {
     if (this.isPublic() || this.creatorPersistentID === undefined) {
       return;
     }
     if (this.saveInFlight) {
       // A write is already running; remember to take one more afterwards so
       // the newest state lands without queueing a write per event.
-      this.saveQueued = true;
-      return;
-    }
-    const now = Date.now();
-    // Roster/config events are rate limited; the periodic turn autosave
-    // (force) is not, since it is already spaced by SAVE_EVERY_TURNS.
-    if (!force && now - this.lastSaveAt < SAVE_MIN_INTERVAL_MS) {
       this.saveQueued = true;
       return;
     }
@@ -594,7 +584,6 @@ export class GameServer {
     const fromTurn = this.lastPersistedTurn + 1;
     const persistedThrough = snapshot.turns.length - 1;
     this.saveInFlight = true;
-    this.lastSaveAt = Date.now();
     void this.deps.saveStore
       .save(snapshot, fromTurn)
       .then(() => {
@@ -674,7 +663,6 @@ export class GameServer {
 
   public updateGameConfig(gameConfig: Partial<GameConfig>): void {
     applyGameConfigPatch(this.gameConfig, gameConfig);
-    this.scheduleSave();
   }
 
   // Dispatch a control/gameplay intent from either a websocket client or the
@@ -999,7 +987,6 @@ export class GameServer {
         this.ensureTurnLoop();
       }
     }
-    this.scheduleSave();
 
     return "joined";
   }
@@ -1076,7 +1063,6 @@ export class GameServer {
         this.ensureTurnLoop();
       }
     }
-    this.scheduleSave();
     return true;
   }
 
@@ -1300,13 +1286,24 @@ export class GameServer {
     }
     this.checkpoint = wire;
     this.checkpointTurn = checkpoint.ticks;
-    // Land it on disk without waiting for the next periodic autosave.
-    this.scheduleSave();
   }
 
   private handleClientDisconnect(client: Client) {
     this.clients.markLeft(client);
     this.checkWinnerAfterElectorateShrink();
+
+    // Server-hosted saves are creator-leave triggered: this is the only moment
+    // a resumable private game is persisted (no periodic autosave). Save before
+    // the pre-start branch below kicks everyone and ends the lobby, so the
+    // roster is still intact in the snapshot.
+    if (
+      !this.isPublic() &&
+      this.creatorPersistentID !== undefined &&
+      client.persistentID === this.creatorPersistentID
+    ) {
+      this.log.info("creator left, saving game", { gameID: this.id });
+      this.scheduleSave();
+    }
 
     // hasStarted() includes prestart: during the lobby -> game transition
     // clients reconnect, and a host socket closing then must not tear the
@@ -1598,7 +1595,6 @@ export class GameServer {
       });
       this.sendStartGameMsg(c.ws, 0);
     });
-    this.scheduleSave();
   }
 
   // Arm the per-turn interval at most once. Restored games call this on the
@@ -1906,12 +1902,6 @@ export class GameServer {
     };
     this.turns.push(pastTurn);
     this.intents = [];
-    // Autosave a resumable private game periodically. Forced because the turn
-    // spacing already rate limits it (the roster/config throttle does not
-    // apply to a checkpoint that must not be skipped).
-    if (this.turns.length % SAVE_EVERY_TURNS === 0) {
-      this.scheduleSave(true);
-    }
     const counts = this.telemetry.takeTickCounts(pastTurn.turnNumber);
     this.telemetry.emit(
       "turn_committed",

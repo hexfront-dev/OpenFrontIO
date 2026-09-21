@@ -71,10 +71,12 @@ IDs are validated with `GAME_ID_REGEX`.
 
 ### 2.4 Cadence and cost
 
-- Server `endTurn()` pushes each turn and, every `SAVE_EVERY_TURNS = 25`,
-  calls `scheduleSave(true)` (`GameServer.ts:1679`). `force` bypasses
-  `SAVE_MIN_INTERVAL_MS = 3000`; the only throttle is single-in-flight
-  de-duplication (`GameServer.ts:516-566`).
+- Server saves are **creator-leave triggered**: `handleClientDisconnect` calls
+  `scheduleSave()` only when the disconnecting client is the game's creator
+  (`GameServer.handleClientDisconnect`). There is no periodic turn autosave and
+  no join/config/checkpoint-upload save; the only throttle is single-in-flight
+  de-duplication. A server crash/restart therefore loses everything since the
+  creator last left, which is an accepted trade for lower write churn.
 - `SaveStore.save(snapshot, fromTurn)` validates/encodes only the head and turns
   `>= fromTurn`, appends the delta to `history.gz`, rewrites `head.json` and
   `meta.json`, and — whenever `snapshot.checkpoint !== undefined` — re-gzips and
@@ -234,9 +236,9 @@ Severity: H = can break or block long games; M = degrades; L = hygiene.
 
 ### Server
 
-- **H — Checkpoint sidecar rewritten every autosave.** `persistSave` runs every
-  25 turns, forced, and `SaveStore.save` re-gzips/writes `checkpoint.json.gz`
-  whenever present, even unchanged (`SaveStore.ts:187-189`).
+- **H — Checkpoint sidecar rewritten on every save.** `persistSave` now runs only
+  when the creator leaves, but each such save still re-gzips/writes
+  `checkpoint.json.gz` when the checkpoint changed (`SaveStore.ts:187-189`).
 - **H — Resume without a usable checkpoint sends the whole history in one
   `start` frame** (`GameServer.ts:1631-1646`). This is the path every real map
   takes today, and it worsens with length. `ws` `maxPayload` bounds inbound only,
@@ -440,19 +442,18 @@ bytes per game beyond budget.
 
 ## 13. Appendix — constants and references
 
-| Constant                  | Value                          | Location                                    |
-| ------------------------- | ------------------------------ | ------------------------------------------- |
-| Spawn turns (private FFA) | 300                            | `Config.numSpawnPhaseTurns`                 |
-| Hard game time            | 170 min                        | `WinCheckExecution.HARD_TIME_LIMIT_SECONDS` |
-| Server max duration       | 3 h (per session)              | `GameServer.ts:157,351`                     |
-| Client autosave           | 25 turns                       | `SaveManager.ts:12`                         |
-| Server autosave           | 25 turns (forced)              | `GameServer.ts:91,1679`                     |
-| Server min interval       | 3000 ms (bypassed when forced) | `GameServer.ts:92,529`                      |
-| Checkpoint cadence        | 200 turns                      | `Checkpoint.ts:36`                          |
-| Checkpoint transfer cap   | 900 000 chars                  | `CheckpointCodec.ts:30`                     |
-| WS frame cap              | 1 MiB (inbound)                | `MatchTelemetryConfig.ts:3`, `Worker.ts:62` |
-| Client save cap           | 30 saves                       | `SaveStore.ts:24`                           |
-| Max turns                 | **102 300**                    | derived, §3                                 |
+| Constant                  | Value                      | Location                                    |
+| ------------------------- | -------------------------- | ------------------------------------------- |
+| Spawn turns (private FFA) | 300                        | `Config.numSpawnPhaseTurns`                 |
+| Hard game time            | 170 min                    | `WinCheckExecution.HARD_TIME_LIMIT_SECONDS` |
+| Server max duration       | 3 h (per session)          | `GameServer.ts:157,351`                     |
+| Client autosave           | 25 turns                   | `SaveManager.ts:12`                         |
+| Server save trigger       | Creator leaves (any phase) | `GameServer.handleClientDisconnect`         |
+| Checkpoint cadence        | 200 turns                  | `Checkpoint.ts:36`                          |
+| Checkpoint transfer cap   | 900 000 chars              | `CheckpointCodec.ts:30`                     |
+| WS frame cap              | 1 MiB (inbound)            | `MatchTelemetryConfig.ts:3`, `Worker.ts:62` |
+| Client save cap           | 30 saves                   | `SaveStore.ts:24`                           |
+| Max turns                 | **102 300**                | derived, §3                                 |
 
 **Verification commands**
 
