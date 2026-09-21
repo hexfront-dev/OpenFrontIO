@@ -4,8 +4,13 @@ import { GameCheckpoint } from "../core/Checkpoint";
 import {
   checkpointFitsTransferBudget,
   decodeCheckpoint,
+  decodeCheckpointWire,
   encodeCheckpoint,
+  encodeCheckpointGzip,
+  isCompressedCheckpoint,
+  MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES,
   MAX_CHECKPOINT_TRANSFER_BYTES,
+  projectCheckpointBytes,
 } from "../core/CheckpointCodec";
 import { EventBus } from "../core/EventBus";
 import {
@@ -292,8 +297,71 @@ export function joinLobby(
       resolveJoin();
       // For multiplayer games, GameStartInfo is not known until game starts.
       lobbyConfig.gameStartInfo = message.gameStartInfo;
+      const startGame = () => {
+        createClientGame(
+          lobbyConfig,
+          clientID,
+          eventBus,
+          transport,
+          userSettings,
+          terrainLoad,
+          terrainMapFileLoader,
+        )
+          .then((r) => {
+            currentGameRunner = r;
+            r.start();
+          })
+          .catch((e) => {
+            console.error("error creating client game", e);
+
+            currentGameRunner = null;
+
+            const startingModal = document.querySelector(
+              "game-starting-modal",
+            ) as HTMLElement;
+            if (startingModal) {
+              startingModal.classList.add("hidden");
+            }
+            // No GPU-accelerated WebGL2: gate with an actionable message rather
+            // than the generic crash modal (the game would crawl at ~1fps).
+            if (e instanceof GLUnavailableError) {
+              showGLGate(e.glStatus);
+              return;
+            }
+            showErrorModal(
+              e.message,
+              e.stack,
+              lobbyConfig.gameID,
+              clientID,
+              true,
+              false,
+              "error_modal.connection_error",
+            );
+          });
+      };
       // B2: a server-hosted resume carries its core checkpoint here. Decode it
       // before the worker is built so it restores state before the suffix.
+      // Phase 7: a `gz:` checkpoint decodes asynchronously, so the worker build
+      // waits on it (the chunked upload the host sent is reassembled server-side
+      // and handed back as one compressed string).
+      if (
+        message.checkpoint !== undefined &&
+        isCompressedCheckpoint(message.checkpoint)
+      ) {
+        void decodeCheckpointWire(message.checkpoint)
+          .then((checkpoint) => {
+            if (checkpoint !== undefined) {
+              lobbyConfig.resumeCheckpoint = checkpoint;
+            } else {
+              console.warn("dropping unreadable server checkpoint");
+            }
+          })
+          .catch((e) => {
+            console.warn("dropping unreadable server checkpoint", e);
+          })
+          .finally(startGame);
+        return;
+      }
       if (message.checkpoint !== undefined) {
         const checkpoint = decodeCheckpoint(message.checkpoint);
         if (checkpoint !== undefined) {
@@ -302,46 +370,7 @@ export function joinLobby(
           console.warn("dropping unreadable server checkpoint");
         }
       }
-      createClientGame(
-        lobbyConfig,
-        clientID,
-        eventBus,
-        transport,
-        userSettings,
-        terrainLoad,
-        terrainMapFileLoader,
-      )
-        .then((r) => {
-          currentGameRunner = r;
-          r.start();
-        })
-        .catch((e) => {
-          console.error("error creating client game", e);
-
-          currentGameRunner = null;
-
-          const startingModal = document.querySelector(
-            "game-starting-modal",
-          ) as HTMLElement;
-          if (startingModal) {
-            startingModal.classList.add("hidden");
-          }
-          // No GPU-accelerated WebGL2: gate with an actionable message rather
-          // than the generic crash modal (the game would crawl at ~1fps).
-          if (e instanceof GLUnavailableError) {
-            showGLGate(e.glStatus);
-            return;
-          }
-          showErrorModal(
-            e.message,
-            e.stack,
-            lobbyConfig.gameID,
-            clientID,
-            true,
-            false,
-            "error_modal.connection_error",
-          );
-        });
+      startGame();
     }
     if (message.type === "error") {
       if (message.error === "full-lobby") {
@@ -867,6 +896,17 @@ interface GameStartingModalElement extends HTMLElement {
 }
 
 export class ClientGameRunner {
+  // Phase 7: gzip + chunk a checkpoint that does not fit a single frame. Static
+  // so a mixed-version fleet can disable it (the plaintext/one-frame path and
+  // full-history replay remain). Compression only runs for maps whose projected
+  // size is small enough that it cannot become an unbounded main-thread stall;
+  // larger maps deliberately keep using history replay (see the design doc).
+  public static CHECKPOINT_COMPRESSION = true;
+  public static CHECKPOINT_COMPRESSION_MAX_INPUT_BYTES = 16 * 1024 * 1024;
+  // Base64 characters per `checkpoint_chunk` frame, well under the single-frame
+  // transfer cap so the zbin envelope always fits.
+  private static CHECKPOINT_CHUNK_CHARS = 700_000;
+
   private myPlayer: PlayerView | null = null;
   private isActive = false;
 
@@ -937,20 +977,57 @@ export class ClientGameRunner {
   // B2: send the latest core checkpoint back to the server so a server-hosted
   // resume can restore instead of replaying from turn 0. Only the host uploads;
   // an oversized blob is skipped and the save falls back to full history.
-  private uploadCheckpoint(checkpoint: GameCheckpoint): void {
+  private async uploadCheckpoint(checkpoint: GameCheckpoint): Promise<void> {
     if (this.transport.isLocal || !this.isLobbyCreator()) return;
     if (checkpoint.ticks <= this.lastUploadedCheckpointTick) return;
-    // Budget guard before encoding: on every real map the projected size is far
-    // over the cap, so this skips a multi-megabyte string allocation and lets
-    // the resume fall back to (chunked) full-history replay.
-    if (!checkpointFitsTransferBudget(checkpoint)) {
+    // Budget guard before encoding: a projected-oversized plaintext checkpoint
+    // skips the multi-megabyte string allocation. A small one is sent as-is.
+    if (checkpointFitsTransferBudget(checkpoint)) {
+      const serialized = encodeCheckpoint(checkpoint);
+      this.lastUploadedCheckpointTick = checkpoint.ticks;
+      if (serialized.length > MAX_CHECKPOINT_TRANSFER_BYTES) return;
+      this.transport.sendCheckpoint(serialized);
+      return;
+    }
+    // Phase 7: a too-big plaintext checkpoint may still fit compressed. Skip it
+    // entirely when compression is off or the raw state is so large that gzip
+    // itself would stall the client; those maps resume from history.
+    if (
+      !ClientGameRunner.CHECKPOINT_COMPRESSION ||
+      projectCheckpointBytes(checkpoint) >
+        ClientGameRunner.CHECKPOINT_COMPRESSION_MAX_INPUT_BYTES
+    ) {
       this.lastUploadedCheckpointTick = checkpoint.ticks;
       return;
     }
-    const serialized = encodeCheckpoint(checkpoint);
+    // Mark attempted before the await so a slow compression cannot race a newer
+    // checkpoint into a duplicate upload of an older one.
     this.lastUploadedCheckpointTick = checkpoint.ticks;
-    if (serialized.length > MAX_CHECKPOINT_TRANSFER_BYTES) return;
-    this.transport.sendCheckpoint(serialized);
+    let wire: string;
+    try {
+      wire = await encodeCheckpointGzip(checkpoint);
+    } catch {
+      return;
+    }
+    if (wire.length > MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES) return;
+    if (wire.length <= MAX_CHECKPOINT_TRANSFER_BYTES) {
+      this.transport.sendCheckpoint(wire);
+      return;
+    }
+    const chunkChars = ClientGameRunner.CHECKPOINT_CHUNK_CHARS;
+    const total = Math.ceil(wire.length / chunkChars);
+    const uploadId = `${checkpoint.ticks}-${Date.now()}-${Math.floor(
+      Math.random() * 1e9,
+    )}`;
+    for (let seq = 0; seq < total; seq++) {
+      this.transport.sendCheckpointChunk({
+        uploadId,
+        seq,
+        total,
+        encoding: "gzip",
+        data: wire.slice(seq * chunkChars, (seq + 1) * chunkChars),
+      });
+    }
   }
 
   /**
@@ -1017,7 +1094,7 @@ export class ClientGameRunner {
     // each autosave.
     this.worker.setCheckpointCallback((checkpoint) => {
       this.latestCheckpoint = checkpoint;
-      this.uploadCheckpoint(checkpoint);
+      void this.uploadCheckpoint(checkpoint);
     });
     this.saveManager.setCheckpointProvider(() => this.latestCheckpoint);
     setTimeout(() => {

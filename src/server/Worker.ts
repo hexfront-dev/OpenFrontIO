@@ -34,7 +34,7 @@ import { MapPlaylist } from "./MapPlaylist";
 import { setNoStoreHeaders } from "./NoStoreHeaders";
 import { startPolling } from "./PollingLoop";
 import { PrivilegeRefresher } from "./PrivilegeRefresher";
-import { FilesystemSaveStore } from "./SaveStore";
+import { FilesystemSaveStore, startSaveRetention } from "./SaveStore";
 import { ServerEnv } from "./ServerEnv";
 import { applyStaticAssetCacheControl } from "./StaticAssetCache";
 import { createMatchTelemetryEmitter } from "./telemetry/BufferedMatchTelemetryEmitter";
@@ -72,6 +72,8 @@ export async function startWorker() {
     workerId,
   });
   const saveStore = new FilesystemSaveStore(ServerEnv.saveWorkerDir(workerId));
+  // Phase 6: keep the save directory under its retention/byte budget.
+  startSaveRetention(saveStore);
   const gm = new GameManager(log, telemetry, buildHash, saveStore);
   server.on("close", () => telemetry.stop());
 

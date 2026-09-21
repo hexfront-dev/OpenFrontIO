@@ -23,6 +23,71 @@ const TURNS_STORE = "turns";
 // Keep disk usage bounded: old autosaves are dropped once this many exist.
 export const MAX_SAVES = 30;
 
+// Phase 6: byte budgets, not just a count. A single save larger than this drops
+// its (optional) checkpoint so the history is still recorded; the whole origin's
+// saves are kept under the total budget by evicting the oldest.
+export const MAX_SAVE_BYTES = 64 * 1024 * 1024;
+export const MAX_TOTAL_SAVE_BYTES = 512 * 1024 * 1024;
+
+function isQuotaError(error: unknown): boolean {
+  const name = (error as { name?: string } | null)?.name;
+  return (
+    name === "QuotaExceededError" ||
+    name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    name === "QuotaExceeded"
+  );
+}
+
+// Ask the browser to make this origin's storage persistent so a long game is
+// not evicted under pressure. Idempotent and best-effort; a denied or absent
+// StorageManager is not an error.
+let persistenceRequested = false;
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (persistenceRequested) return false;
+  persistenceRequested = true;
+  try {
+    const storage = globalThis.navigator?.storage;
+    if (storage?.persist === undefined) return false;
+    return await storage.persist();
+  } catch {
+    return false;
+  }
+}
+
+// Test seam: allows a test to observe the persist() request more than once.
+export function resetPersistentStorageRequest(): void {
+  persistenceRequested = false;
+}
+
+function estimateSaveBytes(head: SavedGameHead, turns: Turn[]): number {
+  let bytes = JSON.stringify(head).length;
+  for (const turn of turns) {
+    bytes += JSON.stringify(turn).length + 1;
+  }
+  return bytes;
+}
+
+/**
+ * Phase 6: a checkpoint is an optional optimisation. When a save would exceed
+ * the per-save byte cap, drop the checkpoint so the authoritative history is
+ * still written and the game can always be resumed (from full replay).
+ */
+export function dropOversizedCheckpoint(
+  head: SavedGameHead,
+  turns: Turn[],
+  maxBytes = MAX_SAVE_BYTES,
+): SavedGameHead {
+  if (
+    head.checkpoint === undefined ||
+    estimateSaveBytes(head, turns) <= maxBytes
+  ) {
+    return head;
+  }
+  const { checkpoint: _checkpoint, ...withoutCheckpoint } = head;
+  void _checkpoint;
+  return withoutCheckpoint;
+}
+
 export interface SaveBackend {
   putHead(head: SavedGameHead, meta: SavedGameMeta): Promise<void>;
   appendTurns(saveId: string, turns: Turn[]): Promise<void>;
@@ -246,13 +311,29 @@ export async function saveGameProgress(
   newTurns: Turn[],
   reset = false,
 ): Promise<void> {
+  void requestPersistentStorage();
   const parsedHead = SavedGameHeadSchema.parse(head);
-  if (reset) {
-    await backend.clearTurns(parsedHead.saveId);
-  }
   const parsedTurns = TurnSchema.array().parse(newTurns);
-  await backend.putHead(parsedHead, savedGameMetaFromHead(parsedHead));
-  await backend.appendTurns(parsedHead.saveId, parsedTurns);
+  const toWrite = dropOversizedCheckpoint(parsedHead, parsedTurns);
+  const write = async (): Promise<void> => {
+    if (reset) {
+      await backend.clearTurns(toWrite.saveId);
+    }
+    await backend.putHead(toWrite, savedGameMetaFromHead(toWrite));
+    await backend.appendTurns(toWrite.saveId, parsedTurns);
+  };
+  try {
+    await write();
+  } catch (error) {
+    // A full quota is survivable: free the oldest save and retry once. Any
+    // other failure (or a retry that still fails) propagates so the caller
+    // keeps the data dirty and retries later.
+    if (!isQuotaError(error)) throw error;
+    const freed = await evictOldestSaves();
+    if (freed === 0) throw error;
+    await write();
+  }
+  await enforceByteBudget();
   await enforceCap();
 }
 
@@ -282,5 +363,40 @@ async function enforceCap(): Promise<void> {
   }
   for (const meta of metas.slice(MAX_SAVES)) {
     await backend.delete(meta.saveId);
+  }
+}
+
+// Free one save (the oldest) so a quota-blocked write can be retried. Returns 0
+// — and lets the retry fail loudly — when there is nothing safe to evict.
+async function evictOldestSaves(): Promise<number> {
+  const metas = await listSaves();
+  if (metas.length <= 1) {
+    return 0;
+  }
+  await backend.delete(metas[metas.length - 1].saveId);
+  return 1;
+}
+
+// Evict oldest saves while the origin is over the total byte budget. The
+// estimate covers the whole origin, so this is deliberately conservative: it
+// never removes the newest save and stops as soon as usage is under budget (or
+// the estimate is unavailable).
+async function enforceByteBudget(): Promise<void> {
+  const storage = globalThis.navigator?.storage;
+  if (storage?.estimate === undefined) {
+    return;
+  }
+  const metas = await listSaves();
+  for (let i = metas.length - 1; i > 0; i--) {
+    let usage: number | undefined;
+    try {
+      usage = (await storage.estimate()).usage;
+    } catch {
+      return;
+    }
+    if (usage === undefined || usage <= MAX_TOTAL_SAVE_BYTES) {
+      return;
+    }
+    await backend.delete(metas[i].saveId);
   }
 }

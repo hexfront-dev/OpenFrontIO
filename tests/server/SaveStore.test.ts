@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -265,5 +265,121 @@ describe("FilesystemSaveStore", () => {
     await store.save(snapshot({ checkpoint: "cp-v3", savedAt: 6000 }));
     expect(store.checkpointWrites).toBe(3);
     expect((await store.load("abcd1234"))?.checkpoint).toBe("cp-v3");
+  });
+});
+
+// A FilesystemSaveStore whose raw history write can fail midway, so the
+// rollback that keeps a half-written gzip member off the disk can be exercised.
+class FailingAppendStore extends FilesystemSaveStore {
+  public failAfterHalf = false;
+
+  protected override async appendBytes(
+    file: string,
+    data: Buffer,
+  ): Promise<void> {
+    if (this.failAfterHalf) {
+      const half = Math.floor(data.length / 2);
+      await super.appendBytes(file, data.subarray(0, half));
+      const error = new Error("ENOSPC: no space left on device");
+      (error as NodeJS.ErrnoException).code = "ENOSPC";
+      throw error;
+    }
+    await super.appendBytes(file, data);
+  }
+}
+
+describe("SaveStore retention (Phase 6)", () => {
+  let dir: string | undefined;
+
+  afterEach(async () => {
+    if (dir !== undefined) {
+      await rm(dir, { recursive: true, force: true });
+      dir = undefined;
+    }
+  });
+
+  it("keeps only the newest N saves per creator", async () => {
+    const store = new MemorySaveStore({
+      maxSavesPerCreator: 2,
+      maxAgeMs: Number.POSITIVE_INFINITY,
+      maxDirBytes: Number.POSITIVE_INFINITY,
+    });
+    await store.save(snapshot({ gameID: "aaaa0001", savedAt: 1000 }));
+    await store.save(snapshot({ gameID: "aaaa0002", savedAt: 2000 }));
+    await store.save(snapshot({ gameID: "aaaa0003", savedAt: 3000 }));
+
+    expect(await store.prune(4000)).toBe(1);
+    expect((await store.list("creator-pid")).map((m) => m.gameID)).toEqual([
+      "aaaa0003",
+      "aaaa0002",
+    ]);
+  });
+
+  it("drops saves past the max age", async () => {
+    const store = new MemorySaveStore({
+      maxSavesPerCreator: 100,
+      maxAgeMs: 1000,
+      maxDirBytes: Number.POSITIVE_INFINITY,
+    });
+    await store.save(snapshot({ gameID: "aaaa0001", savedAt: 1000 }));
+    await store.save(snapshot({ gameID: "aaaa0002", savedAt: 9000 }));
+
+    expect(await store.prune(10_000)).toBe(1);
+    expect((await store.list("creator-pid")).map((m) => m.gameID)).toEqual([
+      "aaaa0002",
+    ]);
+  });
+
+  it("evicts the oldest saves under the byte budget but never the newest", async () => {
+    const store = new MemorySaveStore({
+      maxSavesPerCreator: 100,
+      maxAgeMs: Number.POSITIVE_INFINITY,
+      maxDirBytes: 1,
+    });
+    await store.save(snapshot({ gameID: "aaaa0001", savedAt: 1000 }));
+    await store.save(snapshot({ gameID: "aaaa0002", savedAt: 2000 }));
+
+    expect(await store.prune(3000)).toBe(1);
+    expect((await store.list("creator-pid")).map((m) => m.gameID)).toEqual([
+      "aaaa0002",
+    ]);
+  });
+
+  it("prunes filesystem saves under the retention policy", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FilesystemSaveStore(dir, {
+      maxSavesPerCreator: 1,
+      maxAgeMs: Number.POSITIVE_INFINITY,
+      maxDirBytes: Number.POSITIVE_INFINITY,
+    });
+    await store.save(snapshot({ gameID: "aaaa0001", savedAt: 1000 }));
+    await store.save(snapshot({ gameID: "aaaa0002", savedAt: 2000 }));
+
+    expect(await store.prune(3000)).toBe(1);
+    expect(await store.load("aaaa0001")).toBeNull();
+    expect(await store.load("aaaa0002")).not.toBeNull();
+  });
+
+  it("rolls a partial history append back on a write failure", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "openfront-save-"));
+    const store = new FailingAppendStore(dir);
+    const turn = (turnNumber: number) => ({ turnNumber, intents: [] });
+
+    await store.save(snapshot({ turns: [turn(0)] }), 0);
+    const historyFile = path.join(dir, "abcd1234.history.gz");
+    const sizeBefore = (await stat(historyFile)).size;
+
+    store.failAfterHalf = true;
+    await expect(
+      store.save(snapshot({ turns: [turn(0), turn(1)], savedAt: 3000 }), 1),
+    ).rejects.toThrow(/ENOSPC/);
+    // The torn append was rolled back, so the file is byte-for-byte unchanged.
+    expect((await stat(historyFile)).size).toBe(sizeBefore);
+
+    // A retry after the disk frees up lands the delta and the history is dense.
+    store.failAfterHalf = false;
+    await store.save(snapshot({ turns: [turn(0), turn(1)], savedAt: 4000 }), 1);
+    const loaded = await new FilesystemSaveStore(dir).load("abcd1234");
+    expect(loaded?.turns.map((t) => t.turnNumber)).toEqual([0, 1]);
   });
 });

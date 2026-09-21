@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHECKPOINT_VERSION, GameCheckpoint } from "../../src/core/Checkpoint";
-import { encodeCheckpoint } from "../../src/core/CheckpointCodec";
+import {
+  decodeCheckpointWire,
+  encodeCheckpoint,
+  encodeCheckpointGzip,
+} from "../../src/core/CheckpointCodec";
 import { GameType } from "../../src/core/game/Game";
 import { SavedLobbySchema } from "../../src/core/Schemas";
 import { createGameWireContext } from "../../src/core/ZbinWire";
@@ -426,5 +430,137 @@ describe("GameServer chunked resume", () => {
     expect(all.map((t) => t.turnNumber)).toEqual(
       Array.from({ length: total }, (_, i) => i),
     );
+  });
+});
+
+// Phase 7: a gzip-compressed checkpoint too large for one frame is uploaded in
+// `checkpoint_chunk` frames, reassembled server-side under caps, and stored as
+// the joined `gz:` string (with its turn) for resume.
+describe("GameServer compressed checkpoint upload", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  function minimalCheckpoint(ticks: number): GameCheckpoint {
+    return {
+      version: CHECKPOINT_VERSION,
+      ticks,
+      players: [],
+      units: [],
+      map: {},
+    } as unknown as GameCheckpoint;
+  }
+
+  function startedGame() {
+    const game = makeGame({ creatorPersistentID: "host-pid" });
+    const host = makeClient({
+      clientID: cid("host"),
+      persistentID: "host-pid",
+    });
+    const p2 = makeClient({ clientID: cid("p2"), persistentID: "p2-pid" });
+    game.joinClient(host);
+    game.joinClient(p2);
+    startGame(game);
+    return { game, host, p2 };
+  }
+
+  async function uploadChunks(
+    host: ReturnType<typeof makeClient>,
+    uploadId: string,
+    wire: string,
+    chunkChars = 16,
+  ): Promise<void> {
+    const total = Math.ceil(wire.length / chunkChars);
+    for (let seq = 0; seq < total; seq++) {
+      await mockWsOf(host).emit({
+        type: "checkpoint_chunk",
+        uploadId,
+        seq,
+        total,
+        encoding: "gzip",
+        data: wire.slice(seq * chunkChars, (seq + 1) * chunkChars),
+      });
+    }
+  }
+
+  it("reassembles a chunked gzip checkpoint and records its turn", async () => {
+    const { game, host } = startedGame();
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+
+    const wire = await encodeCheckpointGzip(minimalCheckpoint(5));
+    await uploadChunks(host, "up-1", wire);
+    // The gzip decode runs off the socket's await chain.
+    await game.whenCheckpointUploadsSettled();
+
+    const snap = game.snapshot()!;
+    expect(snap.checkpoint).toBe(wire);
+    expect(snap.checkpointTurn).toBe(5);
+    // The stored payload is a real gzip checkpoint, not a mangled join.
+    expect((await decodeCheckpointWire(snap.checkpoint!))?.ticks).toBe(5);
+  });
+
+  it("restores a gz checkpoint without a synchronous decode", async () => {
+    const { game, host } = startedGame();
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+    const wire = await encodeCheckpointGzip(minimalCheckpoint(4));
+    await uploadChunks(host, "up-1", wire);
+    await game.whenCheckpointUploadsSettled();
+
+    const snap = SavedLobbySchema.parse(game.snapshot());
+    const restored = makeGame({ restore: snap });
+    expect(restored.snapshot()?.checkpoint).toBe(wire);
+    expect(restored.snapshot()?.checkpointTurn).toBe(4);
+  });
+
+  it("ignores an upload from a non-creator", async () => {
+    const { game, p2 } = startedGame();
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+    const wire = await encodeCheckpointGzip(minimalCheckpoint(5));
+    await uploadChunks(p2, "up-1", wire);
+    await game.whenCheckpointUploadsSettled();
+    expect(game.snapshot()!.checkpoint).toBeUndefined();
+  });
+
+  it("rejects an upload with too many chunks", async () => {
+    const { game, host } = startedGame();
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+    await mockWsOf(host).emit({
+      type: "checkpoint_chunk",
+      uploadId: "up-1",
+      seq: 0,
+      total: GameServer.MAX_CHECKPOINT_UPLOAD_CHUNKS + 1,
+      encoding: "gzip",
+      data: "AAAA",
+    });
+    expect(game.snapshot()!.checkpoint).toBeUndefined();
+  });
+
+  it("rate limits new uploads per minute", async () => {
+    const original = GameServer.MAX_CHECKPOINT_UPLOADS_PER_MINUTE;
+    GameServer.MAX_CHECKPOINT_UPLOADS_PER_MINUTE = 1;
+    try {
+      const { game, host } = startedGame();
+      await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+      await uploadChunks(
+        host,
+        "up-1",
+        await encodeCheckpointGzip(minimalCheckpoint(3)),
+      );
+      await uploadChunks(
+        host,
+        "up-2",
+        await encodeCheckpointGzip(minimalCheckpoint(6)),
+      );
+      await game.whenCheckpointUploadsSettled();
+      // The second upload is over the per-minute budget and is dropped.
+      expect(game.snapshot()!.checkpointTurn).toBe(3);
+    } finally {
+      GameServer.MAX_CHECKPOINT_UPLOADS_PER_MINUTE = original;
+    }
   });
 });

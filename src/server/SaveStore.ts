@@ -4,6 +4,8 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
+  truncate,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -42,7 +44,32 @@ export interface ServerSaveStore {
   // Newest first, for the host's resume list. Filtered by creator server-side.
   list(creatorPersistentID: string): Promise<SavedLobbyMeta[]>;
   delete(gameID: string): Promise<void>;
+  // Phase 6: enforce the retention policy (newest-N per creator, max age, total
+  // byte budget) and return how many saves were removed. Best-effort; callers
+  // treat a failure as "nothing pruned", never as a save error.
+  prune(now?: number): Promise<number>;
 }
+
+// Phase 6: keep a shard's save directory bounded. These are policy defaults;
+// deployments can override them per store (see FilesystemSaveStore).
+export const DEFAULT_SAVE_MAX_PER_CREATOR = 20;
+export const DEFAULT_SAVE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const DEFAULT_SAVE_DIR_BUDGET_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
+// Retention work is O(number of saves) and touches the disk, so it runs as a
+// background job (see startSaveRetention) rather than on the hot save path.
+export const SAVE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+
+export interface SaveRetention {
+  maxSavesPerCreator: number;
+  maxAgeMs: number;
+  maxDirBytes: number;
+}
+
+export const DEFAULT_SAVE_RETENTION: SaveRetention = {
+  maxSavesPerCreator: DEFAULT_SAVE_MAX_PER_CREATOR,
+  maxAgeMs: DEFAULT_SAVE_MAX_AGE_MS,
+  maxDirBytes: DEFAULT_SAVE_DIR_BUDGET_BYTES,
+};
 
 // Default dep for GameServerDeps: a game that never persists and can never be
 // loaded. Tests that exercise resume inject a MemorySaveStore instead.
@@ -55,12 +82,63 @@ export const noopSaveStore: ServerSaveStore = {
     return [];
   },
   async delete() {},
+  async prune() {
+    return 0;
+  },
 };
 
 function assertGameID(gameID: string): void {
   if (!GAME_ID_REGEX.test(gameID)) {
     throw new Error(`invalid game id for save store: ${gameID}`);
   }
+}
+
+// Phase 6: pure retention decision shared by the memory and filesystem stores.
+// Given every save's head and byte size, return the gameIDs to remove: first
+// anything past `maxAgeMs`, then each creator's saves beyond `maxSavesPerCreator`
+// (newest kept), then — while over the directory byte budget — the oldest
+// remaining save, always leaving at least one so the newest is never a victim.
+interface RetentionRow {
+  head: Pick<SavedLobbyHead, "gameID" | "creatorPersistentID" | "savedAt">;
+  bytes: number;
+}
+
+function selectExpiredSaves(
+  rows: RetentionRow[],
+  retention: SaveRetention,
+  now: number,
+): Set<string> {
+  const removed = new Set<string>();
+  for (const row of rows) {
+    if (now - row.head.savedAt > retention.maxAgeMs) {
+      removed.add(row.head.gameID);
+    }
+  }
+  const byCreator = new Map<string, RetentionRow[]>();
+  for (const row of rows) {
+    if (removed.has(row.head.gameID)) continue;
+    const list = byCreator.get(row.head.creatorPersistentID) ?? [];
+    list.push(row);
+    byCreator.set(row.head.creatorPersistentID, list);
+  }
+  for (const list of byCreator.values()) {
+    list.sort((a, b) => b.head.savedAt - a.head.savedAt);
+    for (const row of list.slice(retention.maxSavesPerCreator)) {
+      removed.add(row.head.gameID);
+    }
+  }
+  let total = rows
+    .filter((r) => !removed.has(r.head.gameID))
+    .reduce((sum, r) => sum + r.bytes, 0);
+  const remaining = rows
+    .filter((r) => !removed.has(r.head.gameID))
+    .sort((a, b) => a.head.savedAt - b.head.savedAt);
+  while (total > retention.maxDirBytes && remaining.length > 1) {
+    const row = remaining.shift()!;
+    removed.add(row.head.gameID);
+    total -= row.bytes;
+  }
+  return removed;
 }
 
 // Rebuild a dense turn array (index == turnNumber) from a sparse/numbered list.
@@ -80,6 +158,10 @@ export class MemorySaveStore implements ServerSaveStore {
   private heads = new Map<string, SavedLobbyHead>();
   private turns = new Map<string, Turn[]>();
   private checkpoints = new Map<string, string>();
+
+  constructor(
+    private readonly retention: SaveRetention = DEFAULT_SAVE_RETENTION,
+  ) {}
 
   async save(snapshot: SavedLobby, fromTurn = 0): Promise<void> {
     // Round-trip only the head + delta through the schema so a memory store
@@ -126,6 +208,21 @@ export class MemorySaveStore implements ServerSaveStore {
     this.turns.delete(gameID);
     this.checkpoints.delete(gameID);
   }
+
+  async prune(now = Date.now()): Promise<number> {
+    const rows = [...this.heads.values()].map((head) => ({
+      head,
+      bytes:
+        JSON.stringify(head).length +
+        JSON.stringify(this.turns.get(head.gameID) ?? []).length +
+        (this.checkpoints.get(head.gameID)?.length ?? 0),
+    }));
+    const removed = selectExpiredSaves(rows, this.retention, now);
+    for (const gameID of removed) {
+      await this.delete(gameID);
+    }
+    return removed.size;
+  }
 }
 
 // Split layout under a per-worker directory:
@@ -144,7 +241,10 @@ export class FilesystemSaveStore implements ServerSaveStore {
   /** Number of checkpoint sidecar writes performed (telemetry/tests). */
   public checkpointWrites = 0;
 
-  constructor(private readonly dir: string) {}
+  constructor(
+    private readonly dir: string,
+    private readonly retention: SaveRetention = DEFAULT_SAVE_RETENTION,
+  ) {}
 
   private headPath(gameID: string): string {
     assertGameID(gameID);
@@ -180,7 +280,7 @@ export class FilesystemSaveStore implements ServerSaveStore {
     if (delta.length > 0) {
       const lines = delta.map((t) => JSON.stringify(t)).join("\n") + "\n";
       const compressed = await gzip(Buffer.from(lines, "utf8"));
-      await appendFile(this.historyPath(snapshot.gameID), compressed);
+      await this.appendHistory(snapshot.gameID, compressed);
     }
     // History first, then head, then meta: a crash before the head lands leaves
     // the old head (a consistent, older save) since load clamps to numTurns.
@@ -207,6 +307,84 @@ export class FilesystemSaveStore implements ServerSaveStore {
       await rm(this.checkpointPath(snapshot.gameID), { force: true });
       this.persistedCheckpoints.delete(snapshot.gameID);
     }
+  }
+
+  // Append a gzip member to the history. On a write failure (most commonly
+  // ENOSPC) the partial member is rolled back to the previous size so a later
+  // `load` never parses a torn gzip stream; the save remains at the last
+  // consistent head and the caller retries the delta. `appendBytes` is the raw
+  // write seam tests override to simulate a mid-write failure.
+  protected async appendBytes(file: string, data: Buffer): Promise<void> {
+    await appendFile(file, data);
+  }
+
+  private async appendHistory(gameID: string, data: Buffer): Promise<void> {
+    const file = this.historyPath(gameID);
+    let sizeBefore = 0;
+    try {
+      sizeBefore = (await stat(file)).size;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    try {
+      await this.appendBytes(file, data);
+    } catch (error) {
+      try {
+        await truncate(file, sizeBefore);
+      } catch {
+        // Best effort: a failed rollback is no worse than the partial append.
+      }
+      throw error;
+    }
+  }
+
+  // Phase 6: enforce the retention policy. Reads each save's meta (never
+  // decompresses history) and its on-disk size, then removes the losers.
+  async prune(now = Date.now()): Promise<number> {
+    let entries: string[];
+    try {
+      entries = await readdir(this.dir);
+    } catch {
+      return 0;
+    }
+    const rows: RetentionRow[] = [];
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      if (!entry.endsWith(".meta.json")) continue;
+      let meta: SavedLobbyMeta;
+      try {
+        const raw = await readFile(path.join(this.dir, entry), "utf8");
+        meta = SavedLobbyMetaSchema.parse(JSON.parse(raw));
+      } catch {
+        continue;
+      }
+      if (seen.has(meta.gameID)) continue;
+      seen.add(meta.gameID);
+      rows.push({
+        head: meta,
+        bytes: await this.saveBytes(meta.gameID, entries),
+      });
+    }
+    const removed = selectExpiredSaves(rows, this.retention, now);
+    for (const gameID of removed) {
+      await this.delete(gameID);
+    }
+    return removed.size;
+  }
+
+  // Total bytes of every file belonging to one save in this shard directory.
+  private async saveBytes(gameID: string, entries: string[]): Promise<number> {
+    const prefix = `${gameID}.`;
+    let total = 0;
+    for (const entry of entries) {
+      if (!entry.startsWith(prefix)) continue;
+      try {
+        total += (await stat(path.join(this.dir, entry))).size;
+      } catch {
+        // A file removed mid-scan simply contributes nothing.
+      }
+    }
+    return total;
   }
 
   async load(gameID: string): Promise<SavedLobby | null> {
@@ -325,4 +503,26 @@ export class FilesystemSaveStore implements ServerSaveStore {
     await rm(this.checkpointPath(gameID), { force: true });
     this.persistedCheckpoints.delete(gameID);
   }
+}
+
+/**
+ * Phase 6: run the store's retention policy on startup and then periodically.
+ * Returns a stop function. The interval is unref'd so retention alone never
+ * keeps the process alive, and a prune failure is logged, never thrown.
+ */
+export function startSaveRetention(
+  store: ServerSaveStore,
+  intervalMs = SAVE_PRUNE_INTERVAL_MS,
+): () => void {
+  const run = () => {
+    void store.prune().catch((error) => {
+      console.error("failed to prune saves:", error);
+    });
+  };
+  run();
+  const timer = setInterval(run, intervalMs);
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+  return () => clearInterval(timer);
 }

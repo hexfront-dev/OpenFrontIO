@@ -33,6 +33,18 @@ import {
 // resume. Kept well under the frame cap to leave room for the zbin envelope.
 export const MAX_CHECKPOINT_TRANSFER_BYTES = 900_000;
 
+// Phase 7: a gzip-compressed checkpoint that is too big for one frame is sent
+// as base64 chunks and reassembled server-side. Compressed uploads are allowed
+// past the single-frame cap up to this reconstructed size (base64 characters);
+// the server enforces it together with a per-minute upload budget.
+export const CHECKPOINT_COMPRESSED_PREFIX = "gz:";
+export const MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES = 8 * 1024 * 1024;
+
+/** True when a wire checkpoint is a `gz:`-prefixed gzip payload. */
+export function isCompressedCheckpoint(serialized: string): boolean {
+  return serialized.startsWith(CHECKPOINT_COMPRESSED_PREFIX);
+}
+
 const BIGINT_TAG = "$bigint";
 const U8_TAG = "$u8";
 const U16_TAG = "$u16";
@@ -247,4 +259,98 @@ export function decodeCheckpoint(
     return undefined;
   }
   return isGameCheckpoint(parsed) ? parsed : undefined;
+}
+
+// Phase 7: browser/Node platform gzip helpers. Deliberately built on the Web
+// Streams API (available in the client and in Node 18+) so the core stays free
+// of a compression dependency. A missing CompressionStream is not fatal: the
+// caller falls back to full-history replay.
+
+function bytesToStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+async function collectStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value !== undefined) {
+      parts.push(value);
+      total += value.length;
+    }
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+// The DOM's CompressionStream/DecompressionStream writable side is typed as
+// BufferSource, which the newer ArrayBufferLike-generic streams do not overlap.
+// The runtime contract is unchanged; the cast only satisfies the pipe types.
+type GzipTransform = ReadableWritablePair<
+  Uint8Array<ArrayBuffer>,
+  Uint8Array<ArrayBufferLike>
+>;
+
+async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
+  const stream = bytesToStream(bytes).pipeThrough(
+    new DecompressionStream("gzip") as unknown as GzipTransform,
+  );
+  return await collectStream(stream);
+}
+
+/**
+ * Serialize a checkpoint to a `gz:`-prefixed base64 gzip payload. Used when the
+ * plain tagged-JSON would exceed the single-frame transfer cap; the server can
+ * reassemble the chunked payload and hand it back verbatim on resume.
+ */
+export async function encodeCheckpointGzip(
+  checkpoint: GameCheckpoint,
+): Promise<string> {
+  const bytes = new TextEncoder().encode(encodeCheckpoint(checkpoint));
+  const stream = bytesToStream(bytes).pipeThrough(
+    new CompressionStream("gzip") as unknown as GzipTransform,
+  );
+  const compressed = await collectStream(stream);
+  return CHECKPOINT_COMPRESSED_PREFIX + bytesToBase64(compressed);
+}
+
+/**
+ * Decode a wire checkpoint that is either plain tagged-JSON or a `gz:`-prefixed
+ * gzip payload. Unknown/hostile input (or an environment without
+ * DecompressionStream) yields undefined so the caller falls back to replay.
+ */
+export async function decodeCheckpointWire(
+  serialized: string,
+): Promise<GameCheckpoint | undefined> {
+  if (!isCompressedCheckpoint(serialized)) {
+    return decodeCheckpoint(serialized);
+  }
+  if (typeof DecompressionStream === "undefined") {
+    return undefined;
+  }
+  let json: string;
+  try {
+    const bytes = base64ToBytes(
+      serialized.slice(CHECKPOINT_COMPRESSED_PREFIX.length),
+    );
+    json = new TextDecoder().decode(await gunzip(bytes));
+  } catch {
+    return undefined;
+  }
+  return decodeCheckpoint(json);
 }

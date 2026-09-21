@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteSave,
+  dropOversizedCheckpoint,
   listSaves,
   loadSave,
   MemorySaveBackend,
+  requestPersistentStorage,
+  resetPersistentStorageRequest,
   saveGame,
   saveGameProgress,
   setSaveBackend,
@@ -21,7 +24,23 @@ import {
   savedGameHeadFrom,
   savedGameMetaFrom,
   SavedGameSchema,
+  Turn,
 } from "../src/core/Schemas";
+
+class QuotaOnceBackend extends MemorySaveBackend {
+  public failSaveId: string | null = null;
+  private failed = false;
+
+  override async appendTurns(saveId: string, turns: Turn[]): Promise<void> {
+    if (saveId === this.failSaveId && !this.failed) {
+      this.failed = true;
+      const error = new Error("quota exceeded");
+      error.name = "QuotaExceededError";
+      throw error;
+    }
+    await super.appendTurns(saveId, turns);
+  }
+}
 
 function makeSave(overrides: Partial<SavedGame> = {}): SavedGame {
   return {
@@ -66,6 +85,8 @@ function makeSave(overrides: Partial<SavedGame> = {}): SavedGame {
 describe("SaveStore", () => {
   beforeEach(() => {
     setSaveBackend(new MemorySaveBackend());
+    resetPersistentStorageRequest();
+    vi.unstubAllGlobals();
   });
 
   it("round-trips a save and its metadata", async () => {
@@ -209,5 +230,71 @@ describe("SaveStore", () => {
     );
 
     expect((await loadSave("SAVE0001"))?.turns).toHaveLength(1);
+  });
+});
+
+describe("SaveStore storage lifecycle (Phase 6)", () => {
+  beforeEach(() => {
+    setSaveBackend(new MemorySaveBackend());
+    resetPersistentStorageRequest();
+    vi.unstubAllGlobals();
+  });
+
+  it("drops an oversized checkpoint but keeps the turn history", () => {
+    const head = savedGameHeadFrom(makeSave({ checkpoint: "cp" }));
+    const turns = makeSave().turns;
+
+    expect(dropOversizedCheckpoint(head, turns, 1).checkpoint).toBeUndefined();
+    // A cap large enough keeps the checkpoint.
+    expect(dropOversizedCheckpoint(head, turns, 10_000_000).checkpoint).toBe(
+      "cp",
+    );
+  });
+
+  it("requests persistent storage once", async () => {
+    const persist = vi.fn().mockResolvedValue(true);
+    vi.stubGlobal("navigator", {
+      storage: {
+        persist,
+        estimate: vi.fn().mockResolvedValue({ usage: 0 }),
+      },
+    });
+    resetPersistentStorageRequest();
+
+    expect(await requestPersistentStorage()).toBe(true);
+    await requestPersistentStorage();
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("evicts the oldest save and retries when the quota is exceeded", async () => {
+    const backend = new QuotaOnceBackend();
+    setSaveBackend(backend);
+    await saveGame(makeSave({ saveId: "SAVE0001", savedAt: 1000 }));
+    await saveGame(makeSave({ saveId: "SAVE0002", savedAt: 2000 }));
+
+    backend.failSaveId = "SAVE0003";
+    await saveGame(makeSave({ saveId: "SAVE0003", savedAt: 3000 }));
+
+    const metas = await listSaves();
+    expect(metas.map((m) => m.saveId).sort()).toEqual(["SAVE0002", "SAVE0003"]);
+    expect(await loadSave("SAVE0003")).toBeDefined();
+  });
+
+  it("evicts saves when the origin exceeds the byte budget", async () => {
+    vi.stubGlobal("navigator", {
+      storage: {
+        persist: vi.fn().mockResolvedValue(true),
+        estimate: vi.fn().mockResolvedValue({
+          usage: Number.MAX_SAFE_INTEGER,
+        }),
+      },
+    });
+    await saveGame(makeSave({ saveId: "SAVE0001", savedAt: 1000 }));
+    await saveGame(makeSave({ saveId: "SAVE0002", savedAt: 2000 }));
+    await saveGame(makeSave({ saveId: "SAVE0003", savedAt: 3000 }));
+
+    const metas = await listSaves();
+    expect(metas).toHaveLength(1);
+    expect(metas[0].saveId).toBe("SAVE0003");
   });
 });

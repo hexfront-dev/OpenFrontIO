@@ -119,6 +119,7 @@ export type ClientMessage =
   | ClientJoinMessage
   | ClientRejoinMessage
   | ClientCheckpointMessage
+  | ClientCheckpointChunkMessage
   | ClientLogMessage
   | ClientHashMessage
   | ClientSpectateMessage
@@ -165,6 +166,9 @@ export type ClientJoinMessage = z.infer<typeof ClientJoinMessageSchema>;
 export type ClientRejoinMessage = z.infer<typeof ClientRejoinMessageSchema>;
 export type ClientCheckpointMessage = z.infer<
   typeof ClientCheckpointMessageSchema
+>;
+export type ClientCheckpointChunkMessage = z.infer<
+  typeof ClientCheckpointChunkMessageSchema
 >;
 export type ClientLogMessage = z.infer<typeof ClientLogMessageSchema>;
 export type ClientHashMessage = z.infer<typeof ClientHashSchema>;
@@ -1194,8 +1198,25 @@ export const ClientJoinMessageSchema = z.object({
 // games, non-creators, and blobs that are too large or not a checkpoint.
 export const ClientCheckpointMessageSchema = z.object({
   type: z.literal("checkpoint"),
-  // Tagged-JSON checkpoint (core/CheckpointCodec.ts); opaque to the wire.
+  // Tagged-JSON or `gz:` gzip checkpoint (core/CheckpointCodec.ts); opaque to
+  // the wire.
   checkpoint: z.string(),
+});
+
+// Phase 7: one chunk of a gzip-compressed checkpoint that is too large for a
+// single frame. The server reassembles the chunks, decompresses, and stores
+// the joined `gz:` payload. Chunking is required because the inbound frame cap
+// is per-frame, not per-upload (docs/SaveResumeLongGames.md).
+export const ClientCheckpointChunkMessageSchema = z.object({
+  type: z.literal("checkpoint_chunk"),
+  // Identifies one upload; a fresh random id per checkpoint so chunks from
+  // successive uploads never interleave.
+  uploadId: z.string().min(1).max(64),
+  seq: zb.uint(),
+  total: zb.uint(),
+  encoding: z.literal("gzip"),
+  // A slice of the base64 gzip payload, opaque to the wire.
+  data: z.string(),
 });
 
 export const ClientRejoinMessageSchema = z.object({
@@ -1227,6 +1248,8 @@ export const ClientMessageSchema = zb.discriminatedUnion("type", [
   ClientReportMessageSchema,
   // Appended last so existing clients keep their union tag indices.
   ClientCheckpointMessageSchema,
+  // Phase 7: appended after the checkpoint variant so both keep their indices.
+  ClientCheckpointChunkMessageSchema,
 ]);
 
 //
@@ -1435,11 +1458,14 @@ export const SavedLobbySchema = z.object({
   // reference these clientIDs, so restoring must reuse it verbatim.
   gameStartInfo: GameStartInfoSchema.optional(),
   turns: TurnSchema.array(),
-  // B2: an optional tagged-JSON core checkpoint (core/CheckpointCodec.ts)
-  // captured at some turn boundary, contributed by the host client. Stored as a
-  // sidecar artifact (not on the JSON head) and handed back on resume so the
-  // client replays only the suffix.
+  // B2: an optional tagged-JSON (or, with Phase 7, `gz:` gzip) core checkpoint
+  // (core/CheckpointCodec.ts) captured at some turn boundary, contributed by the
+  // host client. Stored as a sidecar artifact (not on the JSON head) and handed
+  // back on resume so the client replays only the suffix.
   checkpoint: z.string().optional(),
+  // The turn a `checkpoint` covers. Persisted alongside it so a restored game
+  // can use a `gz:` checkpoint without a synchronous decode.
+  checkpointTurn: zb.uint().optional(),
   savedAt: zb.uint(),
   gitCommit: z.string(),
 });

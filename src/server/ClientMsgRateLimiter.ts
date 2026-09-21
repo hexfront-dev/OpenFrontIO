@@ -33,7 +33,9 @@ export class ClientMsgRateLimiter {
     // Checkpoint payloads are large, infrequent, host-only uploads; counting
     // them toward the per-client byte budget would kick a host out of a long
     // game after a few captures. They are bounded by size + rate below instead.
-    if (type !== "checkpoint") {
+    // Phase 7 chunked uploads are the same payload spread over several frames,
+    // so they are exempt too; the game enforces the chunk/byte/rate budget.
+    if (type !== "checkpoint" && type !== "checkpoint_chunk") {
       bucket.totalBytes += bytes;
     }
 

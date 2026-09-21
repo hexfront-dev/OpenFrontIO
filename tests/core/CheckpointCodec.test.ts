@@ -3,7 +3,10 @@ import { CHECKPOINT_VERSION, GameCheckpoint } from "../../src/core/Checkpoint";
 import {
   checkpointFitsTransferBudget,
   decodeCheckpoint,
+  decodeCheckpointWire,
   encodeCheckpoint,
+  encodeCheckpointGzip,
+  isCompressedCheckpoint,
   mapStateFitsTransferBudget,
   MAX_CHECKPOINT_TRANSFER_BYTES,
   projectCheckpointBytes,
@@ -112,6 +115,34 @@ describe("CheckpointCodec", () => {
 
   it("keeps the transfer cap inside the game socket's frame limit", () => {
     expect(MAX_CHECKPOINT_TRANSFER_BYTES).toBeLessThan(1024 * 1024);
+  });
+
+  describe("Phase 7 gzip transport", () => {
+    it("round-trips a checkpoint through the gzip wire form", async () => {
+      const original = sampleCheckpoint();
+      const wire = await encodeCheckpointGzip(original);
+      expect(isCompressedCheckpoint(wire)).toBe(true);
+      // The plaintext decoder must not accept the compressed form.
+      expect(decodeCheckpoint(wire)).toBeUndefined();
+
+      const decoded = await decodeCheckpointWire(wire);
+      expect(decoded).toBeDefined();
+      expect(Array.from(decoded!.map.terrain)).toEqual([0, 1, 2, 255]);
+      expect(decoded!.numMirvsLaunched).toBe(12345678901234567890n);
+    });
+
+    it("decodes a plaintext wire checkpoint through the same entry point", async () => {
+      const original = sampleCheckpoint();
+      const decoded = await decodeCheckpointWire(encodeCheckpoint(original));
+      expect(decoded?.ticks).toBe(42);
+    });
+
+    it("returns undefined for a corrupt gzip payload", async () => {
+      expect(await decodeCheckpointWire("gz:not-base64!!")).toBeUndefined();
+      expect(
+        await decodeCheckpointWire("gz:" + btoa("not gzip")),
+      ).toBeUndefined();
+    });
   });
 
   describe("projectCheckpointBytes", () => {

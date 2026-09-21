@@ -12,6 +12,7 @@ import {
 import { TileRef } from "../core/game/GameMap";
 import {
   AllPlayersStats,
+  ClientCheckpointChunkMessage,
   ClientCheckpointMessage,
   ClientHashMessage,
   ClientID,
@@ -549,6 +550,17 @@ export class Transport {
       type: "checkpoint",
       checkpoint,
     } satisfies ClientCheckpointMessage);
+  }
+
+  // Phase 7: one chunk of a gzip-compressed checkpoint upload. Chunked because
+  // the wire frame cap is per-frame; the server reassembles and caps the total.
+  sendCheckpointChunk(chunk: Omit<ClientCheckpointChunkMessage, "type">) {
+    if (this.isLocal) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.sendMsg({
+      type: "checkpoint_chunk",
+      ...chunk,
+    } satisfies ClientCheckpointChunkMessage);
   }
 
   leaveGame() {

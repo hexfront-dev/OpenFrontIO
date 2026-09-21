@@ -7,11 +7,15 @@ import { ZbContext } from "../../zbin";
 import { isAdminRole } from "../core/ApiSchemas";
 import {
   decodeCheckpoint,
+  decodeCheckpointWire,
+  isCompressedCheckpoint,
+  MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES,
   MAX_CHECKPOINT_TRANSFER_BYTES,
 } from "../core/CheckpointCodec";
 import { GameEnv } from "../core/configuration/Config";
 import { GameType, RankedType } from "../core/game/Game";
 import {
+  ClientCheckpointChunkMessage,
   ClientCheckpointMessage,
   ClientID,
   ClientMessage,
@@ -155,6 +159,15 @@ export class GameServer {
   public static RESUME_CHUNK_BUFFERED_BYTES = 4 * 1024 * 1024;
   public static RESUME_CHUNK_PAUSE_MS = 1;
 
+  // Phase 7: reassemble a gzip-compressed checkpoint uploaded in
+  // `checkpoint_chunk` frames. A completed upload is capped, rate limited, and
+  // stored as the joined `gz:` string so resume hands it back verbatim. Static
+  // so a mixed-version fleet can disable it (chunks are then ignored).
+  public static CHECKPOINT_COMPRESSION = true;
+  public static MAX_CHECKPOINT_UPLOAD_CHUNKS = 128;
+  public static MAX_CHECKPOINT_UPLOADS_PER_MINUTE = 20;
+  public static CHECKPOINT_UPLOAD_TIMEOUT_MS = 30_000;
+
   // Compares the per-turn state hashes clients report; a disagreeing client
   // is told once and its votes are ignored from then on.
   private readonly desync = new DesyncDetector();
@@ -219,6 +232,26 @@ export class GameServer {
   // means full-history resume.
   private checkpoint?: string;
   private checkpointTurn = -1;
+
+  // Phase 7: in-progress chunked checkpoint uploads, keyed by
+  // `${clientID}:${uploadId}`. Bounded by MAX_CHECKPOINT_UPLOAD_CHUNKS and the
+  // compressed byte cap; entries are dropped on completion, overflow, or the
+  // upload timeout. A per-minute counter throttles new uploads per game.
+  private readonly checkpointUploads = new Map<
+    string,
+    {
+      chunks: (string | undefined)[];
+      received: number;
+      bytes: number;
+      updatedAt: number;
+    }
+  >();
+  private checkpointUploadsThisMinute = 0;
+  private checkpointUploadWindowStart = 0;
+  // In-flight `gz:` decodes, so a test/teardown can wait for them to settle
+  // (decoding runs off the socket's await chain).
+  private checkpointUploadsInFlight = 0;
+  private checkpointUploadsIdle: (() => void)[] = [];
 
   private endTurnIntervalID: ReturnType<typeof setInterval> | undefined;
 
@@ -438,21 +471,29 @@ export class GameServer {
       });
       return;
     }
-    const checkpoint = decodeCheckpoint(save.checkpoint);
-    if (checkpoint === undefined) {
-      this.log.warn("dropping unreadable checkpoint", { gameID: this.id });
-      return;
+    // A saved `checkpointTurn` avoids a decode entirely; it is written next to
+    // every checkpoint this server persists (including Phase 7 `gz:` ones, which
+    // cannot be decoded synchronously). A legacy save without it falls back to a
+    // synchronous decode of the plaintext checkpoint.
+    let ticks = save.checkpointTurn;
+    if (ticks === undefined) {
+      const checkpoint = decodeCheckpoint(save.checkpoint);
+      if (checkpoint === undefined) {
+        this.log.warn("dropping unreadable checkpoint", { gameID: this.id });
+        return;
+      }
+      ticks = checkpoint.ticks;
     }
-    if (checkpoint.ticks > save.turns.length) {
+    if (ticks > save.turns.length) {
       this.log.warn("dropping checkpoint ahead of saved history", {
         gameID: this.id,
-        ticks: checkpoint.ticks,
+        ticks,
         turns: save.turns.length,
       });
       return;
     }
     this.checkpoint = save.checkpoint;
-    this.checkpointTurn = checkpoint.ticks;
+    this.checkpointTurn = ticks;
   }
 
   // Build a snapshot of this game for persistence, or null when it must not be
@@ -474,6 +515,9 @@ export class GameServer {
       gameStartInfo: this.stage === "started" ? this.gameStartInfo : undefined,
       turns: this.turns,
       checkpoint: this.checkpoint,
+      ...(this.checkpoint !== undefined
+        ? { checkpointTurn: this.checkpointTurn }
+        : {}),
       savedAt: Date.now(),
       gitCommit: this.deps.telemetryBuildHash,
     };
@@ -1051,6 +1095,10 @@ export class GameServer {
         this.handleClientCheckpoint(client, clientMsg);
         break;
       }
+      case "checkpoint_chunk": {
+        this.handleClientCheckpointChunk(client, clientMsg);
+        break;
+      }
       case "intent": {
         // Server stamps clientID from the authenticated connection.
         const outcome = this.handleIntent(clientMsg.intent, {
@@ -1125,7 +1173,117 @@ export class GameServer {
     if (message.checkpoint.length > MAX_CHECKPOINT_TRANSFER_BYTES) {
       return;
     }
-    const checkpoint = decodeCheckpoint(message.checkpoint);
+    this.trackCheckpointUpload(this.acceptCheckpointWire(message.checkpoint));
+  }
+
+  // Register an in-flight checkpoint decode so `whenCheckpointUploadsSettled`
+  // can be awaited (the decode is async for `gz:` payloads).
+  private trackCheckpointUpload(promise: Promise<void>): void {
+    this.checkpointUploadsInFlight++;
+    const done = () => {
+      this.checkpointUploadsInFlight--;
+      if (this.checkpointUploadsInFlight === 0) {
+        const resolvers = this.checkpointUploadsIdle;
+        this.checkpointUploadsIdle = [];
+        for (const resolve of resolvers) resolve();
+      }
+    };
+    void promise.then(done, done);
+  }
+
+  /** Resolves once no checkpoint decode is in flight (test/teardown helper). */
+  public whenCheckpointUploadsSettled(): Promise<void> {
+    if (this.checkpointUploadsInFlight === 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.checkpointUploadsIdle.push(resolve);
+    });
+  }
+
+  // Phase 7: reassemble a gzip-compressed checkpoint sent in `checkpoint_chunk`
+  // frames. Bounded by the chunk count, the compressed byte cap, a per-minute
+  // upload budget, and a timeout for abandoned uploads, so a partial or hostile
+  // sender cannot pin memory. On completion the joined `gz:` string goes through
+  // the same validation/store path as a single-frame checkpoint.
+  private handleClientCheckpointChunk(
+    client: Client,
+    message: ClientCheckpointChunkMessage,
+  ): void {
+    if (!GameServer.CHECKPOINT_COMPRESSION) return;
+    if (
+      this.stage !== "started" ||
+      this.isPublic() ||
+      this.creatorPersistentID === undefined
+    ) {
+      return;
+    }
+    if (client.clientID !== this.lobbyCreatorID) return;
+    if (message.encoding !== "gzip") return;
+    if (
+      message.total === 0 ||
+      message.total > GameServer.MAX_CHECKPOINT_UPLOAD_CHUNKS
+    ) {
+      return;
+    }
+    if (message.seq >= message.total) return;
+    const now = Date.now();
+    for (const [key, upload] of this.checkpointUploads) {
+      if (now - upload.updatedAt > GameServer.CHECKPOINT_UPLOAD_TIMEOUT_MS) {
+        this.checkpointUploads.delete(key);
+      }
+    }
+    const key = `${client.clientID}:${message.uploadId}`;
+    let upload = this.checkpointUploads.get(key);
+    if (upload === undefined) {
+      if (now - this.checkpointUploadWindowStart > 60_000) {
+        this.checkpointUploadWindowStart = now;
+        this.checkpointUploadsThisMinute = 0;
+      }
+      if (
+        this.checkpointUploadsThisMinute >=
+        GameServer.MAX_CHECKPOINT_UPLOADS_PER_MINUTE
+      ) {
+        return;
+      }
+      this.checkpointUploadsThisMinute++;
+      upload = {
+        chunks: new Array<string | undefined>(message.total),
+        received: 0,
+        bytes: 0,
+        updatedAt: now,
+      };
+      this.checkpointUploads.set(key, upload);
+    }
+    // A reused id with a different shape is a different upload; drop the old.
+    if (upload.chunks.length !== message.total) {
+      this.checkpointUploads.delete(key);
+      return;
+    }
+    if (upload.chunks[message.seq] === undefined) {
+      upload.chunks[message.seq] = message.data;
+      upload.received++;
+      upload.bytes += message.data.length;
+    }
+    upload.updatedAt = now;
+    if (upload.bytes > MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES) {
+      this.checkpointUploads.delete(key);
+      return;
+    }
+    if (upload.received < message.total) return;
+    const wire = upload.chunks.join("");
+    this.checkpointUploads.delete(key);
+    if (wire.length > MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES) return;
+    if (!isCompressedCheckpoint(wire)) return;
+    this.trackCheckpointUpload(this.acceptCheckpointWire(wire));
+  }
+
+  // Validate a wire checkpoint (plain tagged-JSON or `gz:`) and, when it is a
+  // valid checkpoint at or behind our history and newer than the held one,
+  // store it and persist. Decoding a `gz:` payload is async, so callers do not
+  // await; a losing race simply leaves the newer checkpoint in place.
+  private async acceptCheckpointWire(wire: string): Promise<void> {
+    const checkpoint = await decodeCheckpointWire(wire);
     if (
       checkpoint === undefined ||
       checkpoint.ticks < 0 ||
@@ -1140,7 +1298,7 @@ export class GameServer {
     ) {
       return;
     }
-    this.checkpoint = message.checkpoint;
+    this.checkpoint = wire;
     this.checkpointTurn = checkpoint.ticks;
     // Land it on disk without waiting for the next periodic autosave.
     this.scheduleSave();

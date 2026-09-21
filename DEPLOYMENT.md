@@ -19,6 +19,7 @@ Auto-deploy is handled by **Fly.io's native GitHub integration** (not a GitHub A
 - Builds take ~3 minutes, then a new Release is created
 
 If auto-deploy stops working, check:
+
 1. The "Auto-Deploy on push" checkbox is still enabled in Fly.io Settings
 2. The GitHub repo is still connected (same Settings page)
 
@@ -28,15 +29,40 @@ There is NO GitHub Actions workflow for deployment. It was removed because it re
 
 These settings MUST be correct or the app breaks:
 
-| Setting | Correct Value | Why |
-|---------|--------------|-----|
-| `internal_port` | `80` | Nginx listens on 80. Fly.io default is 8080 — this breaks routing |
-| `GAME_ENV` | `dev` | `prod`/`staging` require the closed-source API for auth |
-| `CDN_BASE` | `https://openfrontio.fly.dev` | Web Workers need absolute URLs to fetch map data |
-| `NUM_WORKERS` | `1` | Must be set or server crashes |
-| `TURNSTILE_SITE_KEY` | `disabled` | Must be set or server crashes |
-| `DOMAIN` | `openfrontio.fly.dev` | Used for JWT audience |
-| `SUBDOMAIN` | `main` | Used for routing |
+| Setting              | Correct Value                 | Why                                                                      |
+| -------------------- | ----------------------------- | ------------------------------------------------------------------------ |
+| `internal_port`      | `80`                          | Nginx listens on 80. Fly.io default is 8080 — this breaks routing        |
+| `GAME_ENV`           | `dev`                         | `prod`/`staging` require the closed-source API for auth                  |
+| `CDN_BASE`           | `https://openfrontio.fly.dev` | Web Workers need absolute URLs to fetch map data                         |
+| `NUM_WORKERS`        | `1`                           | Must be set or server crashes                                            |
+| `TURNSTILE_SITE_KEY` | `disabled`                    | Must be set or server crashes                                            |
+| `DOMAIN`             | `openfrontio.fly.dev`         | Used for JWT audience                                                    |
+| `SUBDOMAIN`          | `main`                        | Used for routing                                                         |
+| `SAVE_DIR`           | a mounted volume path         | Resumable private-lobby saves; unmounted, they are lost on every restart |
+
+## Resumable saves (SAVE_DIR)
+
+Private-lobby saves are written to `SAVE_DIR` (default `./saves`), one
+subdirectory per worker. **Without a mounted volume they are lost whenever the
+machine restarts or redeploys.** Create a Fly volume and mount it, e.g.:
+
+```bash
+fly volumes create openfront_saves -a openfrontio -s 3
+```
+
+```toml
+[mounts]
+  source = "openfront_saves"
+  destination = "/data"
+
+[env]
+  SAVE_DIR = "/data/saves"
+```
+
+The server enforces a retention policy so the volume cannot fill up: at most 20
+saves per creator, 30 days of age, and a 2 GiB per-worker byte budget (oldest
+removed first). A full disk is handled gracefully — a torn history append is
+rolled back and the save stays at its last consistent point.
 
 ## The Correct fly.toml
 
@@ -72,15 +98,15 @@ primary_region = 'ams'
 
 These files were modified for self-hosting:
 
-| File | Change |
-|------|--------|
-| `src/server/Turnstile.ts` | Always returns "approved" (no Cloudflare API) |
-| `src/server/MasterLobbyService.ts` | `maybeScheduleLobby()` returns immediately (no public games) |
-| `src/client/Main.ts` | `getTurnstileToken()` returns dummy token |
-| `src/client/GoogleAdElement.ts` | Renders nothing |
-| `src/client/HomepagePromos.ts` | Renders nothing |
-| `src/client/components/DesktopNavBar.ts` | Removed Sign In and Store buttons |
-| `src/client/components/MobileNavBar.ts` | Removed Sign In and Store buttons |
+| File                                     | Change                                                       |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `src/server/Turnstile.ts`                | Always returns "approved" (no Cloudflare API)                |
+| `src/server/MasterLobbyService.ts`       | `maybeScheduleLobby()` returns immediately (no public games) |
+| `src/client/Main.ts`                     | `getTurnstileToken()` returns dummy token                    |
+| `src/client/GoogleAdElement.ts`          | Renders nothing                                              |
+| `src/client/HomepagePromos.ts`           | Renders nothing                                              |
+| `src/client/components/DesktopNavBar.ts` | Removed Sign In and Store buttons                            |
+| `src/client/components/MobileNavBar.ts`  | Removed Sign In and Store buttons                            |
 
 ## Common Failure Modes
 
@@ -90,6 +116,7 @@ These files were modified for self-hosting:
 Fly.io expects traffic on port 8080 but nginx listens on 80. This happens when someone runs `fly launch`.
 
 Fix — check and correct:
+
 ```bash
 fly machines list -a openfrontio --json | python3 -c "
 import sys, json
@@ -97,9 +124,11 @@ for m in json.load(sys.stdin):
     for s in m.get('config',{}).get('services',[]):
         print(f'internal_port={s.get(\"internal_port\")}')"
 ```
+
 If it shows 8080, destroy the machine and redeploy:
+
 ```bash
-fly machines destroy <ID> -a openfrontio --force
+fly machines destroy openfrontio --force < ID > -a
 fly deploy --remote-only -a openfrontio
 ```
 
@@ -108,6 +137,7 @@ After deploy, tsx transpilation takes ~30-60 seconds. Wait and retry.
 
 **Cause 3: Out of memory**
 If machine is 256MB, it will OOM during tsx startup. Must be 512MB.
+
 ```bash
 fly scale memory 512 -a openfrontio
 ```
@@ -115,6 +145,7 @@ fly scale memory 512 -a openfrontio
 ### "unsupported game env: undefined"
 
 `GAME_ENV` not set. Fix:
+
 ```bash
 fly secrets set GAME_ENV=dev -a openfrontio
 ```
@@ -122,6 +153,7 @@ fly secrets set GAME_ENV=dev -a openfrontio
 ### "Worker initialization timeout" (client-side)
 
 The browser Web Worker can't fetch map files. Usually means `CDN_BASE` is empty.
+
 ```bash
 fly secrets set CDN_BASE=https://openfrontio.fly.dev -a openfrontio
 ```
@@ -135,6 +167,7 @@ Client-side Turnstile is trying to validate. The code change in `Main.ts` (`getT
 This happens when someone runs `fly launch` — it creates a new machine with Fly.io defaults (port 8080, staging env, empty CDN). **Never run `fly launch` on this app.** Use `fly deploy` instead.
 
 If it happens:
+
 1. Destroy the bad machine: `fly machines destroy <ID> -a openfrontio --force`
 2. Deploy fresh: `fly deploy --remote-only -a openfrontio`
 
@@ -143,9 +176,10 @@ Or: let Fly.io's auto-deploy rebuild from the correct `fly.toml` in the repo.
 ### Two machines running (doubles cost)
 
 Fly.io defaults to creating 2 machines. We only need 1. Check and remove extras:
+
 ```bash
 fly machines list -a openfrontio
-fly machines destroy <ID_of_extra> -a openfrontio --force
+fly machines destroy openfrontio --force < ID_of_extra > -a
 ```
 
 ## Tokens & Access
@@ -188,7 +222,7 @@ fly scale memory 512 -a openfrontio
 fly deploy --remote-only -a openfrontio
 
 # Destroy a broken machine
-fly machines destroy <ID> -a openfrontio --force
+fly machines destroy openfrontio --force < ID > -a
 
 # List machines
 fly machines list -a openfrontio
