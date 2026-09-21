@@ -1139,30 +1139,66 @@ export interface ResumableSeat {
   claimed: boolean;
 }
 
+// Why one worker's save list could not be read. Surfaced instead of silently
+// treating an auth/routing/network failure as "no saves".
+export interface SavedLobbyLookupError {
+  worker: number;
+  /** HTTP status when the request completed but was rejected. */
+  status?: number;
+  /** Server body (truncated) or the network error message. */
+  message?: string;
+}
+
+export interface SavedLobbiesResult {
+  saves: SavedLobbySummary[];
+  workers: number;
+  errors: SavedLobbyLookupError[];
+}
+
 // GET /wN/api/saves on every worker — saves are sharded with the game, so the
 // host's list is the union. One worker being down/slow must not hide the rest.
-export async function listSavedLobbies(): Promise<SavedLobbySummary[]> {
+// Every per-worker outcome is logged and returned so an empty list is
+// diagnosable (401 vs 404 vs unreachable) rather than silently "no saves".
+export async function listSavedLobbies(): Promise<SavedLobbiesResult> {
   const token = await getPlayToken();
-  const count = ClientEnv.numWorkers();
+  const workers = ClientEnv.numWorkers();
+  const errors: SavedLobbyLookupError[] = [];
   const results = await Promise.all(
-    Array.from({ length: count }, async (_, index) => {
+    Array.from({ length: workers }, async (_, worker) => {
+      const url = `${ClientEnv.serverHttpBase()}/w${worker}/api/saves`;
       try {
-        const res = await fetch(
-          `${ClientEnv.serverHttpBase()}/w${index}/api/saves`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!res.ok) return [] as SavedLobbySummary[];
-        const body = await res.json();
-        return Array.isArray(body?.saves)
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          const message = body.slice(0, 200);
+          errors.push({ worker, status: res.status, message });
+          console.warn(
+            `listSavedLobbies: w${worker} → HTTP ${res.status} ${message}`,
+          );
+          return [] as SavedLobbySummary[];
+        }
+        const body = await res.json().catch(() => null);
+        const saves = Array.isArray(body?.saves)
           ? (body.saves as SavedLobbySummary[])
           : [];
+        console.info(`listSavedLobbies: w${worker} → ${saves.length} save(s)`);
+        return saves;
       } catch (e) {
-        console.warn(`listSavedLobbies: worker ${index} failed`, e);
+        const message = e instanceof Error ? e.message : String(e);
+        errors.push({ worker, message });
+        console.warn(`listSavedLobbies: w${worker} unreachable: ${message}`);
         return [] as SavedLobbySummary[];
       }
     }),
   );
-  return results.flat().sort((a, b) => b.savedAt - a.savedAt);
+  errors.sort((a, b) => a.worker - b.worker);
+  return {
+    saves: results.flat().sort((a, b) => b.savedAt - a.savedAt),
+    workers,
+    errors,
+  };
 }
 
 // POST /wN/api/saves/:id/resume — rebuilds the saved private game on its owning

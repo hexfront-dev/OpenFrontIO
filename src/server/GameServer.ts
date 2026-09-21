@@ -608,6 +608,11 @@ export class GameServer {
         if (persistedThrough > this.lastPersistedTurn) {
           this.lastPersistedTurn = persistedThrough;
         }
+        this.log.info("persisted game save", {
+          gameID: this.id,
+          stage: snapshot.stage,
+          throughTurn: persistedThrough,
+        });
       })
       .catch((error) => {
         this.log.error("failed to persist game save", {

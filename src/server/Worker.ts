@@ -24,7 +24,7 @@ import { Client } from "./Client";
 import { gameApiCors } from "./GameApiCors";
 import { GameManager } from "./GameManager";
 import { registerGamePreviewRoute } from "./GamePreviewRoute";
-import type { GameServer } from "./GameServer";
+import { hashPersistentID, type GameServer } from "./GameServer";
 import { isSteamAuthenticated, planJoinVerify, verifyJoin } from "./JoinVerify";
 import { getUserMe, verifyClientToken } from "./jwt";
 import { logger } from "./Logger";
@@ -402,6 +402,9 @@ export async function startWorker() {
   ): Promise<string | null> => {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
+      log.warn("save API request rejected: no bearer token", {
+        path: req.path,
+      });
       res.status(400).json({ error: "Authorization header required" });
       return null;
     }
@@ -409,6 +412,10 @@ export async function startWorker() {
       authHeader.substring("Bearer ".length),
     );
     if (auth.type !== "success") {
+      log.warn("save API request rejected: invalid token", {
+        path: req.path,
+        reason: auth.message,
+      });
       res.status(401).json({ error: "Invalid token" });
       return null;
     }
@@ -421,6 +428,12 @@ export async function startWorker() {
     const persistentId = await requireAccount(req, res);
     if (persistentId === null) return;
     const metas = await saveStore.list(persistentId);
+    // Diagnostic: distinguish "this account has no saves" from "the listing
+    // failed". Logs only a hash prefix, never the raw persistent id.
+    log.info("listed resumable saves", {
+      creator: hashPersistentID(persistentId).slice(0, 8),
+      count: metas.length,
+    });
     res.json({
       saves: metas.map((m) => ({
         gameID: m.gameID,
@@ -460,9 +473,11 @@ export async function startWorker() {
 
     const save = await saveStore.load(id);
     if (save === null) {
+      log.warn("resume failed: save not found", { gameID: id });
       return res.status(404).json({ error: "save_not_found" });
     }
     if (save.creatorPersistentID !== persistentId) {
+      log.warn("resume failed: caller is not the creator", { gameID: id });
       return res.status(403).json({ error: "not_creator" });
     }
     const game = gm.restoreGame(save);

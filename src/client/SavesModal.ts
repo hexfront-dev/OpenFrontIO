@@ -7,6 +7,7 @@ import {
   listSavedLobbies,
   resumeSavedLobby,
   type ResumableSeat,
+  type SavedLobbyLookupError,
   type SavedLobbySummary,
 } from "./Api";
 import { ClientEnv } from "./ClientEnv";
@@ -36,6 +37,12 @@ export class SavesModal extends BaseModal {
 
   // Server-hosted saves the host can resume as a private lobby.
   @state() private serverSaves: SavedLobbySummary[] | null = null;
+  // Per-worker outcome of the last server listing, shown when it came back
+  // empty so an auth/routing failure is not mistaken for "no saves".
+  @state() private serverLookup: {
+    workers: number;
+    errors: SavedLobbyLookupError[];
+  } | null = null;
   @state() private selectedServer: SavedLobbySummary | null = null;
   @state() private serverSeats: ResumableSeat[] | null = null;
   // null = watch only (no seat claimed); otherwise the saved nation to control.
@@ -61,6 +68,7 @@ export class SavesModal extends BaseModal {
     this.selected = null;
     this.selectedServer = null;
     this.serverSeats = null;
+    this.serverLookup = null;
     this.myClientID = null;
     this.error = "";
     void this.refresh();
@@ -70,6 +78,7 @@ export class SavesModal extends BaseModal {
     this.selected = null;
     this.selectedServer = null;
     this.serverSeats = null;
+    this.serverLookup = null;
     this.myClientID = null;
     this.error = "";
     this.saves = null;
@@ -85,10 +94,19 @@ export class SavesModal extends BaseModal {
       this.error = translateText("save_game.load_failed");
     }
     try {
-      this.serverSaves = await listSavedLobbies();
+      const result = await listSavedLobbies();
+      this.serverSaves = result.saves;
+      this.serverLookup = { workers: result.workers, errors: result.errors };
+      if (result.saves.length === 0) {
+        console.info(
+          `No resumable lobbies: ${result.workers} worker(s), ` +
+            `${result.errors.length} error(s)`,
+        );
+      }
     } catch (error) {
       console.error("Failed to list server saves", error);
       this.serverSaves = [];
+      this.serverLookup = null;
     }
   }
 
@@ -247,8 +265,9 @@ export class SavesModal extends BaseModal {
         </h3>
         ${this.serverSaves.length === 0
           ? html`<p class="text-white/40 text-sm">
-              ${translateText("save_game.server_empty")}
-            </p>`
+                ${translateText("save_game.server_empty")}
+              </p>
+              ${this.renderServerDiagnostic()}`
           : this.serverSaves.map((meta) => this.renderServerRow(meta))}
         <h3
           class="text-sm font-semibold uppercase tracking-wider text-white/50 mt-2"
@@ -262,6 +281,28 @@ export class SavesModal extends BaseModal {
           : this.saves.map((meta) => this.renderRow(meta))}
       </div>
     `;
+  }
+
+  private renderServerDiagnostic(): TemplateResult | typeof nothing {
+    const lookup = this.serverLookup;
+    if (lookup === null || lookup.errors.length === 0) {
+      return nothing;
+    }
+    const details = lookup.errors
+      .map((e) =>
+        e.status !== undefined
+          ? translateText("save_game.server_error_http", {
+              worker: e.worker,
+              status: e.status,
+            })
+          : translateText("save_game.server_error_unreachable", {
+              worker: e.worker,
+            }),
+      )
+      .join(" · ");
+    return html`<p class="text-xs text-red-300">
+      ${translateText("save_game.server_diagnostic", { details })}
+    </p>`;
   }
 
   private renderRow(meta: SavedGameMeta): TemplateResult {
