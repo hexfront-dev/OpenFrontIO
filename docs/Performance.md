@@ -208,21 +208,172 @@ write-on-change IndexedDB sidecar, and the server rewrites
 
 ---
 
-## 9. Key files
+## 9. File map (jump straight to the right file)
 
-| File                               | Role                                               |
-| ---------------------------------- | -------------------------------------------------- |
-| `src/core/worker/Worker.worker.ts` | Sim loop, tick yield, checkpoint emission          |
-| `src/core/GameRunner.ts`           | Turn/execution orchestration                       |
-| `src/core/game/GameImpl.ts`        | `executeNextTick`, `hash`, `checkpoint`/restore    |
-| `src/client/ClientGameRunner.ts`   | Main-thread game loop, checkpoint cache + upload   |
-| `src/client/SaveManager.ts`        | Client autosave loop                               |
-| `src/client/SaveStore.ts`          | Client IndexedDB (saves/turns/checkpoints sidecar) |
-| `src/core/CheckpointCodec.ts`      | Tagged-JSON + binary `GZCP` gzip checkpoint codec  |
-| `src/server/GameServer.ts`         | Turn loop, save trigger, checkpoint reassembly     |
-| `src/server/GameManager.ts`        | Game registry, `flushAll` on shutdown              |
-| `src/server/SaveStore.ts`          | Server save layout, retention, conditional sidecar |
-| `docs/SaveResumeLongGames.md`      | Save/resume design and phased plan                 |
+Purpose: skip repo-wide search. Start with 9.1, then jump to the group you need.
+Paths are repo-relative.
+
+### 9.1 Start here
+
+- `src/core/game/GameImpl.ts` — sim state; `executeNextTick`, `hash` +
+  `tileOwnershipChecksum`, `checkpoint`/`restoreFromCheckpoint`/`rebuildPlayerTiles`,
+  `conquer`/`relinquish`.
+- `src/core/worker/Worker.worker.ts` — sim loop, tick yield
+  (`MAX_TICKS_BEFORE_YIELD`), `maybeSendCheckpoint`.
+- `src/core/CheckpointCodec.ts` — checkpoint serialization: tagged-JSON +
+  binary `GZCP` gzip, size projection, transfer/capture caps.
+- `src/client/ClientGameRunner.ts` — main-thread game loop, `latestCheckpoint`,
+  `uploadCheckpoint`, `beginCatchUp`, hash send.
+- `src/client/SaveStore.ts` — client IndexedDB (saves / turns / checkpoints
+  sidecar), caps, quota handling.
+- `src/server/GameServer.ts` — turn loop, save trigger, checkpoint reassembly,
+  `snapshot`.
+- `src/server/SaveStore.ts` — server save layout, retention, conditional
+  checkpoint sidecar.
+- `docs/SaveResumeLongGames.md` — the save/resume design spec.
+
+### 9.2 Core simulation
+
+- `src/core/GameRunner.ts` — turn buffering/execution orchestration
+  (`addTurns`, `pendingTurns`, checkpoint passthrough).
+- `src/core/PseudoRandom.ts` — sfc32 PRNG; `state()`/`setState()`.
+- `src/core/configuration/Config.ts` — `GameEnv` and config values (cooldowns,
+  spawn turns).
+- `src/core/game/Game.ts` — core interfaces (`Game`, `Player`, `Execution`,
+  `Unit`) and the optional `checkpoint?` injection points.
+- `src/core/game/GameMap.ts` — `terrain`/`state` typed arrays;
+  `exportMapState`/`importMapState`, `ownerID`/`setOwnerID`.
+- `src/core/game/PlayerImpl.ts` — player state; `checkpoint`/`restoreFromCheckpoint`,
+  `pruneTransient`, `hash`, `tiles()`.
+- `src/core/game/UnitImpl.ts` — units; checkpoint/restore, `hash`.
+- `src/core/game/AttackImpl.ts`, `AllianceImpl.ts`, `AllianceRequestImpl.ts` —
+  per-entity checkpoint/restore.
+- `src/core/game/TileSet.ts` — compact **insertion-ordered** tile set; iteration
+  order is part of determinism (see §5.6).
+- `src/core/game/RailNetwork.ts` / `RailNetworkImpl.ts` — rail network checkpoint.
+- `src/core/game/StatsImpl.ts` — deep-copied stats checkpoint.
+- `src/core/game/DoomsdayClock.ts` — rot noise field (integer hashes).
+- `src/core/game/WaterManager.ts` — **mutates terrain**, so terrain is not
+  immutable across a game.
+
+### 9.3 Checkpoint types, codec, schemas
+
+- `src/core/Checkpoint.ts` — `GameCheckpoint`/`*Checkpoint` types,
+  `CHECKPOINT_VERSION`, `CHECKPOINT_EVERY_TURNS`.
+- `src/core/CheckpointCodec.ts` — codec + `projectCheckpointBytes` +
+  `mapStateFits*` guards.
+- `src/core/Schemas.ts` — zod intent/message/save schemas (`SavedLobby`,
+  `SavedGame`) and their PII/size comments.
+- `src/core/StatsSchemas.ts` — `AllPlayersStats`/`PlayerStats`.
+- `src/core/ApiSchemas.ts` — API/JWT token payload.
+- `src/core/ZbinWire.ts` — compact binary wire encode/decode.
+- `src/core/Util.ts` — `simpleHash`, `toInt`, shared helpers.
+
+### 9.4 Executions and pathfinding (checkpointed hot loops)
+
+- `src/core/execution/ExecutionCheckpoints.ts` — `restoreExecution` switch:
+  **every captured execution kind is registered here**.
+- `src/core/execution/PlayerExecution.ts` — per-player per-tick
+  (`pruneTransient`).
+- `src/core/execution/AttackExecution.ts` — attack march (order-sensitive
+  `handleDeadDefender`).
+- `src/core/execution/DoomsdayClockExecution.ts` — rot; `LowestN` tie-breaking.
+- `src/core/execution/nation/NationUtils.ts` — AI tile picks (order-sensitive
+  `randTerritoryTile`).
+- `src/core/execution/utils/FlatBinaryHeap.ts` — heap `snapshot`/`restore`
+  (preserves dequeue tie order).
+- `src/core/pathfinding/PathFinder.ts` — `WaterPathFinder` snapshot/restore.
+- `src/core/pathfinding/PathFinderStepper.ts` — cached route snapshot.
+- `src/core/pathfinding/PathFinder.Parabola.ts`,
+  `PathFinder.Air.ts`, `PathfinderStagger.ts` — finder snapshots.
+- `src/core/utilities/Line.ts` — bezier curve snapshot.
+
+### 9.5 Worker boundary
+
+- `src/core/worker/Worker.worker.ts` — sim loop, yield threshold, checkpoint
+  emission, map loading.
+- `src/core/worker/WorkerClient.ts` — main-thread worker handle, checkpoint
+  callback, init/restore.
+- `src/core/worker/WorkerMessages.ts` — worker message types (incl.
+  `CheckpointMessage`).
+
+### 9.6 Client main thread, saves, auth, transport
+
+- `src/client/ClientGameRunner.ts` — game loop, checkpoint cache + upload,
+  catch-up overlay.
+- `src/client/SaveManager.ts` — autosave cadence, checkpoint provider.
+- `src/client/SaveStore.ts` — IndexedDB v3 (`saves`/`meta`/`turns`/`checkpoints`),
+  byte caps, quota eviction.
+- `src/client/Api.ts` — `listSavedLobbies` (+ per-worker diagnostics),
+  `createLobby`, `resumeSavedLobby`, `deleteSavedLobby`.
+- `src/client/ClientEnv.ts` — `numWorkers`, `serverHttpBase`,
+  `workerIndex`/`workerPath`.
+- `src/client/Auth.ts` — `getPlayToken`, `userAuth`, local persistent id.
+- `src/client/Transport.ts` — `sendCheckpoint`, `sendCheckpointChunk`, hash send.
+
+### 9.7 Client UI / wiring
+
+- `src/client/SavesModal.ts` — the saves window (server + local sections,
+  diagnostics).
+- `src/client/Main.ts` — modal router and `join-lobby` handling.
+- `src/client/GameModeSelector.ts` — opens the saves modal.
+- `src/client/HostLobbyModal.ts` — create-private-lobby flow.
+- `src/client/LocalServer.ts` — solo/local resume path.
+- `src/client/ResumeLoadingOverlay.ts` — hidden catch-up overlay.
+
+### 9.8 Server and cluster
+
+- `src/server/Server.ts` — cluster entry (master vs worker).
+- `src/server/Master.ts` — forks workers, crash/restart, shutdown.
+- `src/server/Worker.ts` — express routes (`/api/saves`, create/resume/delete),
+  auth, join, save-store wiring, SIGINT/SIGTERM flush.
+- `src/server/GameManager.ts` — game registry, `tick`, `restoreGame`, `flushAll`.
+- `src/server/GameServer.ts` — turn loop, `handleClientDisconnect`,
+  `scheduleSave`/`persistSave`/`flushSave`, checkpoint reassembly, `snapshot`.
+- `src/server/SaveStore.ts` — filesystem/memory store, retention, conditional
+  checkpoint sidecar, `list`.
+- `src/server/Client.ts` — per-socket client (`persistentID`).
+- `src/server/jwt.ts` — `verifyClientToken`.
+- `src/server/ServerEnv.ts` — env access, `saveDir`/`saveWorkerDir`, worker index.
+- `src/server/WorkerLobbyService.ts`, `IPCBridgeSchema.ts` — master↔worker IPC.
+- `src/server/telemetry/MatchTelemetryConfig.ts` — `MAX_WEBSOCKET_PAYLOAD_BYTES`.
+
+### 9.9 Build / config / deploy
+
+- `vite.config.ts` — dev proxy `/w0`/`/w1`, random-worker create proxy,
+  `BOOTSTRAP_CONFIG` (`numWorkers`).
+- `nginx.conf` — production `/wN` routing.
+- `package.json` — scripts (`dev`, `test`, `perf:*`, `lint`, `format`).
+- `tsconfig.json` — typecheck config.
+- `DEPLOYMENT.md` — the `SAVE_DIR` volume requirement.
+- `testnotes.md` — known environment-only test failures (read this before
+  trusting a red suite).
+- `CLAUDE.md` — repo conventions (commands, core determinism, i18n rule).
+
+### 9.10 Tests and perf harness
+
+- Harness: `tests/util/Setup.ts` (build a test game), `tests/util/utils.ts`
+  (`executeTicks`), `tests/util/GameServerHarness.ts` (GameServer/mock sockets).
+- Checkpoints: `tests/core/Checkpoint.test.ts`,
+  `CheckpointCodec.test.ts`, `CheckpointProjectiles.test.ts`,
+  `CheckpointRail.test.ts`, `CheckpointShips.test.ts`,
+  `PlayerTransientPrune.test.ts`, `GameRunnerTurnBuffer.test.ts`,
+  `pathfinding/PathFinderStepper.test.ts`.
+- Saves: `tests/server/GameServerSave.test.ts`, `tests/server/SaveStore.test.ts`,
+  `tests/SaveStore.test.ts`, `tests/SaveManager.test.ts`,
+  `tests/ListSavedLobbies.test.ts`.
+- PRNG: `tests/PseudoRandom.test.ts`.
+- Perf scripts: `tests/perf/run-all.ts`, `tests/perf/fullgame/FullGamePerf.ts`,
+  `tests/perf/client/ClientUpdatePerf.ts`, `ClientMemoryPerf.ts`,
+  `ClientTickPerf.ts`.
+
+### 9.11 Docs
+
+- `docs/Performance.md` — this file.
+- `docs/SaveResumeLongGames.md` — save/resume design and phased plan.
+- `docs/Architecture.md` — system overview.
+- `docs/API.md`, `docs/Auth.md` — HTTP API and auth flow.
+- `docs/Maps.md`, `docs/MapCreation.md` — map pipeline (tile counts drive budgets).
 
 ---
 
