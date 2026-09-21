@@ -1600,6 +1600,11 @@ export class GameImpl implements Game {
       players.push(player);
     }
 
+    // Owned-tile sets are derived from the restored ownership map rather than
+    // serialized (that dominated large-map checkpoints). Rebuild them now so
+    // every later step — units, border tiles, executions — sees them.
+    this.rebuildPlayerTiles();
+
     // Units: rebuild spatially and re-link ownership. Two passes so a unit's
     // targetUnit can resolve another unit restored later in the loop (a trade
     // ship targets a port owned by a different player, for instance): create
@@ -1755,6 +1760,24 @@ export class GameImpl implements Game {
     // Set after addUnit() bumped them during the rebuild.
     this._unitsVersion = cp.unitsVersion;
     this._territoryVersion = cp.territoryVersion;
+  }
+
+  /**
+   * Rebuild each player's owned-tile set from the authoritative per-tile owner
+   * array. The order is ascending `TileRef`; consumers that used to rely on the
+   * (now absent) captured insertion order are order-independent (see
+   * NationUtils, DoomsdayClockExecution, AttackExecution.handleDeadDefender).
+   */
+  private rebuildPlayerTiles(): void {
+    const map = this._map;
+    const width = map.width();
+    const total = width * map.height();
+    for (let ref = 0; ref < total; ref++) {
+      const ownerID = map.ownerID(ref);
+      if (ownerID === 0) continue;
+      const owner = this.playerBySmallID(ownerID) as PlayerImpl;
+      owner._tiles.add(ref);
+    }
   }
 }
 

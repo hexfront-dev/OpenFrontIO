@@ -183,7 +183,7 @@ export function projectCheckpointBytes(checkpoint: GameCheckpoint): number {
 
   for (const p of checkpoint.players) {
     bytes += PLAYER_BASE_BYTES;
-    bytes += p.tiles.length * PLAYER_REF_BYTES;
+    // Owned tiles are not captured (rebuilt from map.state); only avoided tiles.
     bytes += p.avoidedTiles.length * PLAYER_REF_BYTES;
     bytes += p.unitIds.length * PLAYER_REF_BYTES;
     bytes += p.outgoingAttackIds.length * PLAYER_ID_BYTES;
