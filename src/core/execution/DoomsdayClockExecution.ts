@@ -48,16 +48,6 @@ import { TileRef } from "../game/GameMap";
  * unless enabled in the GameConfig. Runs once per second (every 10 ticks), like
  * WinCheckExecution.
  */
-// A TileRef fits in 32 bits, so folding it into the low bits of a selection key
-// breaks exact key ties deterministically. Without this, equal-keyed tiles would
-// resolve by tile-set iteration order, which a checkpoint restore rebuilds (see
-// GameImpl.rebuildPlayerTiles). The primary ordering (the noise key) is
-// unchanged because tile refs are strictly smaller than this scale.
-const TILE_TIEBREAK_SCALE = 0x100000000;
-function tileTiebreakKey(key: number, tile: TileRef): number {
-  return key * TILE_TIEBREAK_SCALE + tile;
-}
-
 /** Keeps the `n` lowest-keyed tiles seen, in one pass and in key order. */
 class LowestN {
   private tiles: TileRef[] = [];
@@ -336,10 +326,7 @@ export class DoomsdayClockExecution implements Execution {
     const edge = new LowestN(count);
     player.tiles().forEach((tile) => {
       const key = rotSpeckleNoise(mg.x(tile), mg.y(tile), salt);
-      (border.has(tile) ? edge : interior).offer(
-        tile,
-        tileTiebreakKey(key, tile),
-      );
+      (border.has(tile) ? edge : interior).offer(tile, key);
     });
     const picked =
       interior.size >= count
@@ -373,7 +360,7 @@ export class DoomsdayClockExecution implements Execution {
     const pick = new LowestN(count);
     for (const [tile, rotted] of front) {
       const key = rotted * ROT_NOISE_SCALE + rotFrontNoise(tile, salt);
-      pick.offer(tile, tileTiebreakKey(key, tile));
+      pick.offer(tile, key);
     }
     let taken = 0;
     for (const tile of pick.take()) {

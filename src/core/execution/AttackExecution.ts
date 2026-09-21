@@ -506,13 +506,7 @@ export class AttackExecution implements Execution {
     const MAX_PASSES = 100;
     for (let pass = 0; pass < MAX_PASSES; pass++) {
       let progressed = false;
-      // Ascending ref order so the outcome does not depend on the tile set's
-      // iteration order, which a checkpoint restore rebuilds (see
-      // GameImpl.rebuildPlayerTiles). Skip refs conquered earlier this pass.
-      const owned = Array.from(target.tiles());
-      owned.sort((a, b) => a - b);
-      for (const tile of owned) {
-        if (!target.tiles().has(tile)) continue;
+      for (const tile of target.tiles()) {
         let borders = false;
         this.mg.forEachNeighbor(tile, (t) => {
           if (!borders && this.mg.owner(t) === this._owner) {

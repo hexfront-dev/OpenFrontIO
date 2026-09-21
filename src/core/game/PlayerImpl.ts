@@ -2067,6 +2067,7 @@ export class PlayerImpl implements Player {
         UnitType,
         number,
       ][],
+      tiles: Array.from(this._tiles.values()),
       avoidedTiles: Array.from(this._avoidedTiles),
       unitIds: this._units.map((u) => u.id()),
       allianceIds: this._alliances.map((a) => a.id()),
@@ -2143,9 +2144,7 @@ export class PlayerImpl implements Player {
       this.numUnitsConstructed[type] = count;
     }
 
-    // Rebuilt by GameImpl from the restored ownership map (checkpoint no longer
-    // serializes tile refs); left empty here.
-    this._tiles = new TileSet();
+    this._tiles = new TileSet(cp.tiles);
     this._borderTiles = new TileSet();
     this._avoidedTiles = new Set(cp.avoidedTiles);
     this._units = [];

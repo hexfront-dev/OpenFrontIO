@@ -158,29 +158,6 @@ describe("B2 core checkpoints", () => {
     expect(restored.players().length).toBe(original.players().length);
   });
 
-  test("restore rebuilds player tiles from the ownership map", async () => {
-    const { game: original } = await buildGame();
-    executeTicks(original, 78);
-
-    const checkpoint = original.checkpoint();
-    expect(checkpoint).toBeDefined();
-    // Owned tiles are no longer serialized; they are redundant with map.state
-    // and dominated large-map checkpoints.
-    for (const player of checkpoint!.players) {
-      expect((player as { tiles?: unknown }).tiles).toBeUndefined();
-    }
-
-    const { game: restored } = await buildGame();
-    restored.restoreFromCheckpoint(checkpoint!);
-
-    for (const player of original.players()) {
-      const owned = (p: Game) =>
-        [...p.player(player.id()).tiles()].sort((a, b) => a - b);
-      expect(owned(restored)).toEqual(owned(original));
-      expect(original.player(player.id()).numTilesOwned()).toBeGreaterThan(0);
-    }
-  });
-
   test("checkpoint captures and restores player state", async () => {
     const { game: original, alpha } = await buildGame();
     executeTicks(original, 40);

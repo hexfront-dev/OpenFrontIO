@@ -26,7 +26,7 @@ import { PlayerStats } from "./StatsSchemas";
  * The format is versioned and `gitCommit`-pinned like the rest of the save
  * system: a checkpoint from a different build may not replay identically.
  */
-export const CHECKPOINT_VERSION = 2;
+export const CHECKPOINT_VERSION = 1;
 
 /**
  * How often a running game may capture a checkpoint, in turns. Two autosave
@@ -203,11 +203,7 @@ export interface PlayerCheckpoint {
   piracyGold: bigint;
   goldEarned: bigint;
   numUnitsConstructed: [UnitType, number][];
-  /**
-   * Owned tiles are deliberately NOT captured: they are redundant with
-   * `GameCheckpoint.map.state` (the per-tile owner array) and are rebuilt from
-   * it on restore. Serializing every ref dominated large-map checkpoints.
-   */
+  tiles: TileRef[];
   avoidedTiles: TileRef[];
   unitIds: number[];
   allianceIds: number[];

@@ -42,12 +42,7 @@ function randTerritoryTile(
   }
 
   if (p.numTilesOwned() > 0 && p.numTilesOwned() <= 100) {
-    // Sort before the PRNG pick so the result does not depend on the tile set's
-    // iteration order, which a checkpoint restore rebuilds (see
-    // GameImpl.rebuildPlayerTiles).
-    const owned = Array.from(p.tiles());
-    owned.sort((a, b) => a - b);
-    return random.randElement(owned);
+    return random.randElement(Array.from(p.tiles()));
   }
 
   return null;
