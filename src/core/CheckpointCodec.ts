@@ -38,7 +38,22 @@ export const MAX_CHECKPOINT_TRANSFER_BYTES = 900_000;
 // past the single-frame cap up to this reconstructed size (base64 characters);
 // the server enforces it together with a per-minute upload budget.
 export const CHECKPOINT_COMPRESSED_PREFIX = "gz:";
-export const MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES = 8 * 1024 * 1024;
+export const MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES = 16 * 1024 * 1024;
+
+// Phase 7 follow-up: with gzip + chunked transport available, a checkpoint no
+// longer has to fit a single frame. This ceiling is applied to a map's fixed
+// floor (its raw main + minimap arrays) before the worker skips capture: it is
+// sized above the largest shipped map, so *every* map captures a checkpoint and
+// relies on compression to fit the compressed transfer cap. A future map above
+// this only loses the optimisation (full-history replay), never correctness.
+export const MAX_CHECKPOINT_CAPTURE_BYTES = 64 * 1024 * 1024;
+
+// The main-thread gzip input ceiling. `projectCheckpointBytes` is an estimate of
+// the *encoded* checkpoint, which also includes player/unit history on top of
+// the map floor; this bounds the transient string allocation before compression.
+// Generous enough that any shipped map + a long game still attempts compression,
+// while still capping the worst case.
+export const MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES = 256 * 1024 * 1024;
 
 /** True when a wire checkpoint is a `gz:`-prefixed gzip payload. */
 export function isCompressedCheckpoint(serialized: string): boolean {
@@ -214,29 +229,53 @@ export function checkpointFitsTransferBudget(
 }
 
 /**
- * Projected encoded size of a map's raw typed arrays: the main map plus its 4x
+ * Projected encoded size of a map's raw typed arrays: the main map plus its
  * minimap, each terrain (Uint8) and state (Uint16), base64-encoded. This is the
  * fixed floor of a checkpoint, known before any capture, so the worker can skip
  * allocating a checkpoint on maps that can never fit one.
+ *
+ * The minimap dimensions must be supplied: a Normal game's minimap is the
+ * 2x-downscaled `map4x` (a quarter of the main tile count), not a 4x one, so the
+ * default 1/4 estimate is only correct for callers with no better information.
  */
-export function projectMapStateBytes(width: number, height: number): number {
-  const miniWidth = Math.ceil(width / 4);
-  const miniHeight = Math.ceil(height / 4);
+export function projectMapStateBytes(
+  width: number,
+  height: number,
+  miniWidth: number = Math.ceil(width / 4),
+  miniHeight: number = Math.ceil(height / 4),
+): number {
   const tiles = width * height;
   const miniTiles = miniWidth * miniHeight;
   return base64Length((tiles + miniTiles) * 3);
 }
 
 /**
- * True when a map's fixed state alone fits the transfer cap. Large maps return
- * false and deliberately rely on (chunked) full-history replay instead of
- * capturing a checkpoint that could never be sent.
+ * True when a map's fixed state alone fits a single uncompressed frame. Only
+ * small maps can use the plaintext path; everything else must compress.
  */
 export function mapStateFitsTransferBudget(
   width: number,
   height: number,
 ): boolean {
   return projectMapStateBytes(width, height) <= MAX_CHECKPOINT_TRANSFER_BYTES;
+}
+
+/**
+ * True when a map's fixed floor is small enough to be worth capturing now that
+ * the compressed/chunked transport exists. Every shipped map passes, so the
+ * worker attempts a checkpoint on all of them; a map above the ceiling relies on
+ * full-history replay instead.
+ */
+export function mapStateFitsCheckpointCapture(
+  width: number,
+  height: number,
+  miniWidth: number,
+  miniHeight: number,
+): boolean {
+  return (
+    projectMapStateBytes(width, height, miniWidth, miniHeight) <=
+    MAX_CHECKPOINT_CAPTURE_BYTES
+  );
 }
 
 /** Serialize a checkpoint to its tagged-JSON wire/store form. */

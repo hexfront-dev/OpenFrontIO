@@ -1,3 +1,5 @@
+import { isGameCheckpoint } from "../core/Checkpoint";
+import { projectCheckpointBytes } from "../core/CheckpointCodec";
 import {
   type SavedGame,
   type SavedGameHead,
@@ -59,8 +61,31 @@ export function resetPersistentStorageRequest(): void {
   persistenceRequested = false;
 }
 
+// A B2 checkpoint holds multi-megabyte typed arrays. `JSON.stringify` would
+// expand them into per-index keys (a huge transient string) and does so on every
+// autosave before the oversize check drops them. The codec's projection is the
+// cheap, conservative estimate; anything unrecognised still falls back to JSON.
+function estimateCheckpointBytes(checkpoint: unknown): number {
+  if (isGameCheckpoint(checkpoint)) {
+    try {
+      return projectCheckpointBytes(checkpoint);
+    } catch {
+      // An unexpected/partial shape: fall through to the generic path.
+    }
+  }
+  try {
+    return JSON.stringify(checkpoint)?.length ?? 0;
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
 function estimateSaveBytes(head: SavedGameHead, turns: Turn[]): number {
-  let bytes = JSON.stringify(head).length;
+  const { checkpoint, ...headWithoutCheckpoint } = head;
+  let bytes = JSON.stringify(headWithoutCheckpoint).length;
+  if (checkpoint !== undefined) {
+    bytes += estimateCheckpointBytes(checkpoint);
+  }
   for (const turn of turns) {
     bytes += JSON.stringify(turn).length + 1;
   }

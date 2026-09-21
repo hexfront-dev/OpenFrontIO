@@ -143,12 +143,21 @@ it.
 | Giant World (4108×1948) | 8 002 384  | 2 000 596  | 30.0 MB   | ~40 MB             |
 | Compact Giant           | 2 000 596  | 500 149    | 7.5 MB    | ~10 MB             |
 
-The transfer cap is **900 000 chars** (`MAX_CHECKPOINT_TRANSFER_BYTES`) under a
-**1 MiB** frame limit (`MAX_WEBSOCKET_PAYLOAD_BYTES`). **No Normal-size map can
-ever fit a checkpoint** — even the default World map is ~11× over budget before
-any player/unit data. This is the single most important fact for this work:
-today, server-hosted checkpoints silently fall back to full replay on every
-map people actually play.
+The **plaintext** transfer cap is **900 000 chars**
+(`MAX_CHECKPOINT_TRANSFER_BYTES`) under a **1 MiB** frame limit
+(`MAX_WEBSOCKET_PAYLOAD_BYTES`). No Normal-size map fits that single frame — even
+the default World map is ~11× over budget before any player/unit data.
+
+Phase 7 lifted this by gzipping the blob and, when still too large, splitting it
+across `checkpoint_chunk` frames under
+`MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES`. Eligibility is now a static capture
+predicate over the map's fixed floor (`mapStateFitsCheckpointCapture`, ceiling
+`MAX_CHECKPOINT_CAPTURE_BYTES = 64 MiB`), sized above the largest shipped map, so
+**every map captures a checkpoint** and relies on compression to fit. Measured
+gzip output stays far below the compressed cap even on the largest maps (e.g.
+Sol ~82 MB tagged-JSON → ~1.7 MB gzipped for a synthetic full-map state). A
+future map above the capture ceiling (or a checkpoint that fails to compress
+under the cap) still degrades to full-history replay.
 
 ### 4.2 The history is the always-required artifact
 
@@ -422,8 +431,12 @@ bytes per game beyond budget.
    measured `projectCheckpointBytes` with a 700 000-char soft cap.)
 2. Chunk size and in-flight cap for Phase 4 (proposed: 512 turns / 2 in flight).
 3. Server retention policy shape (newest-N per creator vs age vs total bytes).
-4. Whether large-map checkpoint transport (Phase 7) is wanted at all, or whether
-   chunked replay is the accepted answer for large maps.
+4. ~~Whether large-map checkpoint transport (Phase 7) is wanted at all, or
+   whether chunked replay is the accepted answer for large maps.~~ Resolved:
+   Phase 7 is implemented and the capture ceiling (`MAX_CHECKPOINT_CAPTURE_BYTES`)
+   is sized so every shipped map captures; compression carries the upload. The
+   compressed cap (`MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES`) remains the bound
+   and any over-cap checkpoint falls back to history replay.
 
 ## 13. Appendix — constants and references
 

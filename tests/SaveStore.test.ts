@@ -11,6 +11,7 @@ import {
   saveGameProgress,
   setSaveBackend,
 } from "../src/client/SaveStore";
+import { CHECKPOINT_VERSION } from "../src/core/Checkpoint";
 import {
   Difficulty,
   GameMapSize,
@@ -21,6 +22,7 @@ import {
 import {
   SAVED_GAME_VERSION,
   SavedGame,
+  type SavedGameHead,
   savedGameHeadFrom,
   savedGameMetaFrom,
   SavedGameSchema,
@@ -249,6 +251,47 @@ describe("SaveStore storage lifecycle (Phase 6)", () => {
     expect(dropOversizedCheckpoint(head, turns, 10_000_000).checkpoint).toBe(
       "cp",
     );
+  });
+
+  it("drops a large core checkpoint without stringifying its typed arrays", () => {
+    const checkpoint = {
+      version: CHECKPOINT_VERSION,
+      ticks: 200,
+      players: [],
+      units: [],
+      attacks: [],
+      allianceRequests: [],
+      alliances: [],
+      stats: {},
+      map: {
+        terrain: new Uint8Array(2_000_000),
+        state: new Uint16Array(2_000_000),
+        numLandTiles: 0,
+        numTilesWithFallout: 0,
+        waterVersion: 0,
+      },
+      miniMap: {
+        terrain: new Uint8Array(500_000),
+        state: new Uint16Array(500_000),
+        numLandTiles: 0,
+        numTilesWithFallout: 0,
+        waterVersion: 0,
+      },
+    };
+    const head = {
+      ...savedGameHeadFrom(makeSave()),
+      checkpoint,
+    } as SavedGameHead;
+
+    // The projection is far above this cap, so the checkpoint is dropped and
+    // the history is kept.
+    const dropped = dropOversizedCheckpoint(head, makeSave().turns, 1);
+    expect(dropped.checkpoint).toBeUndefined();
+    expect(dropped.numTurns).toBe(head.numTurns);
+    // A generous cap keeps it.
+    expect(
+      dropOversizedCheckpoint(head, makeSave().turns, 100_000_000).checkpoint,
+    ).toBe(checkpoint);
   });
 
   it("requests persistent storage once", async () => {

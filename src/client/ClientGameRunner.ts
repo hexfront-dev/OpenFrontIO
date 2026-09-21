@@ -9,6 +9,7 @@ import {
   encodeCheckpointGzip,
   isCompressedCheckpoint,
   MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES,
+  MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES,
   MAX_CHECKPOINT_TRANSFER_BYTES,
   projectCheckpointBytes,
 } from "../core/CheckpointCodec";
@@ -898,11 +899,12 @@ interface GameStartingModalElement extends HTMLElement {
 export class ClientGameRunner {
   // Phase 7: gzip + chunk a checkpoint that does not fit a single frame. Static
   // so a mixed-version fleet can disable it (the plaintext/one-frame path and
-  // full-history replay remain). Compression only runs for maps whose projected
-  // size is small enough that it cannot become an unbounded main-thread stall;
-  // larger maps deliberately keep using history replay (see the design doc).
+  // full-history replay remain). Compression runs for every map the worker
+  // captured (all shipped maps), bounded by the shared input ceiling so the
+  // transient encode cannot grow without limit.
   public static CHECKPOINT_COMPRESSION = true;
-  public static CHECKPOINT_COMPRESSION_MAX_INPUT_BYTES = 16 * 1024 * 1024;
+  public static CHECKPOINT_COMPRESSION_MAX_INPUT_BYTES =
+    MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES;
   // Base64 characters per `checkpoint_chunk` frame, well under the single-frame
   // transfer cap so the zbin envelope always fits.
   private static CHECKPOINT_CHUNK_CHARS = 700_000;

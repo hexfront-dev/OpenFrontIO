@@ -1,6 +1,6 @@
 import { assetUrl } from "../AssetUrls";
 import { CHECKPOINT_EVERY_TURNS } from "../Checkpoint";
-import { mapStateFitsTransferBudget } from "../CheckpointCodec";
+import { mapStateFitsCheckpointCapture } from "../CheckpointCodec";
 import { FetchGameMapLoader } from "../game/FetchGameMapLoader";
 import { ErrorUpdate, GameUpdateViewData } from "../game/GameUpdates";
 import { createGameRunner, GameRunner } from "../GameRunner";
@@ -168,9 +168,19 @@ function maybeSendCheckpoint(gr: GameRunner): void {
   // Mark this tick attempted even on failure: the game state cannot change
   // between drains at the same tick, so a retry would compute the same answer.
   lastCheckpointTick = ticks;
-  // Skip the (multi-megabyte) capture entirely on maps whose fixed state can
-  // never fit the transfer cap. Those resumes use the history instead.
-  if (!mapStateFitsTransferBudget(gr.game.width(), gr.game.height())) {
+  // Skip the (multi-megabyte) capture only on maps whose fixed state can never
+  // be sent even compressed and chunked. Every shipped map passes, so the
+  // compressed path carries large maps instead of falling back to replay.
+  const game = gr.game;
+  const miniMap = game.miniMap();
+  if (
+    !mapStateFitsCheckpointCapture(
+      game.width(),
+      game.height(),
+      miniMap.width(),
+      miniMap.height(),
+    )
+  ) {
     return;
   }
   const checkpoint = gr.checkpoint();

@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { describe, expect, it } from "vitest";
 import { CHECKPOINT_VERSION, GameCheckpoint } from "../../src/core/Checkpoint";
 import {
@@ -7,7 +9,9 @@ import {
   encodeCheckpoint,
   encodeCheckpointGzip,
   isCompressedCheckpoint,
+  mapStateFitsCheckpointCapture,
   mapStateFitsTransferBudget,
+  MAX_CHECKPOINT_CAPTURE_BYTES,
   MAX_CHECKPOINT_TRANSFER_BYTES,
   projectCheckpointBytes,
   projectMapStateBytes,
@@ -175,13 +179,72 @@ describe("CheckpointCodec", () => {
     });
 
     it("classifies map sizes for the worker capture guard", () => {
-      // A small test-sized map fits; a World-sized one cannot and must not be
-      // captured at all.
+      // A small test-sized map fits the single-frame cap; a World-sized one
+      // cannot and must compress instead.
       expect(mapStateFitsTransferBudget(200, 200)).toBe(true);
       expect(mapStateFitsTransferBudget(2000, 1000)).toBe(false);
       expect(projectMapStateBytes(2000, 1000)).toBeGreaterThan(
         MAX_CHECKPOINT_TRANSFER_BYTES,
       );
+    });
+  });
+
+  describe("compressed capture eligibility", () => {
+    it("uses the real minimap dimensions in the estimate", () => {
+      // World Normal: 2000x1000 main with a 1000x500 map4x minimap is four
+      // times the minimap area the default 1/4 estimate assumes.
+      const withRealMini = projectMapStateBytes(2000, 1000, 1000, 500);
+      const withDefaultMini = projectMapStateBytes(2000, 1000);
+      expect(withRealMini).toBeGreaterThan(withDefaultMini);
+    });
+
+    it("accepts the largest shipped map but not one above the ceiling", () => {
+      // Sol (4432x2528) with its real map4x minimap is the largest map today.
+      expect(mapStateFitsCheckpointCapture(4432, 2528, 2216, 1264)).toBe(true);
+      expect(projectMapStateBytes(4432, 2528, 2216, 1264)).toBeLessThanOrEqual(
+        MAX_CHECKPOINT_CAPTURE_BYTES,
+      );
+      // A hypothetical map past the ceiling must still be rejected so we fall
+      // back to full-history replay rather than attempting an impossible upload.
+      expect(mapStateFitsCheckpointCapture(4000, 4000, 2000, 2000)).toBe(false);
+    });
+
+    it("qualifies every shipped map at Normal and Compact sizes", () => {
+      const mapsDir = path.join(process.cwd(), "resources", "maps");
+      const dirs = fs
+        .readdirSync(mapsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory());
+      expect(dirs.length).toBeGreaterThan(0);
+
+      for (const dir of dirs) {
+        const manifestPath = path.join(mapsDir, dir.name, "manifest.json");
+        if (!fs.existsSync(manifestPath)) continue;
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+          map: { width: number; height: number };
+          map4x: { width: number; height: number };
+          map16x: { width: number; height: number };
+        };
+        // Normal: full-resolution main map + map4x minimap.
+        expect(
+          mapStateFitsCheckpointCapture(
+            manifest.map.width,
+            manifest.map.height,
+            manifest.map4x.width,
+            manifest.map4x.height,
+          ),
+          `Normal ${dir.name}`,
+        ).toBe(true);
+        // Compact: map4x main map + map16x minimap.
+        expect(
+          mapStateFitsCheckpointCapture(
+            manifest.map4x.width,
+            manifest.map4x.height,
+            manifest.map16x.width,
+            manifest.map16x.height,
+          ),
+          `Compact ${dir.name}`,
+        ).toBe(true);
+      }
     });
   });
 });
