@@ -1,4 +1,3 @@
-import { GameCheckpoint } from "../core/Checkpoint";
 import {
   ClientID,
   GameStartInfo,
@@ -10,6 +9,16 @@ import { ClientEnv } from "./ClientEnv";
 import { saveGameProgress } from "./SaveStore";
 
 const SAVE_EVERY_TURNS = 25;
+
+/**
+ * A core checkpoint as it is persisted and uploaded: the encoded wire string
+ * (tagged-JSON or `gz:` gzip, see core/CheckpointCodec.ts) plus the turn it
+ * covers. The worker encodes it, so the main thread never serializes it.
+ */
+export interface CheckpointTransfer {
+  wire: string;
+  ticks: number;
+}
 
 export class SaveManager {
   private startInfo: GameStartInfo | null = null;
@@ -25,14 +34,16 @@ export class SaveManager {
   private dirty = false;
   private disposed = false;
   private listening = false;
-  private checkpointProvider: (() => GameCheckpoint | undefined) | null = null;
+  private checkpointProvider: (() => CheckpointTransfer | undefined) | null =
+    null;
 
   /**
-   * B2: install a provider for the latest core checkpoint. Called once per
-   * autosave; only attached when its tick is within the turns recorded here.
+   * B2: install a provider for the latest core checkpoint (wire string + tick).
+   * Called once per autosave; only attached when its tick is within the turns
+   * recorded here.
    */
   public setCheckpointProvider(
-    provider: (() => GameCheckpoint | undefined) | null,
+    provider: (() => CheckpointTransfer | undefined) | null,
   ) {
     this.checkpointProvider = provider;
   }
@@ -80,12 +91,17 @@ export class SaveManager {
     }
   }
 
-  public async persist(): Promise<void> {
+  /**
+   * Persist the current save. `force` writes even when no turn has arrived since
+   * the last autosave, so a manual checkpoint (the in-game save button) still
+   * updates the stored head immediately.
+   */
+  public async persist(force = false): Promise<void> {
     if (
       this.startInfo === null ||
       this.disposed ||
       this.saving ||
-      !this.dirty
+      (!force && !this.dirty)
     ) {
       return;
     }
@@ -100,11 +116,11 @@ export class SaveManager {
     // B2: attach the most recent core checkpoint, but only if every turn it
     // already covers is part of this save (otherwise the suffix would be
     // incomplete on resume).
-    let checkpoint: GameCheckpoint | undefined;
+    let checkpoint: string | undefined;
     try {
       const candidate = this.checkpointProvider?.();
       if (candidate !== undefined && candidate.ticks <= this.numTurns) {
-        checkpoint = candidate;
+        checkpoint = candidate.wire;
       }
     } catch (error) {
       console.error("Failed to capture checkpoint", error);

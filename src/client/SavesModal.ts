@@ -1,6 +1,7 @@
 import { html, nothing, TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { GameCheckpoint } from "../core/Checkpoint";
+import { decodeCheckpointWire } from "../core/CheckpointCodec";
 import type { ClientID, SavedGame, SavedGameMeta } from "../core/Schemas";
 import {
   deleteSavedLobby,
@@ -157,11 +158,25 @@ export class SavesModal extends BaseModal {
     }
   }
 
-  private resumeLocal(): void {
+  private async resumeLocal(): Promise<void> {
     const save = this.selected;
     const clientID = this.myClientID;
     if (!save || !clientID || !commitMatches(save.gitCommit)) {
       return;
+    }
+    // The worker encoded the checkpoint, so what is stored is a wire string
+    // (tagged-JSON or `gz:` gzip). Decode it once here — off the per-autosave
+    // path — and hand both the object (for the worker) and the raw string (for
+    // the resumed game's own autosaves) to the game.
+    let checkpoint: GameCheckpoint | undefined;
+    let checkpointWire: string | undefined;
+    if (typeof save.checkpoint === "string") {
+      checkpoint = await decodeCheckpointWire(save.checkpoint);
+      if (checkpoint === undefined) {
+        console.warn("dropping unreadable local checkpoint");
+      } else {
+        checkpointWire = save.checkpoint;
+      }
     }
     this.dispatchEvent(
       new CustomEvent("join-lobby", {
@@ -171,7 +186,8 @@ export class SavesModal extends BaseModal {
             startInfo: save.startInfo,
             turns: save.turns,
             myClientID: clientID,
-            checkpoint: save.checkpoint as GameCheckpoint | undefined,
+            checkpoint,
+            checkpointWire,
           },
           source: "private",
         } satisfies JoinLobbyEvent,

@@ -21,10 +21,11 @@ const META_STORE = "meta";
 // appends only the turns since the last one instead of rewriting (and
 // re-validating) the whole history.
 const TURNS_STORE = "turns";
-// The core checkpoint is a multi-megabyte blob that only changes every
-// CHECKPOINT_EVERY_TURNS, but the head is rewritten on every autosave. Keeping
-// it in a sidecar keyed by saveId lets an autosave with an unchanged checkpoint
-// skip the structured clone entirely (mirrors the server's checkpoint sidecar).
+// The core checkpoint is a multi-megabyte blob that only changes when the player
+// takes one (the in-game save button), but the head is rewritten on every
+// autosave. Keeping it in a sidecar keyed by saveId lets an autosave with an
+// unchanged checkpoint skip the structured clone entirely (mirrors the server's
+// checkpoint sidecar).
 const CHECKPOINT_STORE = "checkpoints";
 
 // Keep disk usage bounded: old autosaves are dropped once this many exist.

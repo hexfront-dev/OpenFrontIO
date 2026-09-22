@@ -2,16 +2,11 @@ import { Config } from "src/core/configuration/Config";
 import { translateText } from "../client/Utils";
 import { GameCheckpoint } from "../core/Checkpoint";
 import {
-  checkpointFitsTransferBudget,
   decodeCheckpoint,
   decodeCheckpointWire,
-  encodeCheckpoint,
-  encodeCheckpointGzip,
   isCompressedCheckpoint,
   MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES,
-  MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES,
   MAX_CHECKPOINT_TRANSFER_BYTES,
-  projectCheckpointBytes,
 } from "../core/CheckpointCodec";
 import { EventBus } from "../core/EventBus";
 import {
@@ -68,6 +63,7 @@ import {
 } from "./InputHandler";
 import { endGame, startGame, startTime } from "./LocalPersistantStats";
 import "./ResumeLoadingOverlay";
+import { SaveCheckpointEvent } from "./SaveCheckpointEvent";
 import { SaveManager } from "./SaveManager";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
 import { GoToPlayerEvent } from "./TransformHandler";
@@ -114,6 +110,12 @@ export interface ResumeInfo {
   myClientID: ClientID;
   /** B2: optional core checkpoint at `turns[checkpoint.ticks]`, so only the suffix replays. */
   checkpoint?: GameCheckpoint;
+  /**
+   * B2: the raw wire form of `checkpoint`. The worker encodes checkpoints, so
+   * the first autosave after a resume re-attaches this string without having to
+   * re-encode the decoded object on the main thread.
+   */
+  checkpointWire?: string;
 }
 
 export interface LobbyConfig {
@@ -135,6 +137,9 @@ export interface LobbyConfig {
   // B2: a checkpoint delivered by the server in the start message of a
   // server-hosted resume (unlike `resume`, the game is hosted over the network).
   resumeCheckpoint?: GameCheckpoint;
+  // B2: the raw wire form of `resumeCheckpoint`, kept so an autosave can
+  // re-attach it without re-encoding on the main thread.
+  resumeCheckpointWire?: string;
   // Resume-as-lobby: join a game restored from a server-side save and claim
   // this saved nation's clientID. Unlike `resume`, the game is hosted by the
   // server (normal WebSocket join), so other players can join too.
@@ -353,6 +358,7 @@ export function joinLobby(
           .then((checkpoint) => {
             if (checkpoint !== undefined) {
               lobbyConfig.resumeCheckpoint = checkpoint;
+              lobbyConfig.resumeCheckpointWire = message.checkpoint;
             } else {
               console.warn("dropping unreadable server checkpoint");
             }
@@ -367,6 +373,7 @@ export function joinLobby(
         const checkpoint = decodeCheckpoint(message.checkpoint);
         if (checkpoint !== undefined) {
           lobbyConfig.resumeCheckpoint = checkpoint;
+          lobbyConfig.resumeCheckpointWire = message.checkpoint;
         } else {
           console.warn("dropping unreadable server checkpoint");
         }
@@ -897,14 +904,9 @@ interface GameStartingModalElement extends HTMLElement {
 }
 
 export class ClientGameRunner {
-  // Phase 7: gzip + chunk a checkpoint that does not fit a single frame. Static
-  // so a mixed-version fleet can disable it (the plaintext/one-frame path and
-  // full-history replay remain). Compression runs for every map the worker
-  // captured (all shipped maps), bounded by the shared input ceiling so the
-  // transient encode cannot grow without limit.
-  public static CHECKPOINT_COMPRESSION = true;
-  public static CHECKPOINT_COMPRESSION_MAX_INPUT_BYTES =
-    MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES;
+  // Phase 7: a gzip-compressed checkpoint that does not fit a single frame is
+  // chunked. The worker (core/CheckpointCodec.ts) owns the plain/gzip choice and
+  // the input ceiling, so this side only splits an already-encoded wire string.
   // Base64 characters per `checkpoint_chunk` frame, well under the single-frame
   // transfer cap so the zbin envelope always fits.
   private static CHECKPOINT_CHUNK_CHARS = 700_000;
@@ -915,11 +917,15 @@ export class ClientGameRunner {
   private turnsSeen = 0;
   private lastMousePosition: { x: number; y: number } | null = null;
   private readonly saveManager = new SaveManager();
-  // B2: latest core checkpoint received from the worker (seeded with the one we
-  // resumed from), attached to each autosave.
-  private latestCheckpoint: GameCheckpoint | undefined;
-  // B2: tick of the last checkpoint we encoded for upload, so a callback that
-  // repeats an already-sent checkpoint does not re-encode it.
+  // B2: latest core checkpoint wire string received from the worker (seeded
+  // with the one we resumed from), attached to each autosave. The worker
+  // encodes it, so this side never serializes the checkpoint.
+  private latestCheckpointWire: string | undefined;
+  // B2: the turn `latestCheckpointWire` covers, so an autosave can bound it to
+  // its recorded turns without decoding.
+  private latestCheckpointTicks = -1;
+  // B2: tick of the last checkpoint we uploaded, so a callback that repeats an
+  // already-sent checkpoint does not re-upload it.
   private lastUploadedCheckpointTick = -1;
   // The checkpoint this client resumed from (local save or server-hosted), if
   // any. Drives the suffix-skip in the start handler.
@@ -962,7 +968,9 @@ export class ClientGameRunner {
       lobby.resume !== undefined ||
       lobby.claimClientID !== undefined ||
       this.resumeCheckpoint !== undefined;
-    this.latestCheckpoint = this.resumeCheckpoint;
+    this.latestCheckpointWire =
+      lobby.resume?.checkpointWire ?? lobby.resumeCheckpointWire;
+    this.latestCheckpointTicks = this.resumeCheckpoint?.ticks ?? -1;
   }
 
   // Whether this client is the lobby creator, the only participant that
@@ -977,48 +985,23 @@ export class ClientGameRunner {
   }
 
   // B2: send the latest core checkpoint back to the server so a server-hosted
-  // resume can restore instead of replaying from turn 0. Only the host uploads;
-  // an oversized blob is skipped and the save falls back to full history.
-  private async uploadCheckpoint(checkpoint: GameCheckpoint): Promise<void> {
+  // resume can restore instead of replaying from turn 0. Only the host uploads.
+  // The worker already encoded `wire` (and skipped it when unsendable), so this
+  // side never serializes or gzips the checkpoint.
+  private uploadCheckpoint(wire: string, ticks: number): void {
     if (this.transport.isLocal || !this.isLobbyCreator()) return;
-    if (checkpoint.ticks <= this.lastUploadedCheckpointTick) return;
-    // Budget guard before encoding: a projected-oversized plaintext checkpoint
-    // skips the multi-megabyte string allocation. A small one is sent as-is.
-    if (checkpointFitsTransferBudget(checkpoint)) {
-      const serialized = encodeCheckpoint(checkpoint);
-      this.lastUploadedCheckpointTick = checkpoint.ticks;
-      if (serialized.length > MAX_CHECKPOINT_TRANSFER_BYTES) return;
-      this.transport.sendCheckpoint(serialized);
-      return;
-    }
-    // Phase 7: a too-big plaintext checkpoint may still fit compressed. Skip it
-    // entirely when compression is off or the raw state is so large that gzip
-    // itself would stall the client; those maps resume from history.
-    if (
-      !ClientGameRunner.CHECKPOINT_COMPRESSION ||
-      projectCheckpointBytes(checkpoint) >
-        ClientGameRunner.CHECKPOINT_COMPRESSION_MAX_INPUT_BYTES
-    ) {
-      this.lastUploadedCheckpointTick = checkpoint.ticks;
-      return;
-    }
-    // Mark attempted before the await so a slow compression cannot race a newer
-    // checkpoint into a duplicate upload of an older one.
-    this.lastUploadedCheckpointTick = checkpoint.ticks;
-    let wire: string;
-    try {
-      wire = await encodeCheckpointGzip(checkpoint);
-    } catch {
-      return;
-    }
+    if (ticks <= this.lastUploadedCheckpointTick) return;
+    this.lastUploadedCheckpointTick = ticks;
     if (wire.length > MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES) return;
     if (wire.length <= MAX_CHECKPOINT_TRANSFER_BYTES) {
       this.transport.sendCheckpoint(wire);
       return;
     }
+    // Anything above one frame is a `gz:` string (the codec only emits plain
+    // when it fits), so chunk it as a gzip upload.
     const chunkChars = ClientGameRunner.CHECKPOINT_CHUNK_CHARS;
     const total = Math.ceil(wire.length / chunkChars);
-    const uploadId = `${checkpoint.ticks}-${Date.now()}-${Math.floor(
+    const uploadId = `${ticks}-${Date.now()}-${Math.floor(
       Math.random() * 1e9,
     )}`;
     for (let seq = 0; seq < total; seq++) {
@@ -1092,13 +1075,46 @@ export class ClientGameRunner {
     ) {
       this.saveManager.begin(this.lobby.gameStartInfo, this.clientID);
     }
-    // B2: cache the worker's periodic core checkpoints and attach the latest to
-    // each autosave.
-    this.worker.setCheckpointCallback((checkpoint) => {
-      this.latestCheckpoint = checkpoint;
-      void this.uploadCheckpoint(checkpoint);
+    // B2: checkpoints are captured on demand (the in-game save button), not on a
+    // timer. The worker already encoded the wire string; on receipt this side
+    // stores it, uploads it (host only), persists the local save immediately,
+    // and confirms.
+    this.worker.setCheckpointCallback((wire, ticks) => {
+      this.latestCheckpointWire = wire;
+      this.latestCheckpointTicks = ticks;
+      this.uploadCheckpoint(wire, ticks);
+      void this.saveManager.persist(true);
+      window.dispatchEvent(
+        new CustomEvent("show-message", {
+          detail: { message: translateText("save_game.checkpoint_saved") },
+        }),
+      );
     });
-    this.saveManager.setCheckpointProvider(() => this.latestCheckpoint);
+    this.saveManager.setCheckpointProvider(() =>
+      this.latestCheckpointWire !== undefined && this.latestCheckpointTicks >= 0
+        ? { wire: this.latestCheckpointWire, ticks: this.latestCheckpointTicks }
+        : undefined,
+    );
+    this.eventBus.on(SaveCheckpointEvent, () => {
+      // Checkpoints only feed the resumable-save paths: the local IndexedDB save
+      // and, for a private game's host, the server-side save. A public game or a
+      // replay has neither, so tell the player instead of pretending to save.
+      if (
+        this.lobby.gameRecord !== undefined ||
+        this.lobby.gameStartInfo?.config.gameType === GameType.Public
+      ) {
+        window.dispatchEvent(
+          new CustomEvent("show-message", {
+            detail: {
+              message: translateText("save_game.checkpoint_unavailable"),
+              color: "red",
+            },
+          }),
+        );
+        return;
+      }
+      this.worker.requestCheckpoint();
+    });
     setTimeout(() => {
       this.connectionCheckInterval = setInterval(
         () => this.onConnectionCheck(),

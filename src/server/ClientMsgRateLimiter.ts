@@ -10,9 +10,9 @@ const MAX_INTENT_SIZE = 2000;
 // only sends one per (re)connect, so anything beyond a handful per minute is
 // abuse.
 const REJOINS_PER_MINUTE = 5;
-// A host uploads a checkpoint at the same ~200-turn cadence the core captures
-// them, so a handful per minute is already generous; the payload is large, so
-// the rate limit is really there to bound decode/disk churn.
+// A host uploads a checkpoint when the player presses the in-game save button,
+// so a handful per minute is already generous; the payload is large, so the rate
+// limit is really there to bound decode/disk churn.
 const CHECKPOINTS_PER_MINUTE = 4;
 const TOTAL_BYTES = 5 * 1024 * 1024; // 5MB per client
 export type RateLimitResult = "ok" | "limit" | "kick";

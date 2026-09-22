@@ -10,6 +10,7 @@ import {
   AlternateViewEvent,
   ToggleRenderDebugGuiEvent,
 } from "../../InputHandler";
+import { SaveCheckpointEvent } from "../../SaveCheckpointEvent";
 import { translateText } from "../../Utils";
 import {
   SetBackgroundMusicVolumeEvent,
@@ -194,6 +195,12 @@ export class SettingsModal extends LitElement implements Controller {
     this.closeModal({ keepPause: true });
   }
 
+  private onSaveCheckpointButtonClick() {
+    // Ask the game runner to capture a checkpoint now (the core worker encodes
+    // it). Checkpoints are no longer taken automatically.
+    this.eventBus.emit(new SaveCheckpointEvent());
+  }
+
   private onExitButtonClick() {
     // redirect to the home page
     window.location.href = "/";
@@ -266,6 +273,39 @@ export class SettingsModal extends LitElement implements Controller {
                 </div>
                 <div class="text-sm text-slate-400">
                   ${translateText("user_setting.graphics_settings_desc")}
+                </div>
+              </div>
+            </button>
+
+            <button
+              class="flex gap-3 items-center w-full text-left p-3 hover:bg-slate-700 rounded-sm text-white transition-colors"
+              @click="${this.onSaveCheckpointButtonClick}"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M3 3.5A1.5 1.5 0 0 1 4.5 2h8.379a1.5 1.5 0 0 1 1.06.44l1.621 1.62a1.5 1.5 0 0 1 .44 1.061V16.5A1.5 1.5 0 0 1 14.5 18h-10A1.5 1.5 0 0 1 3 16.5v-13Z"
+                  stroke="white"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M6 2.5v5h7v-5M6 18v-5.5h8V18"
+                  stroke="white"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <div class="flex-1">
+                <div class="font-medium">
+                  ${translateText("save_game.checkpoint_button_label")}
+                </div>
+                <div class="text-sm text-slate-400">
+                  ${translateText("save_game.checkpoint_button_desc")}
                 </div>
               </div>
             </button>

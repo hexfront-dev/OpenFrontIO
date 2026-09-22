@@ -28,14 +28,10 @@ import { PlayerStats } from "./StatsSchemas";
  */
 export const CHECKPOINT_VERSION = 2;
 
-/**
- * How often a running game may capture a checkpoint, in turns (=ticks). Sized to
- * bound the worst-case suffix replay on resume (500 turns = 50 s of game time)
- * while keeping the full-map capture, clone and encode to once per 50 s per
- * client — the checkpoint blob only has to be recent enough that the replayed
- * suffix stays short.
- */
-export const CHECKPOINT_EVERY_TURNS = 500;
+// Checkpoints are captured on demand (the in-game save button), not on a fixed
+// cadence: the player decides when to pay the capture/encode cost. The only hard
+// requirement is that a checkpoint's tick is at or behind the server's turn
+// count, so the replayed suffix is never incomplete.
 
 export interface MapStateCheckpoint {
   terrain: Uint8Array;

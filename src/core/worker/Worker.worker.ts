@@ -1,6 +1,8 @@
 import { assetUrl } from "../AssetUrls";
-import { CHECKPOINT_EVERY_TURNS } from "../Checkpoint";
-import { mapStateFitsCheckpointCapture } from "../CheckpointCodec";
+import {
+  encodeCheckpointWire,
+  mapStateFitsCheckpointCapture,
+} from "../CheckpointCodec";
 import { FetchGameMapLoader } from "../game/FetchGameMapLoader";
 import { ErrorUpdate, GameUpdateViewData } from "../game/GameUpdates";
 import { createGameRunner, GameRunner } from "../GameRunner";
@@ -99,11 +101,6 @@ async function drain(): Promise<void> {
 
     sendGameUpdateBatch(batch);
 
-    // B2: emit a checkpoint at the configured cadence so the main thread can
-    // attach it to the next autosave. A checkpoint at tick T covers turns
-    // [0, T); the suffix is replayed on resume.
-    maybeSendCheckpoint(gr);
-
     shouldContinue = gr.pendingTurns() > 0;
   } finally {
     tickUpdateSink = null;
@@ -157,16 +154,18 @@ function sendMessage(message: WorkerMessage) {
   ctx.postMessage(message);
 }
 
-function maybeSendCheckpoint(gr: GameRunner): void {
+// B2: capture, encode and emit one checkpoint on demand (the in-game save
+// button). Checkpoints are no longer captured on a timer. The worker encodes the
+// blob here, off the UI thread, so only the resulting wire string crosses the
+// postMessage boundary. A checkpoint at tick T covers turns [0, T); the suffix
+// is replayed on resume.
+async function captureAndSendCheckpoint(gr: GameRunner): Promise<void> {
   const ticks = gr.game.ticks();
-  if (ticks <= 0 || ticks % CHECKPOINT_EVERY_TURNS !== 0) {
-    return;
-  }
-  if (ticks === lastCheckpointTick) {
+  if (ticks <= 0 || ticks === lastCheckpointTick) {
     return;
   }
   // Mark this tick attempted even on failure: the game state cannot change
-  // between drains at the same tick, so a retry would compute the same answer.
+  // between calls at the same tick, so a retry would compute the same answer.
   lastCheckpointTick = ticks;
   // Skip the (multi-megabyte) capture only on maps whose fixed state can never
   // be sent even compressed and chunked. Every shipped map passes, so the
@@ -187,7 +186,22 @@ function maybeSendCheckpoint(gr: GameRunner): void {
   if (checkpoint === undefined) {
     return;
   }
-  sendMessage({ type: "checkpoint", checkpoint } as CheckpointMessage);
+  // The plain/gzip choice and the transfer caps live in the codec; an unsendable
+  // checkpoint yields undefined and is skipped.
+  let wire: string | undefined;
+  try {
+    wire = await encodeCheckpointWire(checkpoint);
+  } catch {
+    return;
+  }
+  if (wire === undefined) {
+    return;
+  }
+  sendMessage({
+    type: "checkpoint",
+    checkpointWire: wire,
+    ticks,
+  } as CheckpointMessage);
 }
 
 ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
@@ -248,6 +262,22 @@ ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
         scheduleDrain();
       } catch (error) {
         console.error("Failed to process turns:", error);
+        throw error;
+      }
+      break;
+
+    case "request_checkpoint":
+      if (!gameRunner) {
+        throw new Error("Game runner not initialized");
+      }
+
+      try {
+        const gr = await gameRunner;
+        // Capture at the state the worker has already executed to, so the
+        // checkpoint never claims turns it has not run.
+        await captureAndSendCheckpoint(gr);
+      } catch (error) {
+        console.error("Failed to capture checkpoint:", error);
         throw error;
       }
       break;

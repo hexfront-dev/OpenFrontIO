@@ -551,6 +551,41 @@ export async function encodeCheckpointGzip(
 }
 
 /**
+ * Encode a checkpoint to its wire/store string, choosing the compact plain form
+ * when it fits a single frame and gzip otherwise. Returns `undefined` when the
+ * checkpoint cannot be sent even compressed (or the raw state is too large to
+ * gzip without stalling the caller), so the caller skips it and the save falls
+ * back to full-history replay.
+ *
+ * This is the encode the core worker runs at capture time, so the multi-megabyte
+ * string allocation and gzip happen off the UI thread; the main thread only ever
+ * handles the resulting (small) string.
+ */
+export async function encodeCheckpointWire(
+  checkpoint: GameCheckpoint,
+): Promise<string | undefined> {
+  // A projected-fit checkpoint is sent as one plain frame.
+  if (checkpointFitsTransferBudget(checkpoint)) {
+    const plain = encodeCheckpoint(checkpoint);
+    if (plain.length <= MAX_CHECKPOINT_TRANSFER_BYTES) {
+      return plain;
+    }
+  }
+  // Too big for one frame: compress, unless the raw state is so large that gzip
+  // itself would stall the worker (those maps resume from history).
+  if (
+    projectCheckpointBytes(checkpoint) > MAX_CHECKPOINT_COMPRESSION_INPUT_BYTES
+  ) {
+    return undefined;
+  }
+  const compressed = await encodeCheckpointGzip(checkpoint);
+  if (compressed.length > MAX_CHECKPOINT_COMPRESSED_TRANSFER_BYTES) {
+    return undefined;
+  }
+  return compressed;
+}
+
+/**
  * Decode a wire checkpoint that is either plain tagged-JSON or a `gz:`-prefixed
  * gzip payload (Phase 8 binary, or a legacy tagged-JSON body). Unknown/hostile
  * input (or an environment without DecompressionStream) yields undefined so the

@@ -8,6 +8,7 @@ import {
   decodeCheckpointWire,
   encodeCheckpoint,
   encodeCheckpointGzip,
+  encodeCheckpointWire,
   isCompressedCheckpoint,
   mapStateFitsCheckpointCapture,
   mapStateFitsTransferBudget,
@@ -212,6 +213,32 @@ describe("CheckpointCodec", () => {
       expect(
         await decodeCheckpointWire("gz:" + btoa("not gzip")),
       ).toBeUndefined();
+    });
+  });
+
+  describe("encodeCheckpointWire", () => {
+    it("sends a small checkpoint as plain tagged-JSON", async () => {
+      const original = sampleCheckpoint();
+      const wire = await encodeCheckpointWire(original);
+      expect(wire).toBeDefined();
+      expect(isCompressedCheckpoint(wire!)).toBe(false);
+      expect((await decodeCheckpointWire(wire!))?.ticks).toBe(42);
+    });
+
+    it("compresses a checkpoint that does not fit one frame", async () => {
+      const original = sampleCheckpoint();
+      // Base64 of the 1.2 MB state array projects well past the 900 KB frame
+      // cap, forcing the gzip branch; still far under the gzip input ceiling.
+      original.map.state = new Uint16Array(600_000);
+      original.map.state[0] = 1234;
+      expect(checkpointFitsTransferBudget(original)).toBe(false);
+
+      const wire = await encodeCheckpointWire(original);
+      expect(wire).toBeDefined();
+      expect(isCompressedCheckpoint(wire!)).toBe(true);
+      const decoded = await decodeCheckpointWire(wire!);
+      expect(decoded?.ticks).toBe(42);
+      expect(decoded?.map.state[0]).toBe(1234);
     });
   });
 

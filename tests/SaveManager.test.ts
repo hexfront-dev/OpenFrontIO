@@ -6,7 +6,6 @@ import {
   MemorySaveBackend,
   setSaveBackend,
 } from "../src/client/SaveStore";
-import type { GameCheckpoint } from "../src/core/Checkpoint";
 import {
   Difficulty,
   GameMapSize,
@@ -134,23 +133,40 @@ describe("SaveManager append-only autosave", () => {
     for (let i = 0; i < 10; i++) {
       manager.recordTurn({ turnNumber: i, intents: [] });
     }
-    const checkpoint = { ticks: 5 } as unknown as GameCheckpoint;
-    manager.setCheckpointProvider(() => checkpoint);
+    const checkpointWire = "cp-wire";
+    manager.setCheckpointProvider(() => ({ wire: checkpointWire, ticks: 5 }));
     await manager.persist();
 
     const loaded = await loadSave("GAME0001");
-    expect((loaded?.checkpoint as GameCheckpoint | undefined)?.ticks).toBe(5);
+    expect(loaded?.checkpoint).toBe(checkpointWire);
 
     // A checkpoint ahead of the recorded history is dropped so the suffix can
     // never be incomplete.
-    manager.setCheckpointProvider(
-      () => ({ ticks: 999 }) as unknown as GameCheckpoint,
-    );
+    manager.setCheckpointProvider(() => ({ wire: "cp-late", ticks: 999 }));
     manager.recordTurn({ turnNumber: 10, intents: [] });
     await manager.persist();
 
     const reloaded = await loadSave("GAME0001");
     expect(reloaded?.checkpoint).toBeUndefined();
+
+    manager.dispose();
+  });
+
+  it("force-persists a manual checkpoint even with no new turns", async () => {
+    const manager = new SaveManager();
+    manager.begin(startInfo(), "CLIENT01");
+    manager.recordTurn({ turnNumber: 0, intents: [] });
+    await manager.persist();
+
+    // The save button fires a checkpoint with no new turn recorded; `force`
+    // must still rewrite the head so it is stored.
+    manager.setCheckpointProvider(() => ({ wire: "manual-wire", ticks: 0 }));
+    await manager.persist(true);
+    expect((await loadSave("GAME0001"))?.checkpoint).toBe("manual-wire");
+
+    // A later non-forced autosave with nothing new must not drop it.
+    await manager.persist();
+    expect((await loadSave("GAME0001"))?.checkpoint).toBe("manual-wire");
 
     manager.dispose();
   });

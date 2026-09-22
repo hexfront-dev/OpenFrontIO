@@ -17,6 +17,7 @@ export type WorkerMessageType =
   | "turn"
   | "turns"
   | "checkpoint"
+  | "request_checkpoint"
   | "game_update"
   | "game_update_batch"
   | "game_error"
@@ -62,6 +63,15 @@ export interface TurnsMessage extends BaseWorkerMessage {
   turns: Turn[];
 }
 
+/**
+ * B2: a manual request to capture a checkpoint now. Checkpoints are no longer
+ * captured on a timer; the in-game save button drives this so the player decides
+ * when to pay the capture/encode cost.
+ */
+export interface RequestCheckpointMessage extends BaseWorkerMessage {
+  type: "request_checkpoint";
+}
+
 // Messages from worker to main thread
 export interface InitializedMessage extends BaseWorkerMessage {
   type: "initialized";
@@ -77,10 +87,17 @@ export interface GameUpdateBatchMessage extends BaseWorkerMessage {
   gameUpdates: GameUpdateViewData[];
 }
 
-/** B2: a periodic core checkpoint the main thread caches for autosaves. */
+/**
+ * B2: an on-demand core checkpoint the main thread caches for autosaves. The
+ * worker encodes it (core/CheckpointCodec.ts) so the multi-megabyte structured
+ * clone and gzip never run on the UI thread; the main thread only handles the
+ * resulting wire string. `ticks` is carried alongside so the autosave can bound
+ * the checkpoint to its recorded turns without decoding.
+ */
 export interface CheckpointMessage extends BaseWorkerMessage {
   type: "checkpoint";
-  checkpoint: GameCheckpoint;
+  checkpointWire: string;
+  ticks: number;
 }
 
 export interface GameErrorMessage extends BaseWorkerMessage {
@@ -161,6 +178,7 @@ export type MainThreadMessage =
   | InitMessage
   | TurnMessage
   | TurnsMessage
+  | RequestCheckpointMessage
   | PlayerActionsMessage
   | PlayerBuildablesMessage
   | PlayerProfileMessage

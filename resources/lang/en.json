@@ -1627,6 +1627,10 @@
   },
   "save_game": {
     "catching_up": "Loading saved game\u2026",
+    "checkpoint_button_desc": "Capture a save point now so you can resume from here.",
+    "checkpoint_button_label": "Save checkpoint",
+    "checkpoint_saved": "Checkpoint saved",
+    "checkpoint_unavailable": "Saving is only available in singleplayer and private games.",
     "choose_nation": "Choose which nation to play as:",
     "claimed": "Taken",
     "delete": "Delete",

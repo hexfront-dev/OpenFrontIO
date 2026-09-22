@@ -33,7 +33,7 @@ export class WorkerClient {
   private gameUpdateCallback?: (
     update: GameUpdateViewData | ErrorUpdate,
   ) => void;
-  private checkpointCallback?: (checkpoint: GameCheckpoint) => void;
+  private checkpointCallback?: (checkpointWire: string, ticks: number) => void;
 
   constructor(
     private gameStartInfo: GameStartInfo,
@@ -60,7 +60,7 @@ export class WorkerClient {
         }
         break;
       case "checkpoint":
-        this.checkpointCallback?.(message.checkpoint);
+        this.checkpointCallback?.(message.checkpointWire, message.ticks);
         break;
       case "game_error":
         if (this.gameUpdateCallback && message.error) {
@@ -119,8 +119,10 @@ export class WorkerClient {
     this.gameUpdateCallback = gameUpdate;
   }
 
-  /** B2: receive periodic core checkpoints for the autosave head. */
-  setCheckpointCallback(callback: (checkpoint: GameCheckpoint) => void) {
+  /** B2: receive an on-demand core checkpoint for the autosave head. */
+  setCheckpointCallback(
+    callback: (checkpointWire: string, ticks: number) => void,
+  ) {
     this.checkpointCallback = callback;
   }
 
@@ -149,6 +151,18 @@ export class WorkerClient {
       type: "turns",
       turns,
     });
+  }
+
+  /**
+   * B2: ask the worker to capture and emit a checkpoint now. The in-game save
+   * button calls this; the resulting `checkpoint` message arrives via
+   * `setCheckpointCallback`.
+   */
+  requestCheckpoint() {
+    if (!this.isInitialized) {
+      throw new Error("Worker not initialized");
+    }
+    this.worker!.postMessage({ type: "request_checkpoint" });
   }
 
   playerProfile(playerID: number): Promise<PlayerProfile> {
