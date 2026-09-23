@@ -7,7 +7,6 @@ import {
   deleteSavedLobby,
   listSavedLobbies,
   resumeSavedLobby,
-  type ResumableSeat,
   type SavedLobbyLookupError,
   type SavedLobbySummary,
 } from "./Api";
@@ -28,6 +27,13 @@ function commitMatches(saveGitCommit: string): boolean {
   return saveGitCommit === current;
 }
 
+// The inline lobby screens SavesModal hands off to. They are declared here as a
+// structural type (not imported classes) to avoid a runtime import cycle:
+// both lobby modals import types from Main, which imports SavesModal.
+interface LobbyScreenElement extends HTMLElement {
+  open(args?: Record<string, unknown>): void;
+}
+
 @customElement("saves-modal")
 export class SavesModal extends BaseModal {
   protected routerName = "load-game";
@@ -44,20 +50,13 @@ export class SavesModal extends BaseModal {
     workers: number;
     errors: SavedLobbyLookupError[];
   } | null = null;
-  @state() private selectedServer: SavedLobbySummary | null = null;
-  @state() private serverSeats: ResumableSeat[] | null = null;
-  // null = watch only (no seat claimed); otherwise the saved nation to control.
-  @state() private chosenSeat: ClientID | null = null;
-
   @state() private myClientID: ClientID | null = null;
   @state() private error = "";
 
   protected renderHeaderSlot() {
-    const onBack = this.selectedServer
-      ? () => this.clearServerSelection()
-      : this.selected
-        ? () => this.clearSelection()
-        : () => this.close();
+    const onBack = this.selected
+      ? () => this.clearSelection()
+      : () => this.close();
     return modalHeader({
       title: translateText("save_game.title") || "Saved games",
       onBack,
@@ -67,8 +66,6 @@ export class SavesModal extends BaseModal {
 
   protected onOpen(): void {
     this.selected = null;
-    this.selectedServer = null;
-    this.serverSeats = null;
     this.serverLookup = null;
     this.myClientID = null;
     this.error = "";
@@ -77,8 +74,6 @@ export class SavesModal extends BaseModal {
 
   protected onClose(): void {
     this.selected = null;
-    this.selectedServer = null;
-    this.serverSeats = null;
     this.serverLookup = null;
     this.myClientID = null;
     this.error = "";
@@ -114,13 +109,6 @@ export class SavesModal extends BaseModal {
   private clearSelection(): void {
     this.selected = null;
     this.myClientID = null;
-    this.error = "";
-  }
-
-  private clearServerSelection(): void {
-    this.selectedServer = null;
-    this.serverSeats = null;
-    this.chosenSeat = null;
     this.error = "";
   }
 
@@ -200,20 +188,32 @@ export class SavesModal extends BaseModal {
 
   // --- Server-hosted lobbies --------------------------------------------
 
+  // Reopen a server save as a private lobby. The save is rebuilt on its worker
+  // first, then the private-lobby screen is handed the game: a not-yet-started
+  // save reopens the host lobby (config, roster, share link, Start), while a
+  // running save reopens the join lobby, where players claim a saved nation and
+  // wait out the resume countdown together.
   private async selectServerSave(meta: SavedLobbySummary): Promise<void> {
+    if (!commitMatches(meta.gitCommit)) {
+      this.error = translateText("save_game.version_mismatch");
+      return;
+    }
     try {
-      // The resume call both rebuilds the game on its worker and returns the
-      // seats that can still be claimed.
-      this.serverSeats = await resumeSavedLobby(meta.gameID);
-      this.selectedServer = meta;
-      this.chosenSeat =
-        this.serverSeats.find((s) => !s.claimed)?.clientID ?? null;
-      if (!commitMatches(meta.gitCommit)) {
-        this.error = translateText("save_game.version_mismatch");
-      }
+      await resumeSavedLobby(meta.gameID);
     } catch (error) {
       console.error("Failed to resume saved lobby", error);
       this.error = translateText("save_game.resume_failed");
+      return;
+    }
+    this.close();
+    if (meta.stage === "lobby") {
+      (
+        document.querySelector("host-lobby-modal") as LobbyScreenElement | null
+      )?.open({ existingLobbyId: meta.gameID });
+    } else {
+      (
+        document.querySelector("join-lobby-modal") as LobbyScreenElement | null
+      )?.open({ lobbyId: meta.gameID });
     }
   }
 
@@ -224,41 +224,15 @@ export class SavesModal extends BaseModal {
     event.stopPropagation();
     try {
       await deleteSavedLobby(meta.gameID);
-      if (this.selectedServer?.gameID === meta.gameID) {
-        this.clearServerSelection();
-      }
       await this.refresh();
     } catch (error) {
       console.error("Failed to delete server save", error);
     }
   }
 
-  private resumeServer(): void {
-    const meta = this.selectedServer;
-    if (!meta || !commitMatches(meta.gitCommit)) {
-      return;
-    }
-    this.dispatchEvent(
-      new CustomEvent("join-lobby", {
-        detail: {
-          gameID: meta.gameID,
-          claimClientID: this.chosenSeat ?? undefined,
-          spectator: this.chosenSeat === null ? true : undefined,
-          source: "private",
-        } satisfies JoinLobbyEvent,
-        bubbles: true,
-        composed: true,
-      }),
-    );
-    this.close();
-  }
-
   // --- Render ------------------------------------------------------------
 
   protected renderBody(): TemplateResult {
-    if (this.selectedServer) {
-      return this.renderServerSeatPicker(this.selectedServer);
-    }
     if (this.selected) {
       return this.renderNationPicker();
     }
@@ -408,89 +382,6 @@ export class SavesModal extends BaseModal {
           ></o-button>
         </div>
       </div>
-    `;
-  }
-
-  private renderServerSeatPicker(meta: SavedLobbySummary): TemplateResult {
-    const blocked = !commitMatches(meta.gitCommit);
-    const seats = this.serverSeats ?? [];
-    return html`
-      <div class="flex flex-col h-full">
-        <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4">
-          <p class="text-sm text-white/60 mb-3">
-            ${translateText("save_game.choose_nation")}
-          </p>
-          ${this.error
-            ? html`<p class="text-sm text-yellow-400 mb-3">${this.error}</p>`
-            : nothing}
-          <div class="flex flex-col gap-2">
-            ${seats.map((seat) =>
-              this.renderSeatRow(seat.clientID, seat.username, seat.claimed),
-            )}
-            <label
-              class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${this
-                .chosenSeat === null
-                ? "border-malibu-blue bg-malibu-blue/10"
-                : "border-white/10 bg-white/5 hover:bg-white/10"}"
-            >
-              <input
-                type="radio"
-                name="server-nation"
-                class="accent-malibu-blue"
-                .checked=${this.chosenSeat === null}
-                @change=${() => (this.chosenSeat = null)}
-              />
-              <span class="text-white"
-                >${translateText("save_game.spectate")}</span
-              >
-            </label>
-          </div>
-        </div>
-        <div class="p-4 border-t border-white/10 bg-black/20">
-          <o-button
-            variant="primary"
-            width="block"
-            size="lg"
-            translationKey="save_game.resume_lobby"
-            .disable=${blocked}
-            @click=${this.resumeServer}
-          ></o-button>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderSeatRow(
-    clientID: string,
-    username: string,
-    claimed: boolean,
-  ): TemplateResult {
-    const active = this.chosenSeat === clientID;
-    return html`
-      <label
-        class="flex items-center gap-3 p-3 rounded-xl border transition-colors ${claimed
-          ? "opacity-40 cursor-not-allowed border-white/10 bg-white/5"
-          : active
-            ? "cursor-pointer border-malibu-blue bg-malibu-blue/10"
-            : "cursor-pointer border-white/10 bg-white/5 hover:bg-white/10"}"
-      >
-        <input
-          type="radio"
-          name="server-nation"
-          class="accent-malibu-blue"
-          .disabled=${claimed}
-          .checked=${active}
-          @change=${() => {
-            if (!claimed) this.chosenSeat = clientID as ClientID;
-          }}
-        />
-        <span class="text-white">${username}</span>
-        ${claimed
-          ? html`<span class="ml-auto text-xs text-white/50"
-              >${translateText("save_game.claimed")}</span
-            >`
-          : nothing}
-      </label>
     `;
   }
 

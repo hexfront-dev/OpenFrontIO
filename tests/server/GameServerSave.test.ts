@@ -220,6 +220,56 @@ describe("GameServer restore", () => {
     expect(newcomer.spectator).toBe(false);
   });
 
+  // A save nobody has rejoined yet is waiting to be reopened as a private
+  // lobby. The normal empty-client warmup would retire it ~30s after Resume,
+  // before the original players drop back in, so a restored game must stay
+  // resumable until someone joins (or the max-duration cap retires it).
+  it("keeps a restored save alive while it waits to be reopened", () => {
+    const snap = startedSnapshot();
+    const restored = makeGame({ restore: snap });
+    expect(restored.phase()).toBe(GamePhase.Active);
+
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    expect(restored.isResumeCountingDown()).toBe(true);
+    expect(restored.phase()).toBe(GamePhase.Active);
+  });
+
+  // A restored lobby starts through the normal host flow (a Start button),
+  // not through the resume countdown. Once it is running, later joins must
+  // resume play immediately rather than trigger a second countdown.
+  it("starts a restored lobby normally without re-arming the resume countdown", () => {
+    const lobby = makeGame({ creatorPersistentID: "host-pid" });
+    lobby.joinClient(
+      makeClient({ clientID: cid("host"), persistentID: "host-pid" }),
+    );
+    const snap = lobby.snapshot()!;
+    expect(snap.stage).toBe("lobby");
+
+    const restored = makeGame({ restore: snap });
+    // The original host reconnects to the restored lobby (their saved seat).
+    const hostWs = mockWsOf(
+      makeClient({ clientID: cid("tmp"), persistentID: "x" }),
+    );
+    expect(restored.rejoinClient(hostWs as any, "host-pid", 0)).toBe(true);
+
+    startGame(restored);
+    expect(restored.isResumeCountingDown()).toBe(false);
+
+    const late = makeClient({
+      clientID: cid("late"),
+      persistentID: "late-pid",
+    });
+    expect(restored.joinClient(late)).toBe("joined");
+    const ctx = createGameWireContext(
+      restored.snapshot()!.gameStartInfo!.players,
+    );
+    const start = mockWsOf(late)
+      .sent(ctx)
+      .find((m) => m.type === "start");
+    expect(start?.type).toBe("start");
+    expect(restored.isResumeCountingDown()).toBe(false);
+  });
+
   it("gives an old save a fresh max-duration window (trap 1)", () => {
     const lobby = makeGame({
       creatorPersistentID: "host-pid",
@@ -424,6 +474,31 @@ describe("GameServer checkpoint resume", () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     expect(game.snapshot()!.checkpoint).toBeUndefined();
+  });
+
+  // The in-game Save button uploads a checkpoint; that is an explicit
+  // "make this resumable" request and must write a server save immediately,
+  // not wait for the creator to leave. Without this the host's server-save
+  // list stays empty and the private lobby can never be reopened.
+  it("persists an on-demand save when the host uploads a checkpoint", async () => {
+    const saveStore = new MemorySaveStore();
+    const { game, host } = startedGame(saveStore);
+    await vi.advanceTimersByTimeAsync(10 * TURN_MS);
+
+    expect(await saveStore.list("host-pid")).toEqual([]);
+
+    const checkpoint = checkpointJson(5);
+    await mockWsOf(host).emit({ type: "checkpoint", checkpoint });
+    await game.whenCheckpointUploadsSettled();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const metas = await saveStore.list("host-pid");
+    expect(metas.map((m) => m.gameID)).toEqual([game.id]);
+    expect(metas[0].stage).toBe("started");
+    const loaded = (await saveStore.load(game.id))!;
+    expect(loaded.checkpoint).toBe(checkpoint);
+    expect(loaded.checkpointTurn).toBe(5);
+    expect(loaded.turns.length).toBe(10);
   });
 });
 

@@ -1311,6 +1311,11 @@ export class GameServer {
     }
     this.checkpoint = wire;
     this.checkpointTurn = checkpoint.ticks;
+    // The Save button is an explicit "make this resumable" request, so persist
+    // a SavedLobby immediately instead of waiting for the creator to leave. The
+    // save appears in the host's server-save list right away and survives a
+    // restart, which is what lets a private lobby be reopened from it.
+    this.scheduleSave();
   }
 
   private handleClientDisconnect(client: Client) {
@@ -1560,6 +1565,10 @@ export class GameServer {
       return;
     }
     this.stage = "started";
+    // A restored lobby starts through the normal path (host pressed Start), so
+    // mark the resume countdown spent: otherwise a reconnect after this start
+    // would re-enter beginResumeCountdown and delay the running game.
+    this.resumeStarted = true;
     this._startTime = Date.now();
     // Set last ping to start so we don't immediately stop the game
     // if no client connects/pings.
@@ -2082,6 +2091,14 @@ export class GameServer {
     // real start time (then creation) so an empty started game still finishes.
     const warmupBase = this.startsAt ?? this._startTime ?? this.createdAt;
     const warmupOver = now > warmupBase + 30 * 1000;
+    // A restored save that nobody has rejoined yet is waiting to be reopened as
+    // a private lobby. The empty-client warmup would retire it ~30s after the
+    // host clicks Resume but before the other players drop in, so hold it until
+    // someone joins (a later join arms the resume countdown) or the max-duration
+    // cap above retires it.
+    if (this.restored && !this.resumeStarted && this.stage === "started") {
+      return GamePhase.Active;
+    }
     if (noActive && warmupOver && noRecentPings) {
       return GamePhase.Finished;
     }
